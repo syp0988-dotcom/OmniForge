@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar'
 import Header from './components/Header'
 import Chat from './components/Chat'
 import InputBox from './components/InputBox'
+import WorkflowPanel from './components/WorkflowPanel'
 
 export default function App() {
   return (
@@ -16,7 +17,9 @@ export default function App() {
           <Chat />
         </main>
         <aside className="w-96 p-4 border-l border-[#19191b] hidden lg:block">
-          <div className="glass rounded-lg p-3 h-full">Workflow / Artifacts</div>
+          <div className="glass rounded-lg p-3 h-full">
+            <WorkflowPanel />
+          </div>
         </aside>
       </div>
       <footer className="fixed bottom-4 left-1/2 transform -translate-x-1/2 w-[90%] max-w-6xl">

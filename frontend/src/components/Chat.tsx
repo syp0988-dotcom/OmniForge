@@ -1,4 +1,9 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import Thinking from './Thinking'
+import WorkflowPanel from './WorkflowPanel'
+import { postChat } from '../api/client'
+
+type Msg = { id: string; role: 'user' | 'agent'; text: string }
 
 function Message({ side = 'left', children }: { side?: 'left' | 'right'; children: React.ReactNode }) {
   return (
@@ -11,11 +16,42 @@ function Message({ side = 'left', children }: { side?: 'left' | 'right'; childre
 }
 
 export default function Chat() {
+  const [messages, setMessages] = useState<Msg[]>([
+    { id: '1', role: 'agent', text: '欢迎使用 OmniForge。' }
+  ])
+  const [thinking, setThinking] = useState(false)
+  const [workflow, setWorkflow] = useState<string[]>([])
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'smooth' })
+  }, [messages, thinking])
+
+  // expose a simple send function for InputBox via window for now
+  ;(window as any).omniforgeSend = async (text: string) => {
+    const id = String(Date.now())
+    setMessages(m => [...m, { id, role: 'user', text }])
+    setThinking(true)
+    try {
+      const data = await postChat(text)
+      const reply = data.reply || data.answer || '[no reply]'
+      const wf = data.workflow || []
+      setWorkflow(wf)
+      setMessages(m => [...m, { id: String(Date.now()), role: 'agent', text: reply }])
+    } catch (e) {
+      setMessages(m => [...m, { id: String(Date.now()), role: 'agent', text: '请求失败，请检查后端。' }])
+    } finally {
+      setThinking(false)
+    }
+  }
+
   return (
-    <div className="h-[70vh] overflow-auto">
-      <Message side="left">Agent: 这是一个示例回答，支持 Markdown，代码块，Mermaid 等渲染。</Message>
-      <Message side="right">用户：请给我一个简短的答复。</Message>
-      <Message side="left">Agent: (Thinking...) Planning → Searching → Generating</Message>
+    <div className="h-[70vh] overflow-auto" ref={containerRef}>
+      {messages.map(m => (
+        <Message key={m.id} side={m.role === 'user' ? 'right' : 'left'}>{m.text}</Message>
+      ))}
+
+      {thinking && <Thinking steps={[{ key: 'planner', label: 'Planning' }, { key: 'search', label: 'Searching' }, { key: 'report', label: 'Generating Report' }]} />}
     </div>
   )
 }

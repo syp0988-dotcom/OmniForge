@@ -14,3 +14,21 @@ body {
   background: rgba(255,255,255,0.02);
   backdrop-filter: blur(8px);
 }
+
+:root {
+  --bg: #111111;
+  --card: #1B1B1D;
+  --hover: #2A2A2A;
+  --primary: #7C5CFC;
+  --text: #FFFFFF;
+  --muted: #9B9B9B;
+  --success: #34C759;
+  --warning: #F5A623;
+  --danger: #FF3B30;
+}
+
+.of-btn-primary {
+  background: linear-gradient(90deg, rgba(124,92,252,1) 0%, rgba(98,78,230,1) 100%);
+  color: #000;
+}
+
