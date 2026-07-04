@@ -10,6 +10,12 @@ def test_workflow_produces_answer() -> None:
     assert "answer" in result
     assert isinstance(result["workflow"], list)
     assert result["answer"].startswith("Processed request")
+    assert isinstance(result.get("search_results", []), list)
+    if result.get("search_results"):
+        first_result = result["search_results"][0]
+        assert "title" in first_result
+        assert "url" in first_result
+        assert "summary" in first_result
 
 
 def test_health_endpoint() -> None:
