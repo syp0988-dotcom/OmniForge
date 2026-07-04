@@ -1,0 +1,26 @@
+[project]
+name = "agentflow"
+version = "0.1.0"
+description = "A modular multi-agent platform built with FastAPI, LangGraph, and Python tools."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.111.0",
+  "uvicorn[standard]>=0.30.0",
+  "pydantic>=2.7.0",
+  "pydantic-settings>=2.0.0",
+  "langgraph>=0.2.0",
+  "openai>=1.35.0",
+  "requests>=2.31.0",
+  "python-dotenv>=1.0.0"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "ruff>=0.5.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
