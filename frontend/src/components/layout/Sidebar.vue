@@ -51,15 +51,8 @@ import type { ChatState } from '@/composables/useChatState'
 
 const chatState = inject<ChatState>('chatState')!
 
-const sectionMap: Record<string, string> = {
-  '新对话': 'chat',
-  '项目': 'artifacts',
-  '知识库': 'knowledge',
-  '设置': 'settings',
-}
-
 const navItems = computed(() => [
-  { icon: Plus, label: '新对话', active: chatState.activeSection.value === 'chat', action: () => chatState.newChat() },
+  { icon: Plus, label: '新对话', active: chatState.activeSection.value === 'chat', action: () => { chatState.newChat(); chatState.activeSection.value = 'chat' } },
   { icon: Folder, label: '项目', active: chatState.activeSection.value === 'artifacts', action: () => { chatState.activeSection.value = 'artifacts' } },
   { icon: BookOpen, label: '知识库', active: chatState.activeSection.value === 'knowledge', action: () => { chatState.activeSection.value = 'knowledge' } },
   { icon: Wrench, label: '工具', active: false, action: undefined },

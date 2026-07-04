@@ -55,6 +55,13 @@ export async function getAgents() {
   return resp.data as AgentInfo[]
 }
 
+/* ---- Chat history ------------------------------------------------------- */
+
+export async function getHistory(limit = 50) {
+  const resp = await axios.get(`${API_BASE}/history`, { params: { limit } })
+  return resp.data as Array<{ role: string; content: string; created_at: string }>
+}
+
 /* ---- Agent-generated file operations ------------------------------------ */
 
 export async function createFile(filename: string, content: string) {

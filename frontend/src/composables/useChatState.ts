@@ -8,6 +8,7 @@ import {
   getAgents,
   createFile,
   getOutputFiles,
+  getHistory,
 } from '@/api/client'
 import type { Msg, Section, DebugData, KnowledgeDoc, SearchResult, AgentInfo, FileProposal, CreatedFile } from '@/types'
 
@@ -18,6 +19,27 @@ import type { Msg, Section, DebugData, KnowledgeDoc, SearchResult, AgentInfo, Fi
 const messages = ref<Msg[]>([
   { id: '1', role: 'agent', text: '欢迎使用 OmniForge。' },
 ])
+
+/* Load chat history from backend on startup */
+let historyLoaded = false
+;(async () => {
+  try {
+    const history = await getHistory(50)
+    if (history.length > 0) {
+      // history comes newest-first; reverse to oldest-first
+      const loaded: Msg[] = history.reverse().map((h, i) => ({
+        id: String(Date.now() + i),
+        role: h.role as 'user' | 'agent',
+        text: h.content,
+      }))
+      messages.value = loaded
+    }
+  } catch {
+    // silenty fail – keep welcome message
+  } finally {
+    historyLoaded = true
+  }
+})()
 const thinking = ref(false)
 const activeSection = ref<Section>('chat')
 const debugData = ref<DebugData | null>(null)
