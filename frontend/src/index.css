@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply bg-background text-text font-sans;
+}
+
+.glass {
+  background: rgba(255,255,255,0.02);
+  backdrop-filter: blur(8px);
+}
