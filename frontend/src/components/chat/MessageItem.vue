@@ -22,15 +22,48 @@
       </div>
       <!-- Content -->
       <MarkdownRenderer :content="msg.text" />
+
+      <!-- File proposal cards -->
+      <div v-if="msg.proposals && msg.proposals.length > 0" class="mt-4 space-y-3">
+        <FileProposalCard
+          v-for="proposal in msg.proposals"
+          :key="proposal.suggestion_id"
+          :proposal="proposal"
+          :status="getProposalStatus(proposal.suggestion_id)"
+          :loading="loadingProposal === proposal.suggestion_id"
+          @create="handleCreate"
+          @dismiss="handleDismiss"
+        />
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import type { Msg } from '@/types'
+import { inject, ref } from 'vue'
+import type { Msg, FileProposal } from '@/types'
+import type { ChatState } from '@/composables/useChatState'
 import MarkdownRenderer from '@/components/markdown/MarkdownRenderer.vue'
+import FileProposalCard from './FileProposalCard.vue'
 
-defineProps<{
+const props = defineProps<{
   msg: Msg
 }>()
+
+const chatState = inject<ChatState>('chatState')!
+const loadingProposal = ref<string | null>(null)
+
+function getProposalStatus(suggestionId: string): 'pending' | 'created' | 'dismissed' {
+  return chatState.fileProposalStatuses.value[suggestionId] || 'pending'
+}
+
+async function handleCreate(proposal: FileProposal) {
+  loadingProposal.value = proposal.suggestion_id
+  await chatState.createOutputFile(proposal)
+  loadingProposal.value = null
+}
+
+function handleDismiss(suggestionId: string) {
+  chatState.dismissProposal(suggestionId)
+}
 </script>

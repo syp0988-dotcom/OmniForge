@@ -8,8 +8,8 @@ def test_workflow_produces_answer() -> None:
     workflow = build_workflow()
     result = run_workflow(workflow, "Analyze AI product manager careers")
     assert "answer" in result
+    assert isinstance(result["answer"], str) and len(result["answer"]) > 0
     assert isinstance(result["workflow"], list)
-    assert result["answer"].startswith("Processed request")
     assert isinstance(result.get("search_results", []), list)
     if result.get("search_results"):
         first_result = result["search_results"][0]

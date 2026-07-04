@@ -41,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import { inject } from 'vue'
+import { computed, inject } from 'vue'
 import { Plus, Folder, BookOpen, Wrench, Settings } from 'lucide-vue-next'
 import SegmentedControl from '@/components/sidebar/SegmentedControl.vue'
 import NavItem from '@/components/sidebar/NavItem.vue'
@@ -51,11 +51,18 @@ import type { ChatState } from '@/composables/useChatState'
 
 const chatState = inject<ChatState>('chatState')!
 
-const navItems = [
-  { icon: Plus, label: '新对话', active: false, action: () => chatState.newChat() },
-  { icon: Folder, label: '项目', active: false, action: undefined },
-  { icon: BookOpen, label: '知识库', active: false, action: () => { chatState.activeSection.value = 'knowledge' } },
+const sectionMap: Record<string, string> = {
+  '新对话': 'chat',
+  '项目': 'artifacts',
+  '知识库': 'knowledge',
+  '设置': 'settings',
+}
+
+const navItems = computed(() => [
+  { icon: Plus, label: '新对话', active: chatState.activeSection.value === 'chat', action: () => chatState.newChat() },
+  { icon: Folder, label: '项目', active: chatState.activeSection.value === 'artifacts', action: () => { chatState.activeSection.value = 'artifacts' } },
+  { icon: BookOpen, label: '知识库', active: chatState.activeSection.value === 'knowledge', action: () => { chatState.activeSection.value = 'knowledge' } },
   { icon: Wrench, label: '工具', active: false, action: undefined },
-  { icon: Settings, label: '设置', active: false, action: undefined },
-]
+  { icon: Settings, label: '设置', active: chatState.activeSection.value === 'settings', action: () => { chatState.activeSection.value = 'settings' } },
+])
 </script>

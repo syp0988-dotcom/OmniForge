@@ -1,6 +1,7 @@
+"""Planner Agent — defines execution workflow steps based on query category."""
+
 from __future__ import annotations
 
-from agentflow.services.llm_service import get_llm_service
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("planner")
@@ -18,8 +19,11 @@ class PlannerAgent:
             workflow = ["router", "search", "answer", "memory"]
         elif category == "identity":
             workflow = ["router", "answer", "memory"]
+        elif category == "python":
+            workflow = ["router", "knowledge", "python", "answer", "memory"]
         else:
-            workflow = ["router", "answer", "memory"]
+            # reasoning, coding, writing, knowledge — knowledge already retrieved
+            workflow = ["router", "knowledge", "answer", "memory"]
 
         state["workflow"] = workflow
         state["plan"] = {"question": question, "category": category, "steps": workflow}

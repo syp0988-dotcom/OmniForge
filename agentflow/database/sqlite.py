@@ -69,6 +69,22 @@ class SQLiteStore:
                 )
             """)
 
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS llm_models (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    provider TEXT NOT NULL DEFAULT 'custom',
+                    base_url TEXT NOT NULL,
+                    api_key TEXT NOT NULL DEFAULT '',
+                    model_name TEXT NOT NULL,
+                    temperature REAL NOT NULL DEFAULT 0.7,
+                    max_tokens INTEGER NOT NULL DEFAULT 4096,
+                    is_active INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+
             connection.commit()
 
     # -- Chat history ----------------------------------------------------------
@@ -216,5 +232,132 @@ class SQLiteStore:
             connection.execute(
                 "INSERT OR REPLACE INTO knowledge_meta(key, value) VALUES (?, ?)",
                 (key, value),
+            )
+            connection.commit()
+
+    # -- LLM Model Configs ----------------------------------------------------
+
+    def add_model(
+        self,
+        name: str,
+        provider: str,
+        base_url: str,
+        api_key: str,
+        model_name: str,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+        is_active: bool = False,
+    ) -> int:
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                "INSERT INTO llm_models(name, provider, base_url, api_key, model_name, "
+                "temperature, max_tokens, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (name, provider, base_url, api_key, model_name, temperature, max_tokens, int(is_active)),
+            )
+            connection.commit()
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_all_models(self) -> list[dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                "SELECT id, name, provider, base_url, api_key, model_name, "
+                "temperature, max_tokens, is_active, created_at, updated_at "
+                "FROM llm_models ORDER BY created_at DESC"
+            )
+            rows = cursor.fetchall()
+        return [
+            {
+                "id": row[0],
+                "name": row[1],
+                "provider": row[2],
+                "base_url": row[3],
+                "api_key": row[4],
+                "model_name": row[5],
+                "temperature": row[6],
+                "max_tokens": row[7],
+                "is_active": bool(row[8]),
+                "created_at": row[9],
+                "updated_at": row[10],
+            }
+            for row in rows
+        ]
+
+    def get_model(self, model_id: int) -> dict[str, Any] | None:
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                "SELECT id, name, provider, base_url, api_key, model_name, "
+                "temperature, max_tokens, is_active, created_at, updated_at "
+                "FROM llm_models WHERE id = ?",
+                (model_id,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "name": row[1],
+            "provider": row[2],
+            "base_url": row[3],
+            "api_key": row[4],
+            "model_name": row[5],
+            "temperature": row[6],
+            "max_tokens": row[7],
+            "is_active": bool(row[8]),
+            "created_at": row[9],
+            "updated_at": row[10],
+        }
+
+    def update_model(self, model_id: int, **kwargs: Any) -> bool:
+        fields = {k: v for k, v in kwargs.items() if v is not None}
+        if not fields:
+            return False
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values())
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                f"UPDATE llm_models SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
+                (*values, model_id),
+            )
+            connection.commit()
+            return cursor.rowcount > 0
+
+    def delete_model(self, model_id: int) -> bool:
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                "DELETE FROM llm_models WHERE id = ?", (model_id,)
+            )
+            connection.commit()
+            return cursor.rowcount > 0
+
+    def get_active_model(self) -> dict[str, Any] | None:
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                "SELECT id, name, provider, base_url, api_key, model_name, "
+                "temperature, max_tokens, is_active, created_at, updated_at "
+                "FROM llm_models WHERE is_active = 1 LIMIT 1"
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "name": row[1],
+            "provider": row[2],
+            "base_url": row[3],
+            "api_key": row[4],
+            "model_name": row[5],
+            "temperature": row[6],
+            "max_tokens": row[7],
+            "is_active": bool(row[8]),
+            "created_at": row[9],
+            "updated_at": row[10],
+        }
+
+    def set_active_model(self, model_id: int) -> None:
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute("UPDATE llm_models SET is_active = 0, updated_at = datetime('now')")
+            connection.execute(
+                "UPDATE llm_models SET is_active = 1, updated_at = datetime('now') WHERE id = ?",
+                (model_id,),
             )
             connection.commit()

@@ -5,8 +5,11 @@ import {
   getDocuments,
   deleteDocument,
   searchKnowledge,
+  getAgents,
+  createFile,
+  getOutputFiles,
 } from '@/api/client'
-import type { Msg, Section, DebugData, KnowledgeDoc, SearchResult } from '@/types'
+import type { Msg, Section, DebugData, KnowledgeDoc, SearchResult, AgentInfo, FileProposal, CreatedFile } from '@/types'
 
 /* ------------------------------------------------------------------ */
 /*  Singleton reactive state shared across all components              */
@@ -24,6 +27,11 @@ const searchQuery = ref('')
 const searchResults = ref<SearchResult[] | null>(null)
 const uploading = ref(false)
 const uploadStatus = ref<string | null>(null)
+
+const agents = ref<AgentInfo[]>([])
+
+const outputFiles = ref<CreatedFile[]>([])
+const fileProposalStatuses = ref<Record<string, 'pending' | 'created' | 'dismissed'>>({})
 
 /* ------------------------------------------------------------------ */
 /*  File-system helpers (drag-and-drop directory traversal)            */
@@ -75,13 +83,34 @@ export function useChatState() {
     thinking.value = true
 
     try {
-      const data = await postChat(text)
+      // Build history from previous messages (exclude the welcome message)
+      const history = messages.value
+        .filter((m) => m.id !== '1')
+        .map((m) => ({
+          role: m.role === 'user' ? 'user' as const : 'assistant' as const,
+          content: m.text,
+        }))
+      const data = await postChat(text, history)
       const reply = data.reply || '[no reply]'
       debugData.value = data.debug || null
-      messages.value = [
-        ...messages.value,
-        { id: String(Date.now()), role: 'agent', text: reply },
-      ]
+
+      const agentMsg: Msg = {
+        id: String(Date.now()),
+        role: 'agent',
+        text: reply,
+      }
+
+      // Attach file proposals if present
+      if (data.proposed_files && data.proposed_files.length > 0) {
+        agentMsg.proposals = data.proposed_files as FileProposal[]
+        const statusMap: Record<string, 'pending' | 'created' | 'dismissed'> = {}
+        for (const p of data.proposed_files as FileProposal[]) {
+          statusMap[p.suggestion_id] = 'pending'
+        }
+        fileProposalStatuses.value = statusMap
+      }
+
+      messages.value = [...messages.value, agentMsg]
     } catch {
       messages.value = [
         ...messages.value,
@@ -98,6 +127,59 @@ export function useChatState() {
 
   const newChat = () => {
     messages.value = []
+  }
+
+  /* ---- Agents ---- */
+
+  const loadAgents = async () => {
+    try {
+      agents.value = await getAgents()
+    } catch {
+      agents.value = []
+    }
+  }
+
+  /* ---- Output files ---- */
+
+  const createOutputFile = async (proposal: FileProposal) => {
+    fileProposalStatuses.value = { ...fileProposalStatuses.value }
+    try {
+      const result = await createFile(proposal.filename, proposal.content)
+      fileProposalStatuses.value = {
+        ...fileProposalStatuses.value,
+        [proposal.suggestion_id]: 'created',
+      }
+      outputFiles.value = [
+        ...outputFiles.value,
+        {
+          filename: proposal.filename,
+          size: proposal.content.length,
+          created_at: new Date().toISOString(),
+          path: result.path,
+        },
+      ]
+    } catch {
+      // Keep as pending so user can retry
+      fileProposalStatuses.value = {
+        ...fileProposalStatuses.value,
+        [proposal.suggestion_id]: 'pending',
+      }
+    }
+  }
+
+  const dismissProposal = (suggestionId: string) => {
+    fileProposalStatuses.value = {
+      ...fileProposalStatuses.value,
+      [suggestionId]: 'dismissed',
+    }
+  }
+
+  const loadOutputFiles = async () => {
+    try {
+      outputFiles.value = await getOutputFiles()
+    } catch {
+      /* silently fail */
+    }
   }
 
   /* ---- Knowledge ---- */
@@ -192,9 +274,18 @@ export function useChatState() {
     searchResults,
     uploading,
     uploadStatus,
+    agents,
+    outputFiles,
+    fileProposalStatuses,
     // chat methods
     handleSend,
     newChat,
+    // agents methods
+    loadAgents,
+    // file methods
+    createOutputFile,
+    dismissProposal,
+    loadOutputFiles,
     // knowledge methods
     loadDocs,
     uploadFiles,

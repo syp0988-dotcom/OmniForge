@@ -11,7 +11,7 @@
       </div>
       <div class="flex-1 min-w-0">
         <div class="text-sm font-medium text-text truncate">开发者</div>
-        <div class="text-xs text-secondary truncate">DeepSeek V3</div>
+        <div class="text-xs text-secondary truncate">{{ modelName }}</div>
       </div>
       <ChevronDown
         class="w-3.5 h-3.5 text-secondary transition-transform duration-150"
@@ -40,11 +40,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ChevronDown, User, Settings, LogOut } from 'lucide-vue-next'
+import { getModels } from '@/api/client'
 
 const open = ref(false)
 const initials = 'OF'
+const modelName = ref('默认模型')
+
+onMounted(async () => {
+  try {
+    const models = await getModels()
+    const active = models.find((m) => m.is_active)
+    if (active) modelName.value = active.name
+  } catch { /* ignore */ }
+})
 
 const menuItems = [
   { icon: User, label: '个人资料' },
