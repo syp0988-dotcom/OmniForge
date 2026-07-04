@@ -10,14 +10,22 @@ type Msg = { id: string; role: 'user' | 'agent'; text: string }
 
 type Section = 'chat' | 'history' | 'knowledge' | 'agents' | 'settings'
 
+type DebugData = {
+  category?: string
+  workflow?: string[]
+  search_results?: Array<{ title: string; url: string; snippet?: string }>
+  router?: Record<string, unknown>
+}
+
 export default function App() {
   const [messages, setMessages] = useState<Msg[]>([
     { id: '1', role: 'agent', text: '欢迎使用 OmniForge。' }
   ])
   const [thinking, setThinking] = useState(false)
-  const [workflow, setWorkflow] = useState<string[]>([])
   const [statusMessage, setStatusMessage] = useState('Ready')
   const [activeSection, setActiveSection] = useState<Section>('chat')
+  const [debugData, setDebugData] = useState<DebugData | null>(null)
+  const [showDebug, setShowDebug] = useState(false)
 
   const handleSend = async (text: string) => {
     const id = String(Date.now())
@@ -27,9 +35,8 @@ export default function App() {
 
     try {
       const data = await postChat(text)
-      const reply = data.reply || data.answer || '[no reply]'
-      const wf = Array.isArray(data.workflow) ? data.workflow : []
-      setWorkflow(wf)
+      const reply = data.reply || '[no reply]'
+      setDebugData(data.debug || null)
       setMessages(current => [...current, { id: String(Date.now()), role: 'agent', text: reply }])
       setStatusMessage('Ready')
     } catch (error) {
@@ -117,23 +124,34 @@ export default function App() {
         <main className="flex-1 p-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm text-muted">{statusMessage}</div>
-            {activeSection !== 'chat' && (
+            <div className="flex gap-2">
+              {activeSection !== 'chat' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveSection('chat')}
+                  className="px-3 py-2 rounded-lg bg-primary text-black"
+                >
+                  返回聊天
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => setActiveSection('chat')}
-                className="px-3 py-2 rounded-lg bg-primary text-black"
+                onClick={() => setShowDebug(current => !current)}
+                className="px-3 py-2 rounded-lg bg-[#2d2d3a] text-white"
               >
-                返回聊天
+                {showDebug ? '隐藏开发者模式' : '显示开发者模式'}
               </button>
-            )}
+            </div>
           </div>
           <div className="rounded-3xl bg-card h-full p-4">{renderSection()}</div>
         </main>
-        <aside className="w-96 p-4 border-l border-[#19191b] hidden lg:block">
-          <div className="glass rounded-lg p-3 h-full">
-            <WorkflowPanel workflow={workflow} onReset={() => setWorkflow([])} />
-          </div>
-        </aside>
+        {showDebug && (
+          <aside className="w-96 p-4 border-l border-[#19191b] hidden lg:block">
+            <div className="glass rounded-lg p-3 h-full overflow-auto">
+              <WorkflowPanel debug={debugData} />
+            </div>
+          </aside>
+        )}
       </div>
       <footer className="fixed bottom-4 left-1/2 transform -translate-x-1/2 w-[90%] max-w-6xl">
         <InputBox onSend={handleSend} />

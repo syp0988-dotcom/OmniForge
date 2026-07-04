@@ -25,5 +25,5 @@ class ChatResponse(BaseModel):
     """Response payload for chat endpoints."""
 
     reply: str
-    workflow: list[str]
     metadata: dict[str, Any] = Field(default_factory=dict)
+    debug: dict[str, Any] | None = None

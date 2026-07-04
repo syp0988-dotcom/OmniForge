@@ -5,9 +5,10 @@ from typing import Any
 from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
+from agentflow.agents.answer.agent import AnswerAgent
 from agentflow.agents.memory.agent import MemoryAgent
 from agentflow.agents.planner.agent import PlannerAgent
-from agentflow.agents.report.agent import ReportAgent
+from agentflow.agents.router.agent import QueryRouterAgent
 from agentflow.agents.search.agent import SearchAgent
 
 
@@ -26,22 +27,25 @@ class WorkflowState(TypedDict, total=False):
 
 def build_workflow() -> Any:
     """Build the LangGraph workflow for the system."""
+    router = QueryRouterAgent()
     planner = PlannerAgent()
     search = SearchAgent()
-    report = ReportAgent()
+    answer = AnswerAgent()
     memory = MemoryAgent()
 
     workflow = StateGraph(WorkflowState)
 
+    workflow.add_node("router", router.run)
     workflow.add_node("planner", planner.run)
     workflow.add_node("search", search.run)
-    workflow.add_node("report", report.run)
+    workflow.add_node("answer", answer.run)
     workflow.add_node("memory", memory.run)
 
-    workflow.set_entry_point("planner")
+    workflow.set_entry_point("router")
+    workflow.add_edge("router", "planner")
     workflow.add_edge("planner", "search")
-    workflow.add_edge("search", "report")
-    workflow.add_edge("report", "memory")
+    workflow.add_edge("search", "answer")
+    workflow.add_edge("answer", "memory")
     workflow.add_edge("memory", END)
 
     return workflow.compile()

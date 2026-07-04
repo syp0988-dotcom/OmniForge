@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import unquote_plus
 
 import requests
 
@@ -36,13 +37,19 @@ class SearchTool:
         for index, (url, title) in enumerate(title_matches[:5]):
             summary = re.sub(r"<.*?>", "", snippet_matches[index] if index < len(snippet_matches) else "")
             summary = re.sub(r"\s+", " ", summary).strip()
+            cleaned_url = self.clean_url(url)
             results.append(
                 {
-                    "source": "duckduckgo",
                     "title": re.sub(r"\s+", " ", title).strip(),
-                    "url": url,
-                    "summary": summary or "No summary available",
+                    "url": cleaned_url,
+                    "snippet": summary or "No summary available",
                 }
             )
 
         return results
+
+    def clean_url(self, url: str) -> str:
+        if "duckduckgo.com/l/?uddg=" in url:
+            encoded = url.split("uddg=", 1)[-1]
+            return unquote_plus(encoded)
+        return url

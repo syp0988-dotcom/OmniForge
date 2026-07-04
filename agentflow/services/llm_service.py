@@ -18,22 +18,36 @@ class LLMService:
         if settings.deepseek_api_key:
             self.client = OpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url)
 
-    def complete(self, prompt: str) -> str:
+    def complete(
+        self,
+        prompt: str | None = None,
+        messages: list[dict[str, str]] | None = None,
+    ) -> str:
         """Generate a completion using the configured model or a deterministic fallback."""
         if not self.client:
             logger.warning("DeepSeek API key is not configured; using fallback response")
+            if prompt is None:
+                return ""
             return f"[fallback] {prompt[:160]}"
+
+        if messages is None:
+            if prompt is None:
+                logger.warning("No prompt or messages provided to LLMService.complete")
+                return ""
+            messages = [{"role": "user", "content": prompt}]
 
         try:
             response = self.client.chat.completions.create(
                 model=settings.model_name,
-                messages=[{"role": "user", "content": prompt}],
+                messages=messages,
                 temperature=settings.temperature,
                 max_tokens=settings.max_tokens,
             )
             return response.choices[0].message.content or ""
         except Exception as exc:  # pragma: no cover - defensive path
             logger.exception("LLM request failed: %s", exc)
+            if prompt is None:
+                return ""
             return f"[fallback] {prompt[:160]}"
 
 

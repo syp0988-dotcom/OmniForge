@@ -1,1 +1,1 @@
-"""AgentFlow package."""
+"""OmniForge compatibility package (legacy: AgentFlow)."""

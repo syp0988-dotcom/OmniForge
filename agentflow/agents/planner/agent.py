@@ -11,15 +11,16 @@ class PlannerAgent:
 
     def run(self, state: dict[str, object]) -> dict[str, object]:
         question = str(state.get("question", ""))
-        workflow = ["search", "summary"]
-        llm_service = get_llm_service()
-        plan_prompt = (
-            "Create a short workflow plan for the user request. "
-            f"User request: {question}. "
-            "Return only a short comma-separated list of steps."
-        )
-        llm_output = llm_service.complete(plan_prompt)
-        logger.info("Planning workflow for: %s", question)
+        category = str(state.get("category", "reasoning"))
+        logger.info("Planning workflow for: %s (category=%s)", question, category)
+
+        if category == "search":
+            workflow = ["router", "search", "answer", "memory"]
+        elif category == "identity":
+            workflow = ["router", "answer", "memory"]
+        else:
+            workflow = ["router", "answer", "memory"]
+
         state["workflow"] = workflow
-        state["plan"] = {"question": question, "steps": workflow, "llm_plan": llm_output}
+        state["plan"] = {"question": question, "category": category, "steps": workflow}
         return state

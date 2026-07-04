@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     model_config = ConfigDict(env_file=None, extra="ignore")
 
-    app_name: str = Field(default="AgentFlow", alias="APP_NAME")
+    app_name: str = Field(default="OmniForge", alias="APP_NAME")
     debug: bool = Field(default=False, alias="DEBUG")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     deepseek_api_key: str = Field(default="", alias="DEEPSEEK_API_KEY")
@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     @property
     def database_path(self) -> Path:
+        # Keep database path stable to avoid migration issues during rename.
         return self.project_root / "agentflow" / "database" / "agentflow.db"
 
 

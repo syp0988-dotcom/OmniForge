@@ -1,72 +1,65 @@
-import React, { useState } from 'react'
-import { motion } from 'framer-motion'
-import Thinking from './Thinking'
+import React from 'react'
 
-const defaultSteps = [
-  { key: 'planner', label: 'Planning', done: false },
-  { key: 'search', label: 'Searching', done: false },
-  { key: 'knowledge', label: 'Reading Knowledge', done: false },
-  { key: 'python', label: 'Running Python', done: false },
-  { key: 'report', label: 'Generating Report', done: false }
-]
-
-type WorkflowPanelProps = {
+type DebugItem = {
+  category?: string
   workflow?: string[]
-  onReset?: () => void
+  search_results?: Array<{ title?: string; url?: string; snippet?: string }>
+  router?: Record<string, unknown>
 }
 
-export default function WorkflowPanel({ workflow = [], onReset }: WorkflowPanelProps) {
-  const [expanded, setExpanded] = useState<string | null>(null)
+type WorkflowPanelProps = {
+  debug?: DebugItem | null
+}
 
-  const steps = defaultSteps.map(s => ({ ...s, done: workflow.includes(s.key) }))
+export default function WorkflowPanel({ debug }: WorkflowPanelProps) {
+  if (!debug) {
+    return (
+      <div className="h-full flex flex-col gap-4">
+        <div className="text-sm text-muted">Developer Mode</div>
+        <div className="p-4 bg-card rounded-lg">暂无调试数据，发送一条消息后可查看。</div>
+      </div>
+    )
+  }
 
   return (
     <div className="h-full flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm text-muted">Workflow</div>
-          <div className="text-lg font-semibold">执行步骤</div>
-        </div>
-        {workflow.length > 0 && onReset && (
-          <button
-            type="button"
-            onClick={onReset}
-            className="px-3 py-2 rounded-lg bg-primary text-black text-sm"
-          >
-            重置
-          </button>
-        )}
+      <div>
+        <div className="text-sm text-muted">Developer Mode</div>
+        <div className="text-lg font-semibold">调试输出</div>
       </div>
 
-      <Thinking steps={steps} />
+      <div className="space-y-4 overflow-auto">
+        <div className="p-3 bg-card rounded-lg">
+          <div className="text-xs text-muted">Category</div>
+          <div className="mt-2 text-sm">{debug.category || 'unknown'}</div>
+        </div>
 
-      <div className="mt-2">
-        {steps.map(s => (
-          <motion.div key={s.key} layout className="mb-2">
-            <button
-              type="button"
-              onClick={() => setExpanded(expanded === s.key ? null : s.key)}
-              className="w-full text-left"
-            >
-              <div className="flex items-center justify-between p-2 rounded-lg hover:bg-hover transition">
-                <div className="flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full ${s.done ? 'bg-success' : 'bg-[#444]'}`} />
-                  <div className="text-sm">{s.label}</div>
-                </div>
-                <div className="text-xs text-muted">{expanded === s.key ? '收起' : s.done ? '完成' : '展开'}</div>
-              </div>
-            </button>
+        <div className="p-3 bg-card rounded-lg">
+          <div className="text-xs text-muted">Workflow</div>
+          <div className="mt-2 text-sm">{Array.isArray(debug.workflow) ? debug.workflow.join(' → ') : 'N/A'}</div>
+        </div>
 
-            {expanded === s.key && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-3 bg-card rounded mt-2">
-                <div className="text-xs text-muted">Prompt</div>
-                <pre className="text-sm whitespace-pre-wrap">当前步骤：{s.label}</pre>
-                <div className="text-xs text-muted mt-2">Output</div>
-                <pre className="text-sm whitespace-pre-wrap">{s.done ? '已完成输出' : '等待运行结果...'}</pre>
-              </motion.div>
-            )}
-          </motion.div>
-        ))}
+        <div className="p-3 bg-card rounded-lg">
+          <div className="text-xs text-muted">Router</div>
+          <pre className="mt-2 text-sm whitespace-pre-wrap">{JSON.stringify(debug.router || {}, null, 2)}</pre>
+        </div>
+
+        <div className="p-3 bg-card rounded-lg">
+          <div className="text-xs text-muted">Search Results</div>
+          {debug.search_results && debug.search_results.length > 0 ? (
+            <ul className="mt-2 space-y-2 text-sm">
+              {debug.search_results.map((item, index) => (
+                <li key={index} className="rounded-lg border border-[#2b2b3b] p-2">
+                  <div className="font-medium">{item.title || 'Untitled'}</div>
+                  <div className="text-xs text-muted">{item.url}</div>
+                  <div className="mt-1">{item.snippet}</div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-2 text-sm text-muted">No search results captured.</div>
+          )}
+        </div>
       </div>
     </div>
   )

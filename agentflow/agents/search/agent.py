@@ -13,7 +13,13 @@ class SearchAgent:
         self.tool = SearchTool()
 
     def run(self, state: dict[str, object]) -> dict[str, object]:
+        category = str(state.get("category", "reasoning"))
         question = str(state.get("question", ""))
+        if category != "search":
+            logger.info("Skipping search for category: %s", category)
+            state["search_results"] = []
+            return state
+
         logger.info("Searching for: %s", question)
         results = self.tool.search(question)
         state["search_results"] = results

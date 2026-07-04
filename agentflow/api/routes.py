@@ -16,7 +16,13 @@ def chat(request: ChatRequest) -> ChatResponse:
         result = run_workflow(workflow, request.message)
         store.add_message("user", request.message)
         store.add_message("assistant", result["answer"])
-        return ChatResponse(reply=result["answer"], workflow=result["workflow"], metadata={"status": "ok"})
+        debug_data = {
+            "category": result.get("category"),
+            "workflow": result.get("workflow"),
+            "search_results": result.get("search_results", []),
+            "router": result.get("router", {}),
+        }
+        return ChatResponse(reply=result["answer"], metadata={"status": "ok"}, debug=debug_data)
     except Exception as exc:  # pragma: no cover - defensive path
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
