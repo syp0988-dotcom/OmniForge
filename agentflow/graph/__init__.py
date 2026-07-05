@@ -1,5 +1,6 @@
 """Graph — workflow orchestration core for AgentFlow."""
 
+from agentflow.conversation.session_state import SessionState
 from agentflow.graph.context import WorkflowContext
 from agentflow.graph.event import Event, EventBus, EventType
 from agentflow.graph.executor import Executor
@@ -14,6 +15,7 @@ __all__ = [
     "EventType",
     "Executor",
     "Plan",
+    "SessionState",
     "Task",
     "TaskStatus",
     "build_workflow",

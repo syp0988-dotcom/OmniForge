@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from agentflow.conversation.session_state import SessionState
 from agentflow.graph.task import Task
 
 
@@ -68,6 +69,8 @@ class WorkflowContext(dict):
                 result[k] = [t.to_dict() if isinstance(t, Task) else t for t in v]
             elif k == "events":
                 result[k] = [_e_to_dict(e) for e in v]
+            elif k == "session_state" and isinstance(v, SessionState):
+                result[k] = v.to_dict()
             elif isinstance(v, Task):
                 result[k] = v.to_dict()
             elif hasattr(v, "to_dict") and callable(v.to_dict):
@@ -177,6 +180,44 @@ class WorkflowContext(dict):
     @router.setter
     def router(self, value: dict[str, Any]) -> None:
         self["router"] = value
+
+    # -- Conversation Context (Phase 7) -----------------------------------------
+
+    @property
+    def conversation_context(self) -> Any:
+        """Structured conversation context for the current turn.
+
+        Contains turn type (NEW_TASK / FOLLOW_UP / OPTION_SELECTION / etc.),
+        rewritten question, entities, summary, and more.
+        """
+        return self.get("conversation_context")
+
+    @conversation_context.setter
+    def conversation_context(self, value: Any) -> None:
+        self["conversation_context"] = value
+
+    # -- Session State (Conversation Runtime) -----------------------------------
+
+    @property
+    def session_state(self) -> SessionState:
+        """Runtime session state — what the system is currently doing.
+
+        Returns a ``SessionState`` object (never *None*).  The session state
+        persists across turns and enables continuation planning.
+        """
+        raw = self.get("session_state")
+        if isinstance(raw, SessionState):
+            return raw
+        # Deserialize from dict or create fresh
+        obj = SessionState.from_dict(raw) if isinstance(raw, dict) else SessionState()
+        self["session_state"] = obj
+        return obj
+
+    @session_state.setter
+    def session_state(self, value: SessionState | dict[str, Any]) -> None:
+        if isinstance(value, dict):
+            value = SessionState.from_dict(value)
+        self["session_state"] = value
 
     # -- Task management --------------------------------------------------------
 

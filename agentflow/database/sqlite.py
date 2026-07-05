@@ -102,6 +102,12 @@ class SQLiteStore:
             except sqlite3.OperationalError:
                 pass  # column already exists
 
+            # --- Migration: add session_state column to sessions ---
+            try:
+                connection.execute("ALTER TABLE sessions ADD COLUMN session_state TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+
             # --- Migration: create a default session for orphaned messages ---
             cursor = connection.execute("SELECT COUNT(*) FROM chats")
             total_chats = cursor.fetchone()[0]
@@ -167,6 +173,26 @@ class SQLiteStore:
             )
             connection.commit()
             return cursor.rowcount > 0
+
+    def update_session_state(self, session_id: int, state_json: str) -> bool:
+        """Persist serialized session_state JSON for a session."""
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                "UPDATE sessions SET session_state = ?, updated_at = datetime('now') WHERE id = ?",
+                (state_json, session_id),
+            )
+            connection.commit()
+            return cursor.rowcount > 0
+
+    def get_session_state(self, session_id: int) -> str:
+        """Load serialized session_state JSON for a session."""
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                "SELECT session_state FROM sessions WHERE id = ?",
+                (session_id,),
+            )
+            row = cursor.fetchone()
+        return row[0] if row and row[0] else ""
 
     def delete_session(self, session_id: int) -> bool:
         with sqlite3.connect(self.db_path) as connection:

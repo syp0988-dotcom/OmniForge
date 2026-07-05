@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -65,7 +66,23 @@ def chat(request: ChatRequest) -> ChatResponse:
         history_dicts = [
             {"role": m.role, "content": m.content} for m in request.history
         ]
-        result = run_workflow(workflow, request.message, history=history_dicts)
+
+        # Load session_state from DB (Conversation Runtime)
+        saved_state_str = store.get_session_state(session_id)
+        session_state = json.loads(saved_state_str) if saved_state_str else None
+
+        result = run_workflow(
+            workflow,
+            request.message,
+            history=history_dicts,
+            session_state=session_state,
+        )
+
+        # Persist session_state after the turn
+        new_state = result.get("session_state")
+        if new_state and isinstance(new_state, dict):
+            store.update_session_state(session_id, json.dumps(new_state, ensure_ascii=False))
+
         store.add_message("user", request.message, session_id=session_id)
         store.add_message("assistant", result["answer"], session_id=session_id)
 

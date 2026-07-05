@@ -14,6 +14,9 @@ from agentflow.agents.planner.agent import PlannerAgent
 from agentflow.agents.python.agent import PythonAgent
 from agentflow.agents.router.agent import QueryRouterAgent
 from agentflow.agents.search.agent import SearchAgent
+from agentflow.conversation.context import ConversationContext
+from agentflow.conversation.manager import ConversationManager
+from agentflow.conversation.session_state import SessionState
 from agentflow.graph.context import WorkflowContext
 from agentflow.graph.executor import Executor
 from agentflow.utils.logging import build_logger
@@ -37,19 +40,28 @@ class WorkflowState(TypedDict, total=False):
     history: list[dict[str, str]]
     router: dict[str, Any]
 
+    # Conversation Runtime fields
+    session_state: dict[str, Any]   # serialized SessionState dict
+    _continue_mode: bool            # True = skip Router/Planner/Tools
+    session_context: str            # human-readable context for AnswerAgent
+    rewritten_question: str         # context-enriched question (Phase 7)
+    conversation_context: Any       # ConversationContext object (Phase 7)
+
 
 def build_workflow() -> Any:
     """Build the LangGraph workflow for the system.
 
     Flow:
-      router -> (conditional) knowledge / planner
-      knowledge -> planner
-      planner -> (conditional) search / python / answer
-      search -> answer
-      python -> answer
-      answer -> memory
-      memory -> END
+
+      conversation_manager → (conditional)
+        ├── continue mode → answer → memory → END
+        └── new task → router → (conditional) knowledge / planner
+                                           planner → (conditional) search / python / answer
+                                           search → answer
+                                           python → answer
+                                           answer → memory → END
     """
+    cm = ConversationManager()
     router = QueryRouterAgent()
     planner = PlannerAgent()
     search = SearchAgent()
@@ -61,6 +73,8 @@ def build_workflow() -> Any:
 
     workflow = StateGraph(WorkflowState)
 
+    # -- Conversation Manager (new entry point) --
+    workflow.add_node("conversation_manager", _make_conversation_manager_node(cm))
     workflow.add_node("router", router.run)
     workflow.add_node("planner", planner.run)
     workflow.add_node("search", search.run)
@@ -71,7 +85,18 @@ def build_workflow() -> Any:
 
     # -- Executor is available via get_executor() for agents that opt in --
 
-    workflow.set_entry_point("router")
+    workflow.set_entry_point("conversation_manager")
+
+    # After conversation_manager: continue mode → skip to answer
+    #                           new task → normal router flow
+    workflow.add_conditional_edges(
+        "conversation_manager",
+        _route_after_conversation_manager,
+        {
+            "answer": "answer",
+            "router": "router",
+        },
+    )
 
     # After router: identity/search skip knowledge, everything else hits KB
     workflow.add_conditional_edges(
@@ -105,6 +130,84 @@ def build_workflow() -> Any:
     workflow.add_edge("memory", END)
 
     return workflow.compile()
+
+
+def _route_after_conversation_manager(state: WorkflowState) -> str:
+    """After conversation manager: continue mode → answer, else → router."""
+    if state.get("_continue_mode", False) or _session_is_waiting(state):
+        return "answer"
+    return "router"
+
+
+def _session_is_waiting(state: WorkflowState) -> bool:
+    """Check if the session_state has an active wait."""
+    raw = state.get("session_state")
+    if isinstance(raw, dict):
+        return raw.get("status") == "waiting_user"
+    elif hasattr(raw, "is_waiting"):
+        return raw.is_waiting
+    return False
+
+
+def _make_conversation_manager_node(
+    cm: ConversationManager,
+) -> object:
+    """Factory: creates a conversation_manager node for the LangGraph."""
+
+    def _node(state: WorkflowState) -> dict[str, object]:
+        """Entry point — resolves, rewrites, enriches question, decides flow."""
+        question = state.get("question", "")
+        memory = state.get("memory", {})
+
+        # Deserialize session_state
+        raw = state.get("session_state")
+        if isinstance(raw, SessionState):
+            session_state = raw
+        else:
+            session_state = SessionState.from_dict(raw) if isinstance(raw, dict) else SessionState()
+
+        # 1. Resolve user input against session state (options, slots, anaphora)
+        resolved = cm.resolve_question(question, session_state)
+
+        # 2. Rewrite short/anaphoric questions with conversation context
+        rewritten = cm.rewrite_question(resolved, session_state, memory)
+
+        # 3. Build structured conversation context
+        conv_ctx = cm.build_conversation_context(
+            question, rewritten, session_state, memory,
+        )
+
+        # 4. Decide: continue or new task?
+        should = cm.should_continue(session_state)
+        waiting = session_state.is_waiting
+
+        # Use the rewritten question for downstream nodes
+        result: dict[str, object] = {
+            "question": rewritten,
+            "session_state": session_state,
+            "_continue_mode": should or waiting,
+            "rewritten_question": rewritten,
+            "conversation_context": conv_ctx,
+        }
+
+        if should or waiting:
+            result["session_context"] = str(session_state)
+            logger.info(
+                "Continue mode: goal='%s' waiting_for='%s' resolved='%s' rewritten='%s'",
+                session_state.current_goal,
+                session_state.waiting_for,
+                resolved,
+                rewritten,
+            )
+        else:
+            logger.info(
+                "New task: resolved='%s' rewritten='%s'",
+                resolved, rewritten,
+            )
+
+        return result
+
+    return _node
 
 
 def _route_after_router(state: WorkflowState) -> str:
@@ -173,13 +276,32 @@ def run_workflow(
     graph: Any,
     message: str,
     history: list[dict[str, str]] | None = None,
+    session_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run the workflow for a user message, optionally seeding with history."""
+    """Run the workflow for a user message, optionally seeding with history
+    and session state.
+
+    Args:
+        graph: Compiled LangGraph workflow.
+        message: The user's message / question.
+        history: Previous conversation history (``[{role, content}, ...]``).
+        session_state: Serialized ``SessionState`` dict from previous turn.
+            When provided, the ``conversation_manager`` node will use it for
+            continuation planning.
+
+    Returns:
+        Dict with workflow results including ``answer``, ``memory``,
+        ``session_state``, etc.
+    """
     initial_state: WorkflowState = {
         "question": message,
         "workflow": [],
         "history": history or [],
     }
+
+    if session_state:
+        initial_state["session_state"] = session_state
+
     result = graph.invoke(initial_state)
     ctx = WorkflowContext(dict(result))
     return ctx.to_dict()
