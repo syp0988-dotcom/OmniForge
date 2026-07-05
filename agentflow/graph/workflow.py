@@ -14,6 +14,8 @@ from agentflow.agents.planner.agent import PlannerAgent
 from agentflow.agents.python.agent import PythonAgent
 from agentflow.agents.router.agent import QueryRouterAgent
 from agentflow.agents.search.agent import SearchAgent
+from agentflow.graph.context import WorkflowContext
+from agentflow.graph.executor import Executor
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("workflow")
@@ -55,6 +57,7 @@ def build_workflow() -> Any:
     memory = MemoryAgent()
     knowledge = KnowledgeAgent()
     python_executor = PythonAgent()
+    executor = _build_executor()
 
     workflow = StateGraph(WorkflowState)
 
@@ -65,6 +68,8 @@ def build_workflow() -> Any:
     workflow.add_node("memory", memory.run)
     workflow.add_node("knowledge", knowledge.run)
     workflow.add_node("python", python_executor.run)
+
+    # -- Executor is available via get_executor() for agents that opt in --
 
     workflow.set_entry_point("router")
 
@@ -116,13 +121,52 @@ def _route_after_router(state: WorkflowState) -> str:
 
 
 def _route_after_planner(state: WorkflowState) -> str:
-    """Route based on category to the correct execution node."""
+    """Route based on Plan (direct_answer) or category to the correct node."""
+
+    # ---- direct_answer: skip tool nodes, go straight to answer ----
+    plan = state.get("plan", {})
+    if isinstance(plan, dict):
+        direct_answer = plan.get("direct_answer", False)
+    else:
+        direct_answer = getattr(plan, "direct_answer", False)
+    if direct_answer:
+        return "answer"
+
+    # ---- fallback: category-based routing (backward compat) ----
     category = state.get("category", "reasoning")
     if category == "search":
         return "search"
     if category == "python":
         return "python"
     return "answer"
+
+
+# -- Executor global (lazy-initialised by build_workflow) -------------------
+
+_executor_instance: Executor | None = None
+
+
+def _build_executor() -> Executor:
+    """Create and configure the shared Executor instance."""
+    global _executor_instance
+    if _executor_instance is not None:
+        return _executor_instance
+
+    ex = Executor()
+    from agentflow.tools.python_tool import PythonTool
+    from agentflow.tools.search_tool import SearchTool
+
+    ex.register_tool("search", SearchTool())
+    ex.register_tool("python", PythonTool())
+
+    _executor_instance = ex
+    logger.info("Executor initialised with tools: %s", ex.list_tools())
+    return ex
+
+
+def get_executor() -> Executor | None:
+    """Return the shared Executor instance (``None`` if not yet built)."""
+    return _executor_instance
 
 
 def run_workflow(
@@ -137,4 +181,5 @@ def run_workflow(
         "history": history or [],
     }
     result = graph.invoke(initial_state)
-    return dict(result)
+    ctx = WorkflowContext(dict(result))
+    return ctx.to_dict()

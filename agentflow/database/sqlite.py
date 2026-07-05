@@ -23,11 +23,22 @@ class SQLiteStore:
             connection.execute("PRAGMA foreign_keys=ON")
 
             connection.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+
+            connection.execute("""
                 CREATE TABLE IF NOT EXISTS chats (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL DEFAULT 0,
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
                 )
             """)
 
@@ -85,17 +96,99 @@ class SQLiteStore:
                 )
             """)
 
+            # --- Migration: add session_id column to existing chats table ---
+            try:
+                connection.execute("ALTER TABLE chats ADD COLUMN session_id INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+
+            # --- Migration: create a default session for orphaned messages ---
+            cursor = connection.execute("SELECT COUNT(*) FROM chats")
+            total_chats = cursor.fetchone()[0]
+            if total_chats > 0:
+                cursor = connection.execute("SELECT COUNT(*) FROM sessions")
+                if cursor.fetchone()[0] == 0:
+                    connection.execute(
+                        "INSERT INTO sessions(id, title, created_at, updated_at) "
+                        "VALUES (0, '历史记录', datetime('now'), datetime('now'))"
+                    )
+                    connection.execute(
+                        "UPDATE chats SET session_id = 0 WHERE session_id = 0"
+                    )
+
             connection.commit()
 
-    # -- Chat history ----------------------------------------------------------
+    # -- Chat history / Sessions -----------------------------------------------
 
-    def add_message(self, role: str, content: str) -> None:
+    def create_session(self, title: str = "新对话") -> dict[str, Any]:
         with sqlite3.connect(self.db_path) as connection:
-            connection.execute(
-                "INSERT INTO chats(role, content, created_at) VALUES (?, ?, datetime('now'))",
-                (role, content),
+            cursor = connection.execute(
+                "INSERT INTO sessions(title, created_at, updated_at) "
+                "VALUES (?, datetime('now'), datetime('now'))",
+                (title,),
             )
             connection.commit()
+            return self.get_session(cursor.lastrowid)  # type: ignore[arg-type]
+
+    def get_session(self, session_id: int) -> dict[str, Any] | None:
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                "SELECT id, title, created_at, updated_at FROM sessions WHERE id = ?",
+                (session_id,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "title": row[1],
+            "created_at": row[2],
+            "updated_at": row[3],
+        }
+
+    def list_sessions(self, limit: int = 50) -> list[dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                "SELECT id, title, created_at, updated_at FROM sessions "
+                "ORDER BY updated_at DESC LIMIT ?",
+                (limit,),
+            )
+            rows = cursor.fetchall()
+        return [
+            {"id": row[0], "title": row[1], "created_at": row[2], "updated_at": row[3]}
+            for row in rows
+        ]
+
+    def update_session_title(self, session_id: int, title: str) -> bool:
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                "UPDATE sessions SET title = ?, updated_at = datetime('now') WHERE id = ?",
+                (title, session_id),
+            )
+            connection.commit()
+            return cursor.rowcount > 0
+
+    def delete_session(self, session_id: int) -> bool:
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute("PRAGMA foreign_keys=ON")
+            cursor = connection.execute(
+                "DELETE FROM sessions WHERE id = ?", (session_id,)
+            )
+            connection.execute(
+                "DELETE FROM chats WHERE session_id = ?", (session_id,)
+            )
+            connection.commit()
+            return cursor.rowcount > 0
+
+    def add_message(self, role: str, content: str, session_id: int = 0) -> int:
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                "INSERT INTO chats(session_id, role, content, created_at) "
+                "VALUES (?, ?, ?, datetime('now'))",
+                (session_id, role, content),
+            )
+            connection.commit()
+            return cursor.lastrowid  # type: ignore[return-value]
 
     def list_messages(self, limit: int = 20) -> list[dict[str, Any]]:
         with sqlite3.connect(self.db_path) as connection:
@@ -107,6 +200,19 @@ class SQLiteStore:
         return [
             {"role": role, "content": content, "created_at": created_at}
             for role, content, created_at in rows
+        ]
+
+    def get_session_messages(self, session_id: int) -> list[dict[str, Any]]:
+        with sqlite3.connect(self.db_path) as connection:
+            cursor = connection.execute(
+                "SELECT id, role, content, created_at FROM chats "
+                "WHERE session_id = ? ORDER BY id ASC",
+                (session_id,),
+            )
+            rows = cursor.fetchall()
+        return [
+            {"id": row[0], "role": row[1], "content": row[2], "created_at": row[3]}
+            for row in rows
         ]
 
     # -- Documents -------------------------------------------------------------

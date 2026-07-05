@@ -6,3 +6,21 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.vite/
+
+# IDE / tools
+.understand-anything/
+
+# OS temp
+outputs/
+omniforge/
+
+# Generated / lock files
+package-lock.json
+uv.lock
+start-frontend.cmd

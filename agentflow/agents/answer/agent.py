@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import re
-from typing import Any
-
 from agentflow.services.llm_service import get_llm_service
 from agentflow.utils.logging import build_logger
 
@@ -12,111 +9,164 @@ logger = build_logger("answer")
 
 
 class AnswerAgent:
-    """Finalize agent outputs into polished user-facing responses."""
+    """Produce a polished, user-facing answer from workflow context.
+
+    Responsibilities:
+      - Collect prepared context (question, history, knowledge, search)
+      - Build a minimal prompt from that context
+      - Call the LLM to generate a natural final answer
+      - Clean the raw LLM output
+
+    This agent does NOT:
+      - Route queries, decide tool usage, or produce workflow logs
+      - Impose rigid output templates -- format is left to the LLM
+    """
+
+    MAX_HISTORY_TURNS = 8
+
+    # ------------------------------------------------------------------
+    # Public API (preserved interface)
+    # ------------------------------------------------------------------
 
     def run(self, state: dict[str, object]) -> dict[str, object]:
-        category = str(state.get("category", "reasoning"))
+        """Produce a final answer from the workflow state."""
         question = str(state.get("question", ""))
+        category = state.get("category", "reasoning")
         search_results = state.get("search_results", [])
         knowledge_context = state.get("knowledge_context", "")
         memory = state.get("memory", {})
-        llm_service = get_llm_service()
 
+        llm_service = get_llm_service()
         logger.info("Formatting answer for category: %s", category)
 
-        system_content = (
-            "你是一名专业、简洁、符合 ChatGPT 风格的中文 AI 助手。"
-            "当需要回答问题时，直接给出最终结论，不要暴露内部工作流或工具日志。"
-            "禁止引用搜索引擎页面作为答案主体，不要输出 duckduckgo 跳转链接。"
-            "如果是联网搜索问题，最后以“参考资料”列出来源名称，不要显示中间搜索日志。"
-            "如果是身份问题，直接根据系统配置回答，不要猜测。"
-            "当提供了知识库参考资料时，请优先基于资料内容回答。"
-        )
-
         messages: list[dict[str, str]] = [
-            {"role": "system", "content": system_content},
+            {"role": "system", "content": self._system_prompt()},
         ]
 
-        # Inject conversation history from memory (previous turns)
-        # MemoryAgent runs AFTER AnswerAgent in the current turn, so
-        # state["memory"] contains the history from ALL previous turns.
-        if isinstance(memory, dict):
-            prev_history = memory.get("history", [])
-            for msg in prev_history:
-                if isinstance(msg, dict) and "role" in msg and "content" in msg:
-                    messages.append({"role": msg["role"], "content": msg["content"]})
+        # Limited conversation history window
+        messages.extend(self._build_history(memory))
 
-        # Append the current user prompt
+        # Current turn: user prompt with full context
         messages.append({
             "role": "user",
-            "content": self.build_prompt(category, question, search_results, knowledge_context),
+            "content": self.build_prompt(
+                category, question, search_results, knowledge_context
+            ),
         })
 
         answer = llm_service.complete(messages=messages)
         state["answer"] = self.clean_answer(answer)
         return state
 
-    def build_prompt(self, category: str, question: str, search_results: object, knowledge_context: str = "") -> str:
-        if category == "identity":
-            return (
-                f"用户问题：{question}\n\n"
-                "请直接回答以下身份问题：你是谁，你是什么模型，是否调用大模型。"
-                "禁止联网搜索。"
-                "如果无法准确确认部署环境，请回答："
-                "我是当前系统配置的大语言模型助手，具体模型名称取决于部署配置。"
-                "不要引用知乎或 Wikipedia。"
-            )
+    def build_prompt(
+        self,
+        category: str,
+        question: str,
+        search_results: object,
+        knowledge_context: str = "",
+    ) -> str:
+        """Build the user prompt for the current turn.
 
-        prompt = f"用户问题：{question}\n\n"
-
-        # Knowledge context takes priority when available
-        if knowledge_context and len(knowledge_context) > 20:
-            prompt += (
-                "以下是知识库中相关的参考资料，请基于这些资料回答用户问题。"
-                "如果资料足够回答，直接给出结论并标注信息来源（文件名）。"
-                "如果资料不足以回答，可以补充你自己的知识。\n\n"
-                f"知识库资料：\n{knowledge_context}\n\n"
-            )
-
-        if category == "search":
-            prompt += (
-                "请基于以下搜索结果，生成简洁中文回答，保持 ChatGPT 风格。"
-                "不要输出搜索日志、工作流或中间结果。"
-                "只在答案末尾以“参考资料”列出来源名称。\n\n"
-                f"搜索结果：{self.format_search_results(search_results)}"
-            )
-        elif not (knowledge_context and len(knowledge_context) > 20):
-            prompt += (
-                "请直接回答该问题，保持专业、清晰、简洁。"
-                "不要输出搜索日志或工具调用内容。"
-            )
-
-        prompt += "\n\n输出格式要求：# 标题\n正文\n## 要点\n- ...\n## 参考资料（如果联网）\n- 来源名称"
-        return prompt
+        Preserved interface -- delegates to internal builder.
+        """
+        return self._build_user_prompt(
+            question, category, search_results, knowledge_context
+        )
 
     def format_search_results(self, results: object) -> str:
+        """Format search results for inclusion in the prompt.
+
+        Preserved interface -- delegates to internal formatter.
+        """
+        return self._format_search_context(results)
+
+    @staticmethod
+    def clean_answer(text: str) -> str:
+        """Remove residual noise from the raw LLM output."""
+        return text.strip()
+
+    # ------------------------------------------------------------------
+    # Internal: prompt building
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _system_prompt() -> str:
+        """Minimal system prompt -- identity only, no rule lists."""
+        return (
+            "你是一个专业、准确的 AI 助手。"
+            "请根据提供的上下文回答用户问题"
+        )
+
+    @staticmethod
+    def _build_history(memory: object) -> list[dict[str, str]]:
+        """Extract a limited window of recent conversation history."""
+        if not isinstance(memory, dict):
+            return []
+        history = memory.get("history", [])
+        if not isinstance(history, list):
+            return []
+        # Each turn = user + assistant, so keep last (turn_limit * 2) messages
+        recent = history[-(AnswerAgent.MAX_HISTORY_TURNS * 2):]
+        return [
+            {"role": m["role"], "content": m["content"]}
+            for m in recent
+            if isinstance(m, dict) and "role" in m and "content" in m
+        ]
+
+    def _build_user_prompt(
+        self,
+        question: str,
+        category: str,
+        search_results: object,
+        knowledge_context: str = "",
+    ) -> str:
+        """Stack available context blocks into a clean, minimal user prompt."""
+        parts: list[str] = [f"用户问题：{question}"]
+
+        # Identity questions: direct answer, no extra context needed
+        if category == "identity":
+            parts.append(
+                "请直接回答身份问题。如果无法确认具体模型部署信息，"
+                "请回答：我是当前系统配置的大语言模型助手。"
+            )
+            return "\n\n".join(parts)
+
+        # Knowledge context (when available and meaningful)
+        if knowledge_context and len(knowledge_context) > 20:
+            parts.append(f"知识库资料：\n{knowledge_context}")
+
+        # Search context (when available)
+        if category == "search" and search_results:
+            parts.append(
+                f"搜索结果：\n{self._format_search_context(search_results)}"
+            )
+
+        # Single, short instruction -- no rule lists
+        parts.append("请根据以上内容回答用户问题。")
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _format_search_context(results: object) -> str:
+        """Format search results as structured blocks the LLM can easily parse.
+
+        Each result gets its own block with explicit labels making it much
+        easier for the model to consume than flat concatenation.
+        """
         if not isinstance(results, list):
             return ""
-        formatted = []
-        for item in results:
+        blocks: list[str] = []
+        for i, item in enumerate(results, 1):
             if not isinstance(item, dict):
                 continue
             title = item.get("title", "").strip()
+            snippet = item.get("snippet", item.get("content", "")).strip()
             url = item.get("url", "").strip()
-            if url.startswith("https://duckduckgo.com/l/?uddg="):
-                url = self.extract_redirect_url(url)
-            formatted.append(f"标题：{title}，链接：{url}")
-        return "；".join(formatted)
-
-    def extract_redirect_url(self, url: str) -> str:
-        match = re.search(r"uddg=(.+)$", url)
-        if match:
-            return match.group(1)
-        return url
-
-    def clean_answer(self, text: str) -> str:
-        text = re.sub(r"Processed request:.*", "", text)
-        text = re.sub(r"Workflow steps:.*", "", text)
-        text = re.sub(r"Search Result.*", "", text)
-        text = re.sub(r"Summary.*", "", text)
-        return text.strip()
+            block = f"搜索结果 {i}"
+            if title:
+                block += f"\n标题：{title}"
+            if snippet:
+                block += f"\n摘要：{snippet}"
+            if url:
+                block += f"\n链接：{url}"
+            blocks.append(block)
+        return "\n\n".join(blocks)

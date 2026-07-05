@@ -19,6 +19,7 @@ class ChatRequest(BaseModel):
 
     message: str = Field(..., min_length=1)
     history: list[ChatMessage] = Field(default_factory=list)
+    session_id: int | None = None
 
 
 class FileProposal(BaseModel):

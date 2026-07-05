@@ -1,55 +1,52 @@
+"""SearchTool — web search capability via pluggable providers."""
+
 from __future__ import annotations
 
-import re
 from typing import Any
-from urllib.parse import unquote_plus
 
-import requests
-
+from agentflow.services.search_provider import (
+    BaseSearchProvider,
+    DuckDuckGoProvider,
+)
+from agentflow.tools.base import BaseTool
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("search_tool")
 
 
-class SearchTool:
-    """DuckDuckGo-backed search tool that can be extended to other providers later."""
+class SearchTool(BaseTool):
+    """Pluggable-provider web search tool.
+
+    Executor usage::
+
+        executor.execute(ctx, Task(
+            goal="搜索网络信息",
+            tool="search",
+            input={"query": "..."},
+        ))
+
+    Provider injection::
+
+        tool = SearchTool(provider=BraveProvider(api_key="..."))
+        tool.execute(query="hello")
+    """
+
+    name = "search"
+
+    def __init__(self, provider: BaseSearchProvider | None = None) -> None:
+        self._provider = provider or DuckDuckGoProvider()
+
+    def execute(self, query: str = "", **kwargs: Any) -> list[dict[str, Any]]:
+        """Perform a web search (primary interface for Executor)."""
+        return self.search(query or kwargs.get("q", ""))
+
+    # -- Legacy interface (kept for backward compat) ------------------------
 
     def search(self, query: str) -> list[dict[str, Any]]:
-        """Perform a real web search using the DuckDuckGo HTML endpoint."""
-        url = "https://html.duckduckgo.com/html/"
-        payload = {"q": query, "kl": "us-en"}
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-        }
+        """Perform a web search via the configured provider."""
+        return self._provider.search(query)
 
-        try:
-            response = requests.get(url, params=payload, headers=headers, timeout=15)
-            response.raise_for_status()
-            html = response.text
-        except requests.RequestException as exc:  # pragma: no cover - network dependent
-            logger.exception("Search request failed: %s", exc)
-            return []
-
-        results: list[dict[str, Any]] = []
-        title_matches = re.findall(r'<a rel="nofollow" class="[^\"]*result__a[^\"]*" href="([^"]+)">([^<]+)</a>', html)
-        snippet_matches = re.findall(r'<a[^>]+class="[^\"]*result__snippet[^\"]*"[^>]*>(.*?)</a>', html, re.S)
-
-        for index, (url, title) in enumerate(title_matches[:5]):
-            summary = re.sub(r"<.*?>", "", snippet_matches[index] if index < len(snippet_matches) else "")
-            summary = re.sub(r"\s+", " ", summary).strip()
-            cleaned_url = self.clean_url(url)
-            results.append(
-                {
-                    "title": re.sub(r"\s+", " ", title).strip(),
-                    "url": cleaned_url,
-                    "snippet": summary or "No summary available",
-                }
-            )
-
-        return results
-
-    def clean_url(self, url: str) -> str:
-        if "duckduckgo.com/l/?uddg=" in url:
-            encoded = url.split("uddg=", 1)[-1]
-            return unquote_plus(encoded)
-        return url
+    @staticmethod
+    def clean_url(url: str) -> str:
+        """Decode DuckDuckGo redirect URLs (delegates to provider utility)."""
+        return DuckDuckGoProvider._clean_url(url)

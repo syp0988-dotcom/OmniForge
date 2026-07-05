@@ -50,14 +50,33 @@ def list_agents() -> list[dict[str, object]]:
 def chat(request: ChatRequest) -> ChatResponse:
     """Handle chat requests through the workflow."""
     try:
+        # Ensure session exists
+        session_id = request.session_id
+        if session_id is None:
+            # Create a new session for anonymous chats
+            sess = store.create_session()
+            session_id = sess["id"]
+        else:
+            existing = store.get_session(session_id)
+            if existing is None:
+                raise HTTPException(status_code=404, detail="Session not found")
+
         workflow = build_workflow()
-        # Convert ChatMessage pydantic models to plain dicts for the workflow
         history_dicts = [
             {"role": m.role, "content": m.content} for m in request.history
         ]
         result = run_workflow(workflow, request.message, history=history_dicts)
-        store.add_message("user", request.message)
-        store.add_message("assistant", result["answer"])
+        store.add_message("user", request.message, session_id=session_id)
+        store.add_message("assistant", result["answer"], session_id=session_id)
+
+        # Auto-title: use first user message as session title
+        sess = store.get_session(session_id)
+        if sess and sess["title"] == "新对话":
+            title = request.message[:50]
+            if len(request.message) > 50:
+                title += "…"
+            store.update_session_title(session_id, title)
+
         debug_data = {
             "category": result.get("category"),
             "workflow": result.get("workflow"),
@@ -66,7 +85,7 @@ def chat(request: ChatRequest) -> ChatResponse:
         }
         return ChatResponse(
             reply=result["answer"],
-            metadata={"status": "ok"},
+            metadata={"status": "ok", "session_id": session_id},
             debug=debug_data,
             proposed_files=propose_files(result["answer"]),
         )
@@ -153,44 +172,178 @@ def history(limit: int = 20) -> list[dict[str, str]]:
 class CreateFileRequest(BaseModel):
     filename: str
     content: str
+    workspace_path: str | None = None
 
 
 @router.post("/files/create")
 def create_file(req: CreateFileRequest) -> JSONResponse:
-    """Write a proposed file to the outputs/ directory."""
+    """Write a proposed file to the outputs/ or workspace directory."""
     safe_name = Path(req.filename).name
     if not safe_name or safe_name in {".", ".."}:
         raise HTTPException(status_code=400, detail="Invalid filename")
-    target = OUTPUT_DIR / safe_name
+
+    if req.workspace_path:
+        target = Path(req.workspace_path).resolve() / safe_name
+        # Prevent escaping outside the workspace
+        if not str(target).startswith(str(Path(req.workspace_path).resolve())):
+            raise HTTPException(status_code=400, detail="Invalid path")
+    else:
+        target = OUTPUT_DIR / safe_name
+
     if target.exists():
         raise HTTPException(status_code=409, detail="File already exists")
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(req.content, encoding="utf-8")
     return JSONResponse(
         content={
             "status": "created",
             "filename": safe_name,
-            "path": str(target.relative_to(Path(__file__).resolve().parents[2])),
+            "path": str(target),
         }
     )
 
 
 @router.get("/files")
-def list_output_files() -> list[dict[str, object]]:
-    """List all files in the outputs/ directory."""
-    if not OUTPUT_DIR.exists():
+def list_output_files(workspace_path: str | None = None) -> list[dict[str, object]]:
+    """List files in the outputs/ directory or a workspace path."""
+    if workspace_path:
+        base = Path(workspace_path).resolve()
+        if not base.exists() or not base.is_dir():
+            raise HTTPException(status_code=400, detail="Invalid workspace path")
+    else:
+        base = OUTPUT_DIR
+
+    if not base.exists():
         return []
     files: list[dict[str, object]] = []
-    for p in sorted(OUTPUT_DIR.iterdir()):
+    for p in sorted(base.iterdir()):
         if p.is_file():
             files.append(
                 {
                     "filename": p.name,
                     "size": p.stat().st_size,
                     "created_at": datetime.fromtimestamp(p.stat().st_ctime).isoformat(),
-                    "path": str(p.relative_to(Path(__file__).resolve().parents[2])),
+                    "path": str(p),
                 }
             )
     return files
+
+
+# -- Workspace operations ----------------------------------------------------
+
+
+@router.get("/workspace")
+def get_workspace() -> JSONResponse:
+    """Check if a path is a valid workspace directory."""
+    return JSONResponse(content={"status": "ok", "message": "Provide a path via POST /workspace/set"})
+
+
+class SetWorkspaceRequest(BaseModel):
+    path: str
+
+
+@router.post("/workspace/set")
+def set_workspace(req: SetWorkspaceRequest) -> JSONResponse:
+    """Validate and set workspace folder path."""
+    p = Path(req.path).resolve()
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"Path does not exist: {req.path}")
+    if not p.is_dir():
+        raise HTTPException(status_code=400, detail="Path is not a directory")
+    # Test write permission
+    test_file = p / ".omni_forge_write_test"
+    try:
+        test_file.write_text("test", encoding="utf-8")
+        test_file.unlink()
+    except OSError as exc:
+        raise HTTPException(status_code=403, detail=f"No write permission: {exc}")
+    return JSONResponse(content={"status": "ok", "path": str(p)})
+
+
+class CreateFolderRequest(BaseModel):
+    parent_path: str
+    folder_name: str
+
+
+@router.post("/workspace/create-folder")
+def create_workspace_folder(req: CreateFolderRequest) -> JSONResponse:
+    """Create a new folder under the given parent path."""
+    parent = Path(req.parent_path).resolve()
+    if not parent.exists() or not parent.is_dir():
+        raise HTTPException(status_code=404, detail=f"Parent path does not exist: {req.parent_path}")
+    safe_name = Path(req.folder_name).name
+    if not safe_name or safe_name in {".", ".."}:
+        raise HTTPException(status_code=400, detail="Invalid folder name")
+    target = parent / safe_name
+    if target.exists():
+        raise HTTPException(status_code=409, detail=f"Folder already exists: {safe_name}")
+    try:
+        target.mkdir(parents=True, exist_ok=False)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create folder: {exc}")
+    return JSONResponse(content={"status": "created", "path": str(target)})
+
+
+@router.get("/workspace/browse")
+def browse_directory(path: str = ".") -> JSONResponse:
+    """List directories and files at the given path for folder browsing."""
+    base = Path(path).resolve()
+    if not base.exists() or not base.is_dir():
+        raise HTTPException(status_code=404, detail=f"Path does not exist: {path}")
+    entries: list[dict[str, object]] = []
+    for p in sorted(base.iterdir()):
+        entries.append({
+            "name": p.name,
+            "is_dir": p.is_dir(),
+            "path": str(p),
+        })
+    return JSONResponse(content={"current_path": str(base), "entries": entries})
+
+
+# -- Sessions ----------------------------------------------------------------
+
+
+@router.post("/sessions/create")
+def create_session() -> JSONResponse:
+    """Create a new chat session."""
+    sess = store.create_session()
+    return JSONResponse(content=sess)
+
+
+@router.get("/sessions")
+def list_sessions(limit: int = 50) -> list[dict[str, object]]:
+    """List all chat sessions, most recent first."""
+    return store.list_sessions(limit=limit)
+
+
+@router.get("/sessions/{session_id}/messages")
+def get_session_messages(session_id: int) -> list[dict[str, object]]:
+    """Get all messages for a session."""
+    sess = store.get_session(session_id)
+    if sess is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return store.get_session_messages(session_id)
+
+
+@router.put("/sessions/{session_id}/rename")
+def rename_session(session_id: int, body: dict[str, str]) -> JSONResponse:
+    """Rename a session."""
+    title = body.get("title", "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    ok = store.update_session_title(session_id, title)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return JSONResponse(content={"status": "ok"})
+
+
+@router.delete("/sessions/{session_id}")
+def delete_session_endpoint(session_id: int) -> JSONResponse:
+    """Delete a session and all its messages."""
+    ok = store.delete_session(session_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return JSONResponse(content={"status": "deleted"})
 
 
 # -- Model configuration ---------------------------------------------------
