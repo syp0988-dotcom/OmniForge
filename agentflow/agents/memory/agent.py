@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from agentflow.agents.base import AgentProtocol
 from agentflow.conversation.manager import ConversationManager
 from agentflow.conversation.session_state import SessionState
+from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("memory")
 
 
-class MemoryAgent:
+class MemoryAgent(AgentProtocol):
     """Maintain conversation history across turns.
 
     State contract:
@@ -27,6 +29,7 @@ class MemoryAgent:
     def __init__(self, max_turns: int = 10) -> None:
         self.max_turns = max_turns
 
+    @safe_run
     def run(self, state: dict[str, object]) -> dict[str, object]:
         question = str(state.get("question", ""))
         answer = str(state.get("answer", ""))
@@ -65,13 +68,11 @@ class MemoryAgent:
 
         # -- Update session state heuristics based on the answer -----------
         if answer:
-            ss_raw = state.get("session_state")
-            if isinstance(ss_raw, dict):
-                ss = SessionState.from_dict(ss_raw)
-            else:
+            ss = state.get("session_state")
+            if not isinstance(ss, SessionState):
                 ss = SessionState()
             ConversationManager.finalize_turn(state, ss, answer)
-            state["session_state"] = ss.to_dict()
+            state["session_state"] = ss  # SessionState object (to_dict handled by WorkflowContext)
 
         # -- Enhanced memory: summary, goals, topic tracking ---------------
         self._update_memory_meta(state["memory"], state, question, answer, history)
@@ -102,9 +103,9 @@ class MemoryAgent:
         memory["last_topic"] = question or ""
 
         # Capture current_goal from session state, or from the first user message
-        ss_raw = state.get("session_state")
-        if isinstance(ss_raw, dict) and ss_raw.get("current_goal"):
-            memory["current_goal"] = ss_raw["current_goal"]
+        ss = state.get("session_state")
+        if isinstance(ss, SessionState) and ss.current_goal:
+            memory["current_goal"] = ss.current_goal
         elif not memory.get("current_goal"):
             # Use the first substantive question as the inferred goal
             if question and len(question) > 4:

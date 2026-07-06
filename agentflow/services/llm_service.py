@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+import time
 from typing import Any
 
 from openai import OpenAI
@@ -9,6 +11,11 @@ from agentflow.database.sqlite import SQLiteStore
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("llm")
+
+# Retry configuration for LLM calls
+_MAX_RETRIES = 2
+_BASE_DELAY = 1.0
+_MAX_DELAY = 10.0
 
 
 class LLMService:
@@ -75,12 +82,45 @@ class LLMService:
     def client(self) -> Any | None:
         return self._client
 
+    def _call_with_retry(self, messages: list[dict[str, str]]) -> str:
+        """Call the LLM with exponential backoff retry.
+
+        Retries up to ``_MAX_RETRIES`` times with jitter between attempts.
+        All exceptions are re-raised after exhausting retries so the caller
+        can apply its own fallback logic.
+        """
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self._model_name,
+                    messages=messages,
+                    temperature=self._temperature,
+                    max_tokens=self._max_tokens,
+                )
+                return response.choices[0].message.content or ""
+            except Exception as exc:
+                last_exc = exc
+                if attempt < _MAX_RETRIES:
+                    delay = min(_BASE_DELAY * (2 ** attempt), _MAX_DELAY)
+                    delay += random.uniform(0, 0.5)  # jitter
+                    logger.warning(
+                        "LLM request failed (attempt %d/%d): %s. Retrying in %.1fs...",
+                        attempt + 1, _MAX_RETRIES + 1, exc, delay,
+                    )
+                    time.sleep(delay)
+        # All retries exhausted
+        raise last_exc  # type: ignore[misc]
+
     def complete(
         self,
         prompt: str | None = None,
         messages: list[dict[str, str]] | None = None,
     ) -> str:
-        """Generate a completion using the configured model or a deterministic fallback."""
+        """Generate a completion using the configured model or a deterministic fallback.
+
+        Retries transient failures with exponential backoff before falling back.
+        """
         if not self.client:
             logger.warning("No API key configured; using fallback response")
             if prompt is None:
@@ -94,20 +134,12 @@ class LLMService:
             messages = [{"role": "user", "content": prompt}]
 
         try:
-            response = self.client.chat.completions.create(
-                model=self._model_name,
-                messages=messages,
-                temperature=self._temperature,
-                max_tokens=self._max_tokens,
-            )
-            return response.choices[0].message.content or ""
+            return self._call_with_retry(messages)
         except Exception as exc:  # pragma: no cover - defensive path
-            logger.exception("LLM request failed: %s", exc)
-            if messages and prompt is None:
+            logger.exception("LLM request failed after %d retries: %s", _MAX_RETRIES + 1, exc)
+            if prompt is None:
                 fallback_content = messages[-1].get("content", "")[:160]
                 return f"[fallback] {fallback_content}" if fallback_content else ""
-            if prompt is None:
-                return ""
             return f"[fallback] {prompt[:160]}"
 
 

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import re
+from agentflow.agents.base import AgentProtocol
+from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("router")
 
 
-class QueryRouterAgent:
+class QueryRouterAgent(AgentProtocol):
     """Route user queries to the correct AI agent pipeline."""
 
     IDENTITY_PATTERNS = [
@@ -99,6 +101,7 @@ class QueryRouterAgent:
         r"库",
     ]
 
+    @safe_run
     def run(self, state: dict[str, object]) -> dict[str, object]:
         # Use the original (un-enriched) question for routing classification.
         # The rewritten question may contain context from RewriteEngine that

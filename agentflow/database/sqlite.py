@@ -22,6 +22,16 @@ class SQLiteStore:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA foreign_keys=ON")
 
+            # Performance indexes
+            connection.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
+                ON sessions(updated_at)
+            """)
+            connection.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chats_session_id
+                ON chats(session_id)
+            """)
+
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,

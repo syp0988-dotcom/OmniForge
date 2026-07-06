@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,15 @@ from agentflow.tools.base import BaseTool
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("python_tool")
+
+# Env vars to preserve for subprocess stability (PATH, SSL certs, etc.)
+_SAFE_ENV_KEYS = {"PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "TMP", "TEMP",
+                   "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"}
+
+
+def _build_sandbox_env() -> dict[str, str]:
+    """Build a minimal environment keeping only safe system variables."""
+    return {k: v for k, v in os.environ.items() if k in _SAFE_ENV_KEYS}
 
 
 class PythonTool(BaseTool):
@@ -71,7 +81,7 @@ class PythonTool(BaseTool):
                     capture_output=True,
                     text=True,
                     timeout=self.timeout,
-                    env={},
+                    env=_build_sandbox_env(),
                     cwd=tmpdir,
                 )
 

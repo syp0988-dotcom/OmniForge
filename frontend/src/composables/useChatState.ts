@@ -35,8 +35,8 @@ const currentSessionId = ref<number | null>(null)
     if (sessList.length > 0) {
       await _loadSessionMessages(sessList[0].id)
     }
-  } catch {
-    // silently fail
+  } catch (e) {
+    console.warn('Failed to load sessions on startup:', e)
   }
 })()
 
@@ -86,8 +86,8 @@ async function _loadSessionMessages(sessionId: number) {
 async function _refreshSessions() {
   try {
     sessions.value = await listSessions(50)
-  } catch {
-    // silently fail
+  } catch (e) {
+    console.warn('Failed to refresh sessions:', e)
   }
 }
 
@@ -192,8 +192,8 @@ export function useChatState() {
       const sess = await createSession()
       currentSessionId.value = sess.id
       sessions.value = [sess, ...sessions.value]
-    } catch {
-      // silently fail
+    } catch (e) {
+      console.warn('Failed to create new session:', e)
     }
   }
 
@@ -217,8 +217,8 @@ export function useChatState() {
           sessions.value = [sess, ...sessions.value]
         }
       }
-    } catch {
-      // silently fail
+    } catch (e) {
+      console.warn('Failed to delete session:', e)
     }
   }
 
@@ -229,8 +229,8 @@ export function useChatState() {
       if (idx !== -1) {
         sessions.value[idx] = { ...sessions.value[idx], title }
       }
-    } catch {
-      // silently fail
+    } catch (e) {
+      console.warn('Failed to rename session:', e)
     }
   }
 
@@ -239,7 +239,8 @@ export function useChatState() {
   const loadAgents = async () => {
     try {
       agents.value = await getAgents()
-    } catch {
+    } catch (e) {
+      console.warn('Failed to load agents:', e)
       agents.value = []
     }
   }
@@ -288,8 +289,8 @@ export function useChatState() {
     try {
       const wp = workspacePath.value
       outputFiles.value = wp ? await getOutputFiles(wp) : await getOutputFiles()
-    } catch {
-      /* silently fail */
+    } catch (e) {
+      console.warn('Failed to load output files:', e)
     }
   }
 
@@ -325,7 +326,8 @@ export function useChatState() {
       const data = await browseDirectory(path)
       browseCurrentPath.value = data.current_path
       dirEntries.value = data.entries
-    } catch {
+    } catch (e) {
+      console.warn('Failed to browse directory:', e)
       dirEntries.value = []
     }
   }
@@ -343,8 +345,8 @@ export function useChatState() {
   const loadDocs = async () => {
     try {
       documents.value = await getDocuments()
-    } catch {
-      /* silently fail */
+    } catch (e) {
+      console.warn('Failed to load documents:', e)
     }
   }
 
@@ -368,7 +370,8 @@ export function useChatState() {
       try {
         await uploadDocument(file)
         successCount++
-      } catch {
+      } catch (e) {
+        console.warn('Failed to upload document:', file.name, e)
         failCount++
       }
     }
@@ -393,7 +396,8 @@ export function useChatState() {
     if (!searchQuery.value.trim()) return
     try {
       searchResults.value = await searchKnowledge(searchQuery.value.trim(), 10)
-    } catch {
+    } catch (e) {
+      console.warn('Failed to search knowledge base:', e)
       searchResults.value = []
     }
   }

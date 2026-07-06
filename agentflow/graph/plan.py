@@ -40,6 +40,7 @@ class Plan:
     direct_answer: bool = False
     priority: str = "normal"
     reasoning: str = ""
+    intent: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     # -- Derived helpers -------------------------------------------------------
@@ -81,6 +82,7 @@ class Plan:
             "direct_answer": self.direct_answer,
             "priority": self.priority,
             "reasoning": self.reasoning,
+            "intent": self.intent,
             "step_count": self.step_count,
             "required_tools": self.required_tools,
             "active_agents": self.active_agents,
@@ -99,5 +101,6 @@ class Plan:
             direct_answer=data.get("direct_answer", False),
             priority=data.get("priority", "normal"),
             reasoning=data.get("reasoning", ""),
+            intent=data.get("intent", ""),
             metadata=data.get("metadata", {}),
         )

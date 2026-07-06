@@ -215,8 +215,9 @@ class WorkflowContext(dict):
     @session_state.setter
     def session_state(self, value: SessionState | dict[str, Any]) -> None:
         if isinstance(value, SessionState):
-            value = value.to_dict()
-        self["session_state"] = value
+            self["session_state"] = value
+        else:
+            self["session_state"] = SessionState.from_dict(value)
 
     # -- Task management --------------------------------------------------------
 

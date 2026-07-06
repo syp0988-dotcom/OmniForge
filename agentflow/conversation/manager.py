@@ -181,9 +181,27 @@ class ConversationManager:
                     ConversationManager._update_tracking_from_question(
                         original, session_state.tracking, session_state,
                     )
+                # If the session was waiting and the user provided substantive
+                # new input (not a continue signal), resume so the full
+                # Router → Planner → QueryRewriter pipeline can run with
+                # context enrichment.
+                if session_state.is_waiting:
+                    session_state.resume()
+                    session_state.status = "idle"
+                    logger.info(
+                        "Resumed from waiting with new input: '%s'", enriched
+                    )
                 return enriched
 
-        # --- 5. Update conversation tracking (default path) ---
+        # --- 5. Self-contained question while waiting: resume session ---
+        if session_state.is_waiting and ConversationManager._is_self_contained(question):
+            logger.info(
+                "Self-contained question while waiting: '%s' → resuming", original
+            )
+            session_state.resume()
+            session_state.status = "idle"
+
+        # --- 6. Update conversation tracking (default path) ---
         if session_state.tracking is not None:
             ConversationManager._update_tracking_from_question(
                 original, session_state.tracking, session_state,
@@ -208,6 +226,14 @@ class ConversationManager:
         # --- Always update tracking first (capture entities/summary) ---
         ConversationManager._update_tracking(session_state, answer)
 
+        # Preserve current_goal before any early returns so follow-up
+        # questions (e.g. "我在杭州" after "请告诉我城市") can be enriched
+        # with conversation context by resolve_question and QueryRewriter.
+        if not session_state.current_goal:
+            question = state.get("question", "")
+            if isinstance(question, str) and len(question) > 4:
+                session_state.current_goal = question[:200]
+
         # Detect pending options from the answer text
         options = ConversationManager._extract_options(answer)
         if options:
@@ -221,14 +247,6 @@ class ConversationManager:
             session_state.start_waiting("提供更多信息")
             logger.info("Answer is asking for user input")
             return
-
-        # Preserve current_goal across turns so follow-up questions
-        # (e.g. "加一个错误处理") can be enriched with conversation context
-        # by resolve_question and the RewriteEngine.
-        if not session_state.current_goal:
-            question = state.get("question", "")
-            if isinstance(question, str) and len(question) > 4:
-                session_state.current_goal = question[:200]
 
         if session_state.status == "processing":
             session_state.resume()

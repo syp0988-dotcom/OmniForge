@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from agentflow.agents.base import AgentProtocol
 from agentflow.agents.planner.capability import (
     list_capabilities,
     resolve as resolve_capability,
@@ -45,6 +46,7 @@ from agentflow.agents.planner.prompt import build_planner_prompt
 from agentflow.graph.plan import Plan
 from agentflow.graph.task import Task
 from agentflow.services.llm_service import get_llm_service
+from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("planner")
@@ -56,7 +58,7 @@ _TOOL_TO_NODE: dict[str, str] = {
 }
 
 
-class PlannerAgent:
+class PlannerAgent(AgentProtocol):
     """Analyse the user question and produce a capability-oriented Plan.
 
     Design decisions:
@@ -75,6 +77,7 @@ class PlannerAgent:
     # Public API
     # ------------------------------------------------------------------
 
+    @safe_run
     def run(self, state: dict) -> dict:
         """Generate a Plan and attach it to the workflow state.
 
@@ -208,21 +211,69 @@ class PlannerAgent:
     def _build_plan_from_json(data: dict[str, Any]) -> Plan:
         """Convert a validated JSON dict into a Plan object.
 
-        Expected schema::
+        Supports two JSON schemas:
+
+        **New format** (preferred)::
+
+            {
+                "need_web": bool,
+                "tool": "web.search" | "python.execute" | "",
+                "intent": "weather" | "news" | ... | "",
+                "reasoning": str
+            }
+
+        **Legacy format** (backward compatible)::
 
             {
                 "direct_answer": bool,
                 "reasoning": str,
-                "tasks": [
-                    {
-                        "goal": str,
-                        "capability": str
-                    }
-                ]
+                "tasks": [{"goal": str, "capability": str}]
             }
 
         Raises ``ValueError`` when required fields are missing or invalid.
         """
+        # --- Detect format: new (need_web) vs legacy (direct_answer) ---
+        if "need_web" in data:
+            return PlannerAgent._build_plan_from_new_format(data)
+
+        # --- Legacy format handling ---
+        return PlannerAgent._build_plan_from_legacy_format(data)
+
+    @staticmethod
+    def _build_plan_from_new_format(data: dict[str, Any]) -> Plan:
+        """Build Plan from the new ``need_web`` / ``intent`` format."""
+        need_web = bool(data.get("need_web", False))
+        tool = str(data.get("tool", "")).strip()
+        intent = str(data.get("intent", "")).strip()
+        reasoning = str(data.get("reasoning", ""))
+
+        tasks: list[Task] = []
+
+        if need_web and tool == "web.search":
+            tasks.append(Task(
+                goal="从互联网搜索相关信息",
+                capability="web.search",
+                input={},
+            ))
+        elif tool == "python.execute":
+            tasks.append(Task(
+                goal="执行 Python 代码并获取结果",
+                capability="python.execute",
+                input={"code": data.get("code", "")},
+            ))
+
+        return Plan(
+            goal="",
+            category="",
+            tasks=tasks,
+            direct_answer=not need_web and tool != "python.execute",
+            reasoning=reasoning,
+            intent=intent,
+        )
+
+    @staticmethod
+    def _build_plan_from_legacy_format(data: dict[str, Any]) -> Plan:
+        """Build Plan from the legacy ``direct_answer`` / ``tasks`` format."""
         # Validate required fields
         if "direct_answer" not in data:
             raise ValueError("Missing required field: direct_answer")
@@ -275,6 +326,7 @@ class PlannerAgent:
             tasks=tasks,
             direct_answer=direct_answer,
             reasoning=str(data.get("reasoning", "")),
+            intent=str(data.get("intent", "")),
         )
 
     # ------------------------------------------------------------------
@@ -318,7 +370,6 @@ class PlannerAgent:
                     Task(
                         goal="从网络搜索获取最新信息",
                         capability="web.search",
-                        input={"query": question},
                     ),
                     Task(
                         goal="综合搜索结果生成自然语言回答",
@@ -328,6 +379,7 @@ class PlannerAgent:
                     ),
                 ],
                 reasoning="需要实时网络搜索获取最新信息（规则回退）",
+                intent="general",
             )
 
         if category == "identity":

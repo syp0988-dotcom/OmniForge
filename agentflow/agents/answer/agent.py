@@ -10,7 +10,9 @@ Phase 7 enhancement:
 
 from __future__ import annotations
 
+from agentflow.agents.base import AgentProtocol
 from agentflow.services.llm_service import get_llm_service
+from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("answer")
@@ -87,6 +89,16 @@ class ContextBuilder:
                 "请直接回答身份问题。如果无法确认具体模型部署信息，"
                 "请回答：我是当前系统配置的大语言模型助手。"
             )
+        elif self.search_results:
+            # Search result mode: MUST use the provided search results
+            blocks.append(
+                "你已获得搜索结果，请严格遵循以下要求：\n"
+                "1. 必须基于搜索结果中的信息回答用户问题\n"
+                "2. 如果搜索结果包含答案，直接给出答案，不要说自己无法获取实时信息\n"
+                "3. 不要推荐用户自行打开网站查询——你已经有数据了\n"
+                "4. 如果搜索结果不足，可以如实告知找到的信息范围\n"
+                "5. 引用信息时请标注来源链接"
+            )
         else:
             blocks.append("请根据以上内容回答用户问题。")
 
@@ -130,7 +142,7 @@ class ContextBuilder:
         return "对话上下文：\n" + "\n".join(parts) if parts else ""
 
 
-class AnswerAgent:
+class AnswerAgent(AgentProtocol):
     """Produce a polished, user-facing answer from workflow context.
 
     Responsibilities:
@@ -147,6 +159,7 @@ class AnswerAgent:
     # Public API (preserved interface)
     # ------------------------------------------------------------------
 
+    @safe_run
     def run(self, state: dict[str, object]) -> dict[str, object]:
         """Produce a final answer from the workflow state."""
         is_continue = bool(state.get("_continue_mode", False))
@@ -216,6 +229,7 @@ class AnswerAgent:
         return (
             "你是一个专业、准确的 AI 助手。"
             "请根据提供的上下文回答用户问题。"
+            "如果你获得搜索结果，必须基于搜索结果回答，不要拒绝回答或让用户自行查询。"
         )
 
     @staticmethod

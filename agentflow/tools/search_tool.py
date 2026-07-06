@@ -34,7 +34,18 @@ class SearchTool(BaseTool):
     name = "search"
 
     def __init__(self, provider: BaseSearchProvider | None = None) -> None:
-        self._provider = provider or DuckDuckGoProvider()
+        if provider is not None:
+            self._provider = provider
+        else:
+            # Auto-select: Tavily if API key available, else DuckDuckGo
+            from agentflow.services.search_provider import TavilyProvider
+            tavily = TavilyProvider()
+            if tavily._api_key:
+                self._provider = tavily
+                logger.info("SearchTool using Tavily provider")
+            else:
+                self._provider = DuckDuckGoProvider()
+                logger.info("SearchTool using DuckDuckGo provider")
 
     def execute(self, query: str = "", **kwargs: Any) -> list[dict[str, Any]]:
         """Perform a web search (primary interface for Executor)."""

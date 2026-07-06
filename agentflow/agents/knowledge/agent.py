@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from agentflow.agents.base import AgentProtocol
 from agentflow.knowledge.store import KnowledgeStore
+from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("knowledge")
 
 
-class KnowledgeAgent:
+class KnowledgeAgent(AgentProtocol):
     """Retrieves relevant document chunks from the local vector store.
 
     Uses TF-IDF vectorization and cosine similarity to find the most relevant
@@ -18,6 +20,7 @@ class KnowledgeAgent:
     def __init__(self) -> None:
         self.store = KnowledgeStore()
 
+    @safe_run
     def run(self, state: dict[str, object]) -> dict[str, object]:
         question = str(state.get("question", ""))
         logger.info("KnowledgeAgent retrieving for: %s", question)

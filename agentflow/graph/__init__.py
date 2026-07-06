@@ -1,12 +1,15 @@
 """Graph — workflow orchestration core for AgentFlow."""
 
+from __future__ import annotations
+
+from typing import Any
+
 from agentflow.conversation.session_state import SessionState
 from agentflow.graph.context import WorkflowContext
 from agentflow.graph.event import Event, EventBus, EventType
 from agentflow.graph.executor import Executor
 from agentflow.graph.plan import Plan
 from agentflow.graph.task import Task, TaskStatus
-from agentflow.graph.workflow import build_workflow, get_executor, run_workflow
 
 __all__ = [
     "WorkflowContext",
@@ -22,3 +25,17 @@ __all__ = [
     "get_executor",
     "run_workflow",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy-import ``build_workflow`` / ``get_executor`` / ``run_workflow``
+    to avoid a circular import chain::
+
+        graph.__init__ → workflow → PlannerAgent → graph.plan
+    """
+    if name in ("build_workflow", "get_executor", "run_workflow"):
+        import agentflow.graph.workflow as wf
+
+        return getattr(wf, name)
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

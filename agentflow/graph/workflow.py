@@ -14,6 +14,7 @@ from agentflow.agents.planner.agent import PlannerAgent
 from agentflow.agents.python.agent import PythonAgent
 from agentflow.agents.router.agent import QueryRouterAgent
 from agentflow.agents.search.agent import SearchAgent
+from agentflow.agents.search.query_rewriter import QueryRewriter
 from agentflow.conversation.context import ConversationContext
 from agentflow.conversation.manager import ConversationManager
 from agentflow.conversation.session_state import SessionState
@@ -41,12 +42,13 @@ class WorkflowState(TypedDict, total=False):
     router: dict[str, Any]
 
     # Conversation Runtime fields
-    session_state: dict[str, Any]   # serialized SessionState dict
+    session_state: SessionState     # SessionState object (unified type)
     _continue_mode: bool            # True = skip Router/Planner/Tools
     session_context: str            # human-readable context for AnswerAgent
     _original_question: str         # original user input (for Router classification)
     rewritten_question: str         # context-enriched question (Phase 7)
     conversation_context: Any       # ConversationContext object (Phase 7)
+    rewritten_query: str            # search-optimised query from QueryRewriter
 
 
 # Compiled workflow cache (built once, reused across requests)
@@ -75,6 +77,7 @@ def build_workflow() -> Any:
     cm = ConversationManager()
     router = QueryRouterAgent()
     planner = PlannerAgent()
+    query_rewriter = QueryRewriter()
     search = SearchAgent()
     answer = AnswerAgent()
     memory = MemoryAgent()
@@ -88,6 +91,7 @@ def build_workflow() -> Any:
     workflow.add_node("conversation_manager", _make_conversation_manager_node(cm))
     workflow.add_node("router", router.run)
     workflow.add_node("planner", planner.run)
+    workflow.add_node("query_rewriter", _make_query_rewriter_node(query_rewriter))
     workflow.add_node("search", search.run)
     workflow.add_node("answer", answer.run)
     workflow.add_node("memory", memory.run)
@@ -134,11 +138,14 @@ def build_workflow() -> Any:
         "planner",
         _route_after_planner,
         {
-            "search": "search",
+            "query_rewriter": "query_rewriter",
             "python": "python",
             "answer": "answer",
         },
     )
+
+    # After query_rewriter: always go to search
+    workflow.add_edge("query_rewriter", "search")
 
     # Execution nodes converge to answer
     workflow.add_edge("search", "answer")
@@ -168,10 +175,46 @@ def _route_after_knowledge(state: WorkflowState) -> str:
 
 def _session_is_waiting(state: WorkflowState) -> bool:
     """Check if the session_state has an active wait."""
-    raw = state.get("session_state")
-    if isinstance(raw, dict):
-        return raw.get("status") == "waiting_user"
-    return False
+    ss = state.get("session_state")
+    return ss is not None and ss.is_waiting
+
+
+def _make_query_rewriter_node(qr: QueryRewriter) -> object:
+    """Factory: creates a query_rewriter node for the LangGraph."""
+
+    def _node(state: WorkflowState) -> dict[str, object]:
+        """Rewrite user question into an optimised search query."""
+        # Use raw original question (not LLM-enriched) for search query building.
+        # The QueryRewriter does its own context recovery from session_state.
+        question = str(
+            state.get("_original_question", "")
+            or state.get("question", "")
+        )
+        session_state = state.get("session_state")
+        history = state.get("history", None)
+
+        # Extract intent from plan
+        plan = state.get("plan", {})
+        if isinstance(plan, dict):
+            intent = plan.get("intent", "")
+        else:
+            intent = getattr(plan, "intent", "")
+
+        rewritten = qr.rewrite(
+            question=question,
+            session_state=session_state,
+            history=history,
+            intent=intent,
+        )
+
+        logger.info(
+            "QueryRewriter: '%s' → '%s' (intent=%s)",
+            question[:50], rewritten[:80], intent,
+        )
+
+        return {"rewritten_query": rewritten}
+
+    return _node
 
 
 def _make_conversation_manager_node(
@@ -184,9 +227,8 @@ def _make_conversation_manager_node(
         question = state.get("question", "")
         memory = state.get("memory", {})
 
-        # Deserialize session_state
-        raw = state.get("session_state")
-        session_state = SessionState.from_dict(raw) if isinstance(raw, dict) else SessionState()
+        # session_state is a SessionState object (set by run_workflow or previous turn)
+        session_state = state.get("session_state", SessionState())
 
         # 1. Resolve user input against session state (options, slots, anaphora)
         resolved = cm.resolve_question(question, session_state)
@@ -206,7 +248,7 @@ def _make_conversation_manager_node(
         # Use the rewritten question for downstream nodes
         result: dict[str, object] = {
             "question": rewritten,
-            "session_state": session_state.to_dict(),
+            "session_state": session_state,          # SessionState object, not dict
             "_continue_mode": should or waiting,
             "_original_question": question,        # raw input for Router classification
             "rewritten_question": rewritten,
@@ -247,7 +289,7 @@ def _route_after_router(state: WorkflowState) -> str:
 
 
 def _route_after_planner(state: WorkflowState) -> str:
-    """Route based on Plan (direct_answer) or category to the correct node."""
+    """Route based on Plan to the correct execution node."""
 
     # ---- direct_answer: skip tool nodes, go straight to answer ----
     plan = state.get("plan", {})
@@ -258,10 +300,25 @@ def _route_after_planner(state: WorkflowState) -> str:
     if direct_answer:
         return "answer"
 
+    # ---- Check plan tasks for required tools ----
+    if isinstance(plan, dict):
+        tasks = plan.get("tasks", [])
+    else:
+        tasks = getattr(plan, "tasks", [])
+    for task in tasks:
+        if isinstance(task, dict):
+            tool = task.get("tool", "") or ""
+        else:
+            tool = getattr(task, "tool", "") or ""
+        if tool == "search":
+            return "query_rewriter"
+        if tool == "python":
+            return "python"
+
     # ---- fallback: category-based routing (backward compat) ----
     category = state.get("category", "reasoning")
     if category == "search":
-        return "search"
+        return "query_rewriter"
     if category == "python":
         return "python"
     return "answer"
@@ -328,9 +385,11 @@ def run_workflow(
     if history:
         initial_state["memory"] = {"history": list(history)}
 
+    # API boundary: convert serialized dict → SessionState object
     if session_state:
-        initial_state["session_state"] = session_state
+        initial_state["session_state"] = SessionState.from_dict(session_state)
 
     result = graph.invoke(initial_state)
+    # API boundary: WorkflowContext.to_dict() handles SessionState → dict
     ctx = WorkflowContext(dict(result))
     return ctx.to_dict()

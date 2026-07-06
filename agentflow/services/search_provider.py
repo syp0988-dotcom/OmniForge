@@ -16,6 +16,7 @@ Usage::
 
 from __future__ import annotations
 
+import os
 import re
 from abc import ABC, abstractmethod
 from typing import Any
@@ -43,6 +44,63 @@ class BaseSearchProvider(ABC):
     def search(self, query: str) -> list[dict[str, Any]]:
         """Execute a search and return normalized results."""
         ...
+
+
+class TavilyProvider(BaseSearchProvider):
+    """Tavily Search API provider.
+
+    Requires an API key from https://app.tavily.com.
+    Supports general, news, and finance search with configurable depth.
+    """
+
+    BASE_URL = "https://api.tavily.com/search"
+
+    def __init__(self, api_key: str = "") -> None:
+        self._api_key = api_key or os.environ.get("TAVILY_API_KEY", "")
+
+    def search(self, query: str, max_results: int = 5, **kwargs: Any) -> list[dict[str, Any]]:
+        """Execute search via Tavily API and return normalized results."""
+        if not self._api_key:
+            logger.warning("Tavily API key not configured")
+            return []
+
+        payload = {
+            "query": query,
+            "max_results": min(max_results, 20),
+            "search_depth": kwargs.get("search_depth", "basic"),
+            "topic": kwargs.get("topic", "general"),
+            "include_answer": False,
+            "include_raw_content": False,
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._api_key}",
+        }
+
+        try:
+            response = requests.post(
+                self.BASE_URL, json=payload, headers=headers, timeout=15
+            )
+            response.raise_for_status()
+            data = response.json()
+        except requests.RequestException as exc:
+            logger.exception("Tavily search failed: %s", exc)
+            return []
+
+        return self._normalize(data.get("results", []))
+
+    @staticmethod
+    def _normalize(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Convert Tavily API results to standard {title, url, snippet} format."""
+        results: list[dict[str, Any]] = []
+        for item in raw:
+            results.append({
+                "title": item.get("title", ""),
+                "url": item.get("url", ""),
+                "snippet": item.get("content", ""),
+            })
+        return results
 
 
 class DuckDuckGoProvider(BaseSearchProvider):

@@ -9,7 +9,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from agentflow.agents.base import AgentProtocol
 from agentflow.tools.python_tool import PythonTool
+from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("python")
@@ -18,12 +20,13 @@ _RE_PYTHON_BLOCK = r"```python\n?(.*?)```"
 _RE_PY_BLOCK = r"```py\n?(.*?)```"
 
 
-class PythonAgent:
+class PythonAgent(AgentProtocol):
     """Decide whether Python execution is needed and prepare input."""
 
     def __init__(self) -> None:
         self.tool = PythonTool()
 
+    @safe_run
     def run(self, state: dict[str, object]) -> dict[str, object]:
         question = str(state.get("question", ""))
         code = self._extract_code(question)
