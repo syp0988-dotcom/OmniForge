@@ -23,6 +23,21 @@ class Settings(BaseSettings):
     temperature: float = Field(default=0.2, alias="TEMPERATURE")
     max_tokens: int = Field(default=1000, alias="MAX_TOKENS")
 
+    # -- Knowledge base settings --
+    knowledge_embedder: str = Field(default="semantic", alias="KNOWLEDGE_EMBEDDER")
+    knowledge_embedding_model: str = Field(
+        default="paraphrase-multilingual-MiniLM-L12-v2",
+        alias="KNOWLEDGE_EMBEDDING_MODEL",
+    )
+    knowledge_alpha: float = Field(default=0.7, alias="KNOWLEDGE_ALPHA")
+    knowledge_beta: float = Field(default=0.3, alias="KNOWLEDGE_BETA")
+    knowledge_chunk_size: int = Field(default=500, alias="KNOWLEDGE_CHUNK_SIZE")
+    knowledge_chunk_overlap: int = Field(default=50, alias="KNOWLEDGE_CHUNK_OVERLAP")
+    knowledge_faiss_index_path: str = Field(default="", alias="KNOWLEDGE_FAISS_INDEX_PATH")
+    knowledge_faiss_index_type: str = Field(default="HNSW", alias="KNOWLEDGE_FAISS_INDEX_TYPE")
+    knowledge_top_k: int = Field(default=5, alias="KNOWLEDGE_TOP_K")
+    knowledge_min_score: float = Field(default=0.05, alias="KNOWLEDGE_MIN_SCORE")
+
     @property
     def project_root(self) -> Path:
         return Path(__file__).resolve().parents[2]

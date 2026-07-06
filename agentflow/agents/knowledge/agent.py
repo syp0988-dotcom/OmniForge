@@ -30,8 +30,11 @@ class KnowledgeAgent(AgentProtocol):
         if results:
             context_parts = []
             for r in results:
+                method = r.get("method", "vector")
+                score = r.get("score", 0.0)
                 context_parts.append(
-                    f"[来源: {r['filename']} | 相似度: {r['score']:.2f}]\n{r['content']}"
+                    f"[来源: {r['filename']} | 相似度: {score:.2f} | "
+                    f"检索方式: {method}]\n{r['content']}"
                 )
             knowledge_text = "\n\n---\n\n".join(context_parts)
             logger.info("  → Found %d relevant chunks", len(results))

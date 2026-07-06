@@ -1,46 +1,52 @@
-"""TF-IDF vectorizer and cosine similarity search for document chunks.
+"""Embedding interface and implementations for the knowledge base.
 
-This module implements a lightweight, dependency-minimal embedding approach:
-- Tokenization at character level for Chinese, word level for English
-- TF-IDF weighted vector representation
-- Cosine similarity for ranking
+Architecture
+------------
+``BaseEmbedder`` (ABC) defines the stateless embedding contract.
+Two concrete implementations:
 
-For semantic search (sentence-transformers), set settings.knowledge_embedder = "semantic"
-and install: pip install sentence-transformers
+* **TfidfEmbedder**  — lightweight TF-IDF + cosine similarity (fallback).
+* **SemanticEmbedder** — sentence-transformers based semantic embeddings (primary).
+
+Usage::
+
+    embedder: BaseEmbedder
+    if settings.knowledge_embedder == "semantic":
+        embedder = SemanticEmbedder()
+    else:
+        embedder = TfidfEmbedder().fit(all_texts)
+
+    vectors = embedder.embed(["hello world", "你好世界"])
+    query_vec = embedder.embed_query("some question")
 """
 
 from __future__ import annotations
 
 import math
 import re
-import struct
+from abc import ABC, abstractmethod
 from collections import Counter
 from typing import Any
 
 import numpy as np
 
-
 # ---------------------------------------------------------------------------
-# Tokenizer
+# Tokenizer (shared)
 # ---------------------------------------------------------------------------
 
-# Regex to split Chinese characters from English words/tokens.
-# Each Chinese character becomes its own token; English words are split on
-# whitespace/punctuation.
 _CHINESE_RE = re.compile(r"[一-鿿㐀-䶿豈-﫿]")
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9_\-]+|[^\s]")
 
 
 def tokenize(text: str) -> list[str]:
-    """Tokenize mixed Chinese/English text into tokens.
+    """Tokenize mixed Chinese/English text.
 
-    Chinese characters are treated as unigram tokens.
-    English words are lowercased and split on whitespace/punctuation.
+    Chinese characters → unigrams.
+    English tokens → lowercased, split on whitespace/punctuation.
     """
     tokens: list[str] = []
     for match in _TOKEN_RE.finditer(text.lower()):
         tok = match.group()
-        # Split Chinese characters into individual tokens
         if _CHINESE_RE.match(tok):
             tokens.extend(list(tok))
         else:
@@ -49,66 +55,149 @@ def tokenize(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# TF-IDF Embedder
+# Abstract interface
 # ---------------------------------------------------------------------------
 
 
-class TfidfEmbedder:
-    """Lightweight TF-IDF vectorizer that stores vocabulary in memory.
+class BaseEmbedder(ABC):
+    """Stateless embedding contract.
 
-    State can be serialized/deserialized via ``to_dict`` / ``from_dict`` for
-    persistence in the database alongside document vectors.
+    Implementations **must not** depend on in-memory corpus state — the
+    same ``embed()`` call with the same input must always return the same
+    vector (up to model weights).
     """
 
-    def __init__(self) -> None:
-        # term -> index in the vector
+    @abstractmethod
+    def embed(self, texts: list[str]) -> list[np.ndarray]:
+        """Embed a batch of texts into float32 vectors.
+
+        Returns a list of 1-D ``np.ndarray``, one per input text, each of
+        shape ``(dimension,)``.
+        """
+        ...
+
+    @abstractmethod
+    def embed_query(self, text: str) -> np.ndarray:
+        """Embed a single query text into a float32 vector.
+
+        Some models use a different instruction/prefix for queries vs.
+        documents — this method allows implementations to differentiate.
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def dimension(self) -> int:
+        """Return the embedding vector dimension."""
+        ...
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Return a short identifier e.g. ``"tfidf"``, ``"semantic"``."""
+        ...
+
+
+# ---------------------------------------------------------------------------
+# TF-IDF embedder (stateless fallback)
+# ---------------------------------------------------------------------------
+
+
+class TfidfEmbedder(BaseEmbedder):
+    """Lightweight TF-IDF vectorizer.
+
+    Unlike the legacy implementation, this version is **stateless after fit**:
+    ``fit(texts)`` builds a vocabulary from the provided corpus; subsequent
+    ``embed()`` calls ignore OOV tokens.  State can be serialised via
+    ``to_dict()`` / ``from_dict()`` for cache warm-up.
+
+    Parameters
+    ----------
+    min_df : int
+        Minimum document frequency for a term to be kept in the vocabulary.
+    """
+
+    def __init__(self, min_df: int = 1) -> None:
+        # term → column index
         self.vocab: dict[str, int] = {}
-        # term_index -> number of documents containing that term
+        # term_index → document frequency
         self.doc_freq: dict[int, int] = {}
         self.num_docs: int = 0
+        self._fitted: bool = False
+        self._dim: int = 0
+        self._min_df = min_df
 
-    # -- Vocabulary maintenance ------------------------------------------------
+    # -- Fitting -----------------------------------------------------------
 
-    def add_chunk(self, tokens: list[str]) -> None:
-        """Update vocabulary and document frequency with a new chunk's tokens."""
-        self.num_docs += 1
-        seen: set[str] = set()
-        for tok in tokens:
-            if tok not in self.vocab:
-                self.vocab[tok] = len(self.vocab)
-            idx = self.vocab[tok]
-            if tok not in seen:
-                self.doc_freq[idx] = self.doc_freq.get(idx, 0) + 1
-                seen.add(tok)
+    def fit(self, texts: list[str]) -> TfidfEmbedder:
+        """Build vocabulary and document frequencies from a corpus.
 
-    def remove_chunk(self, tokens: list[str]) -> None:
-        """Decrement document frequency (call when a chunk is deleted)."""
-        seen: set[str] = set()
-        for tok in tokens:
-            idx = self.vocab.get(tok)
-            if idx is not None and tok not in seen:
-                self.doc_freq[idx] = max(0, self.doc_freq.get(idx, 0) - 1)
-                seen.add(tok)
-                if self.doc_freq[idx] == 0:
-                    self.doc_freq.pop(idx, None)
-            if tok not in seen:
-                seen.add(tok)
-        self.num_docs = max(0, self.num_docs - 1)
-
-    # -- Vectorization ---------------------------------------------------------
-
-    def vectorize(self, tokens: list[str]) -> np.ndarray:
-        """Compute TF-IDF vector for a token list.
-
-        Returns a 1-D numpy array of shape (len(vocab),).
+        Calling ``fit`` replaces any previously learned vocabulary.
         """
-        if not self.vocab:
-            return np.array([], dtype=np.float32)
+        self.vocab.clear()
+        self.doc_freq.clear()
+        self.num_docs = len(texts)
+        self._fitted = True
 
-        vec = np.zeros(len(self.vocab), dtype=np.float32)
-        if not tokens:
-            return vec
+        # Collect all terms
+        term_doc_sets: list[set[str]] = []
+        all_terms: set[str] = set()
+        for text in texts:
+            toks = tokenize(text)
+            unique = set(toks)
+            term_doc_sets.append(unique)
+            all_terms.update(unique)
 
+        # Filter by min_df
+        doc_freq_raw: dict[str, int] = {}
+        for uniq in term_doc_sets:
+            for term in uniq:
+                doc_freq_raw[term] = doc_freq_raw.get(term, 0) + 1
+
+        # Build vocab (sorted for determinism)
+        kept = sorted(
+            t for t, df in doc_freq_raw.items() if df >= self._min_df
+        )
+        self.vocab = {t: i for i, t in enumerate(kept)}
+        self.doc_freq = {
+            self.vocab[t]: df for t, df in doc_freq_raw.items() if t in self.vocab
+        }
+        self._dim = len(self.vocab)
+        return self
+
+    # -- BaseEmbedder interface -------------------------------------------
+
+    def embed(self, texts: list[str]) -> list[np.ndarray]:
+        """Transform texts to TF-IDF vectors using the fitted vocabulary.
+
+        OOV tokens are silently ignored.
+        """
+        if not self._fitted:
+            raise RuntimeError("TfidfEmbedder has not been fitted yet — call .fit()")
+        return [self._vectorize(t) for t in texts]
+
+    def embed_query(self, text: str) -> np.ndarray:
+        """Alias for ``embed([text])[0]``."""
+        return self.embed([text])[0]
+
+    @property
+    def dimension(self) -> int:
+        if not self._fitted:
+            return 0
+        return self._dim
+
+    @property
+    def name(self) -> str:
+        return "tfidf"
+
+    # -- Internal ----------------------------------------------------------
+
+    def _vectorize(self, text: str) -> np.ndarray:
+        tokens = tokenize(text)
+        if not tokens or not self.vocab:
+            return np.zeros(self._dim, dtype=np.float32)
+
+        vec = np.zeros(self._dim, dtype=np.float32)
         tf = Counter(tokens)
         max_tf = max(tf.values())
 
@@ -116,72 +205,148 @@ class TfidfEmbedder:
             idx = self.vocab.get(tok)
             if idx is None:
                 continue
-            # Normalized term frequency
             tf_val = count / max_tf
-            # Inverse document frequency (smooth)
             df = self.doc_freq.get(idx, 1)
             idf_val = math.log((self.num_docs + 1) / (df + 1)) + 1.0
             vec[idx] = tf_val * idf_val
 
         # L2 normalize
-        norm = np.linalg.norm(vec)
+        norm = float(np.linalg.norm(vec))
         if norm > 0:
             vec /= norm
         return vec
 
-    # -- Similarity ------------------------------------------------------------
-
-    @staticmethod
-    def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-        """Cosine similarity between two vectors."""
-        if a.size == 0 or b.size == 0:
-            return 0.0
-        dot = float(np.dot(a, b))
-        norm_a = float(np.linalg.norm(a))
-        norm_b = float(np.linalg.norm(b))
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-        return dot / (norm_a * norm_b)
-
-    @staticmethod
-    def batch_cosine_similarity(
-        query_vec: np.ndarray, candidates: list[tuple[int, np.ndarray]]
-    ) -> list[tuple[int, float]]:
-        """Compute cosine similarity between query and many candidates.
-
-        Args:
-            query_vec: Query vector (1-D).
-            candidates: List of (chunk_id, vector) pairs.
-
-        Returns:
-            List of (chunk_id, score) sorted descending by score.
-        """
-        results: list[tuple[int, float]] = []
-        for cid, vec in candidates:
-            score = TfidfEmbedder.cosine_similarity(query_vec, vec)
-            results.append((cid, score))
-        results.sort(key=lambda x: x[1], reverse=True)
-        return results
-
-    # -- Serialization ---------------------------------------------------------
+    # -- Serialization (optional cache) ------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize embedder state for database storage."""
+        """Serialize fitted state for persistence."""
         return {
             "vocab": self.vocab.copy(),
             "doc_freq": {str(k): v for k, v in self.doc_freq.items()},
             "num_docs": self.num_docs,
+            "min_df": self._min_df,
+            "_dim": self._dim,
+            "_fitted": self._fitted,
         }
 
-    def from_dict(self, data: dict[str, Any]) -> None:
-        """Restore embedder state from a dictionary."""
+    def from_dict(self, data: dict[str, Any]) -> TfidfEmbedder:
+        """Restore fitted state from a dictionary."""
         self.vocab = data.get("vocab", {})
         self.doc_freq = {int(k): v for k, v in data.get("doc_freq", {}).items()}
         self.num_docs = data.get("num_docs", 0)
+        self._min_df = data.get("min_df", 1)
+        self._dim = data.get("_dim", 0)
+        self._fitted = data.get("_fitted", False)
+        return self
 
 
 # ---------------------------------------------------------------------------
-# Vector serialization helpers
+# Semantic embedder (sentence-transformers)
+# ---------------------------------------------------------------------------
+
+
+class SemanticEmbedder(BaseEmbedder):
+    """Sentence-transformers based semantic embedder.
+
+    The model is loaded lazily on first ``embed()`` call, so creating an
+    instance is cheap until the first actual embedding operation.
+
+    Parameters
+    ----------
+    model_name : str
+        HuggingFace model name or path.  Defaults to a multilingual model
+        that handles both Chinese and English well.
+    """
+
+    def __init__(self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2") -> None:
+        self._model_name = model_name
+        self._model = None  # lazy-loaded
+        self._dim: int | None = None
+
+    # -- BaseEmbedder interface -------------------------------------------
+
+    def embed(self, texts: list[str]) -> list[np.ndarray]:
+        model = self._load_model()
+        embeddings = model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+        # embeddings shape: (n, dim)
+        return [embeddings[i] for i in range(embeddings.shape[0])]
+
+    def embed_query(self, text: str) -> np.ndarray:
+        return self.embed([text])[0]
+
+    @property
+    def dimension(self) -> int:
+        if self._dim is not None:
+            return self._dim
+        # Probe: embed a dummy string to learn dimension
+        dummy = self.embed(["dummy"])
+        self._dim = dummy[0].shape[0]
+        return self._dim
+
+    @property
+    def name(self) -> str:
+        return "semantic"
+
+    # -- Internal ----------------------------------------------------------
+
+    def _load_model(self):
+        """Lazy-load the sentence-transformers model."""
+        if self._model is not None:
+            return self._model
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as exc:
+            raise ImportError(
+                "SemanticEmbedder requires sentence-transformers.\n"
+                "Install: pip install sentence-transformers"
+            ) from exc
+
+        self._model = SentenceTransformer(
+            self._model_name,
+            device="cpu",
+        )
+        return self._model
+
+
+# ---------------------------------------------------------------------------
+# Cosine similarity helpers (preserved for backward compatibility)
+# ---------------------------------------------------------------------------
+
+
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """Cosine similarity between two vectors."""
+    if a.size == 0 or b.size == 0:
+        return 0.0
+    dot = float(np.dot(a, b))
+    norm_a = float(np.linalg.norm(a))
+    norm_b = float(np.linalg.norm(b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def batch_cosine_similarity(
+    query_vec: np.ndarray, candidates: list[tuple[int, np.ndarray]]
+) -> list[tuple[int, float]]:
+    """Compute cosine similarity between query and many candidates.
+
+    Args:
+        query_vec: Query vector (1-D).
+        candidates: List of (chunk_id, vector) pairs.
+
+    Returns:
+        List of (chunk_id, score) sorted descending by score.
+    """
+    results: list[tuple[int, float]] = []
+    for cid, vec in candidates:
+        score = cosine_similarity(query_vec, vec)
+        results.append((cid, score))
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Vector serialization (format-agnostic)
 # ---------------------------------------------------------------------------
 
 

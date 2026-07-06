@@ -22,16 +22,6 @@ class SQLiteStore:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA foreign_keys=ON")
 
-            # Performance indexes
-            connection.execute("""
-                CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
-                ON sessions(updated_at)
-            """)
-            connection.execute("""
-                CREATE INDEX IF NOT EXISTS idx_chats_session_id
-                ON chats(session_id)
-            """)
-
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,6 +40,16 @@ class SQLiteStore:
                     created_at TEXT NOT NULL,
                     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
                 )
+            """)
+
+            # Performance indexes (after their respective tables exist)
+            connection.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
+                ON sessions(updated_at)
+            """)
+            connection.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chats_session_id
+                ON chats(session_id)
             """)
 
             connection.execute("""
@@ -89,6 +89,48 @@ class SQLiteStore:
                     value TEXT NOT NULL
                 )
             """)
+
+            # --- FTS5 full-text search index for chunks (optional, try) ---
+            try:
+                connection.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                        content, content=chunks, content_rowid=id
+                    )
+                """)
+            except sqlite3.OperationalError:
+                pass  # FTS5 may not be available in all SQLite builds
+
+            # FTS5 sync triggers (same try/except)
+            try:
+                connection.execute("""
+                    CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks
+                    BEGIN
+                        INSERT INTO chunks_fts(rowid, content) VALUES (new.id, new.content);
+                    END
+                """)
+            except sqlite3.OperationalError:
+                pass
+            try:
+                connection.execute("""
+                    CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks
+                    BEGIN
+                        INSERT INTO chunks_fts(chunks_fts, rowid, content)
+                        VALUES('delete', old.id, old.content);
+                    END
+                """)
+            except sqlite3.OperationalError:
+                pass
+            try:
+                connection.execute("""
+                    CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks
+                    BEGIN
+                        INSERT INTO chunks_fts(chunks_fts, rowid, content)
+                        VALUES('delete', old.id, old.content);
+                        INSERT INTO chunks_fts(rowid, content) VALUES (new.id, new.content);
+                    END
+                """)
+            except sqlite3.OperationalError:
+                pass
 
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS llm_models (
@@ -341,6 +383,41 @@ class SQLiteStore:
             "content": row[2],
             "filename": row[3],
         }
+
+    # -- FTS5 full-text search ------------------------------------------------
+
+    def search_chunks_fts(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Search chunks using SQLite FTS5 (if available).
+
+        Returns a list of dicts with keys: chunk_id, document_id, content,
+        filename, rank.  Empty list if FTS5 is not available.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as connection:
+                cursor = connection.execute(
+                    "SELECT c.id, c.document_id, c.content, d.filename, "
+                    "       rank as fts_rank "
+                    "FROM chunks_fts "
+                    "JOIN chunks c ON chunks_fts.rowid = c.id "
+                    "JOIN documents d ON c.document_id = d.id "
+                    "WHERE chunks_fts MATCH ? "
+                    "ORDER BY rank "
+                    "LIMIT ?",
+                    (query, limit),
+                )
+                rows = cursor.fetchall()
+            return [
+                {
+                    "chunk_id": row[0],
+                    "document_id": row[1],
+                    "content": row[2],
+                    "filename": row[3],
+                    "rank": row[4],
+                }
+                for row in rows
+            ]
+        except sqlite3.OperationalError:
+            return []
 
     # -- Embeddings ------------------------------------------------------------
 

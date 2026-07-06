@@ -1,4 +1,7 @@
-"""Document parsing pipeline supporting PDF, DOCX, TXT, and Markdown."""
+"""Document parsing pipeline supporting PDF, DOCX, TXT, and Markdown.
+
+Upgraded to use structure-aware chunking (see ``agentflow.knowledge.chunking``).
+"""
 
 from __future__ import annotations
 
@@ -6,14 +9,26 @@ import re
 from pathlib import Path
 from typing import IO
 
+from agentflow.knowledge.chunking import chunk_document
 
-def parse_document(file_path: str | Path, file_type: str | None = None) -> list[str]:
+
+def parse_document(
+    file_path: str | Path,
+    file_type: str | None = None,
+    chunk_size: int = 500,
+    chunk_overlap: int = 50,
+) -> list[str]:
     """Parse a document and return a list of text chunks.
+
+    Uses structure-aware chunking (heading-based for Markdown, definition-
+    boundary for code, paragraph-based for others).
 
     Args:
         file_path: Path to the document file.
-        file_type: Optional override (e.g. "pdf", "docx", "txt", "md").
+        file_type: Optional override (e.g. ``"pdf"``, ``"docx"``, ``"txt"``, ``"md"``).
                    Auto-detected from extension if not provided.
+        chunk_size: Target character count per chunk.
+        chunk_overlap: Character overlap between consecutive chunks.
 
     Returns:
         A list of text chunks from the document.
@@ -23,7 +38,7 @@ def parse_document(file_path: str | Path, file_type: str | None = None) -> list[
         file_type = path.suffix.lstrip(".").lower()
 
     raw_text = _read_raw(path, file_type)
-    return chunk_text(raw_text)
+    return chunk_document(raw_text, file_type, chunk_size=chunk_size, overlap=chunk_overlap)
 
 
 def _read_raw(path: Path, file_type: str) -> str:
@@ -99,48 +114,8 @@ def _strip_frontmatter(text: str) -> str:
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
     """Split text into overlapping chunks by paragraph boundaries.
 
-    Args:
-        text: The full document text.
-        chunk_size: Target number of characters per chunk.
-        overlap: Number of characters of overlap between consecutive chunks.
-
-    Returns:
-        A list of text chunks.
+    .. deprecated::
+       Use ``agentflow.knowledge.chunking.chunk_by_paragraph`` instead.
     """
-    if not text.strip():
-        return []
-
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-    chunks: list[str] = []
-    current: list[str] = []
-    current_len = 0
-
-    for para in paragraphs:
-        para_len = len(para)
-        if current_len + para_len <= chunk_size:
-            current.append(para)
-            current_len += para_len + 2  # account for separator
-        else:
-            if current:
-                chunks.append("\n\n".join(current))
-            # Start a new chunk with overlap from the tail of the previous
-            overlap_text = _get_overlap_text(current, overlap) if overlap > 0 else ""
-            current = [overlap_text, para] if overlap_text else [para]
-            current_len = len(overlap_text) + para_len + 2
-
-    if current:
-        chunks.append("\n\n".join(current))
-
-    return chunks or [text]
-
-
-def _get_overlap_text(paragraphs: list[str], overlap_chars: int) -> str:
-    """Take the last ~overlap_chars characters from a list of paragraphs."""
-    text = "\n\n".join(paragraphs)
-    if len(text) <= overlap_chars:
-        return text
-    # Try to break at a paragraph boundary within the overlap window
-    tail = text[-overlap_chars:]
-    if "\n\n" in tail:
-        tail = tail[tail.index("\n\n") + 2 :]
-    return tail
+    from agentflow.knowledge.chunking import chunk_by_paragraph
+    return chunk_by_paragraph(text, chunk_size, overlap)
