@@ -33,7 +33,18 @@ class PythonAgent(AgentProtocol):
 
         if code:
             logger.info("Executing Python code (%d chars)", len(code))
-            result = self.tool.execute(code=code)
+            result_raw = self.tool.execute(code=code)
+            # ToolResult -> dict for backward compat with state["python_result"]
+            if hasattr(result_raw, "result") and isinstance(result_raw.result, dict):
+                result = result_raw.result
+            else:
+                result = {
+                    "status": "ok" if getattr(result_raw, "success", False) else "error",
+                    "stdout": str(getattr(result_raw, "result", "")),
+                    "stderr": getattr(result_raw, "error", "") or "",
+                    "return_code": 0 if getattr(result_raw, "success", False) else -1,
+                    "duration": getattr(result_raw, "duration", 0.0),
+                }
         else:
             logger.info("No Python code block found")
             result = {

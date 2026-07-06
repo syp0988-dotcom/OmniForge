@@ -125,3 +125,23 @@ register(AgentInfo(
     capabilities=["report generation", "LLM summarization"],
     module_path="agentflow.agents.report.agent",
 ))
+
+register(AgentInfo(
+    key="project_structure",
+    name="Project Structure Planner",
+    description="Generates complete project directory trees from user requirements",
+    category="planning",
+    status="active",
+    capabilities=["project scaffolding", "directory tree generation", "template matching"],
+    module_path="agentflow.agents.project_structure_planner.agent",
+))
+
+register(AgentInfo(
+    key="tool_executor",
+    name="Tool Executor",
+    description="Central dispatch for all tool tasks — routes Planner tasks to registered tools via ToolRegistry",
+    category="execution",
+    status="active",
+    capabilities=["task dispatch", "tool lifecycle management", "batch execution"],
+    module_path="agentflow.graph.executor",
+))

@@ -1,4 +1,10 @@
-"""PythonTool — sandboxed Python code execution in a subprocess."""
+"""PythonTool — sandboxed Python code execution in a subprocess.
+
+All execution runs in a temporary directory with a minimal environment.
+Syntax is validated via ``ast.parse()`` before execution.
+
+Returns unified ``ToolResult`` with execution details in ``result``.
+"""
 
 from __future__ import annotations
 
@@ -11,67 +17,82 @@ import time
 from typing import Any
 
 from agentflow.tools.base import BaseTool
+from agentflow.tools.result import ToolResult
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("python_tool")
 
-# Env vars to preserve for subprocess stability (PATH, SSL certs, etc.)
-_SAFE_ENV_KEYS = {"PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "TMP", "TEMP",
-                   "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"}
+# Env vars to preserve for subprocess stability
+_SAFE_ENV_KEYS = {
+    "PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "TMP", "TEMP",
+    "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE",
+}
 
 
 def _build_sandbox_env() -> dict[str, str]:
-    """Build a minimal environment keeping only safe system variables."""
+    """Minimal environment — only safe system variables."""
     return {k: v for k, v in os.environ.items() if k in _SAFE_ENV_KEYS}
 
 
 class PythonTool(BaseTool):
-    """Execute Python code in a subprocess with timeout and output limits.
-
-    Executor usage::
-
-        executor.execute(ctx, Task(
-            goal="执行 Python 脚本",
-            tool="python",
-            input={"code": "print('hello')"},
-        ))
-    """
+    """Execute Python code in a subprocess with timeout and output limits."""
 
     name = "python"
+    description = "Sandboxed Python code execution with timeout"
 
     def __init__(self, timeout: int = 30, max_output_chars: int = 10_000) -> None:
         self.timeout = timeout
         self.max_output_chars = max_output_chars
 
-    def execute(self, code: str = "", **kwargs: Any) -> dict[str, Any]:
+    # ------------------------------------------------------------------
+    # Introspection
+    # ------------------------------------------------------------------
+
+    def capabilities(self) -> list[str]:
+        return ["python.execute", "python.script"]
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+
+    def validate(self, code: str = "", **kwargs: Any) -> tuple[bool, str]:
+        """Check that the code is syntactically valid Python."""
+        code = code or kwargs.get("code", "")
+        if not code.strip():
+            return False, "No code provided"
+        try:
+            ast.parse(code)
+            return True, ""
+        except SyntaxError as e:
+            return False, f"Syntax error: {e}"
+
+    # ------------------------------------------------------------------
+    # Execute
+    # ------------------------------------------------------------------
+
+    def execute(self, code: str = "", **kwargs: Any) -> ToolResult:
         """Execute Python code and return structured results.
 
         Args:
-            code: Python source code to execute.
+            code: Python source to execute.
 
         Returns:
-            dict with keys: status, stdout, stderr, return_code, duration.
+            ``ToolResult`` with ``result`` containing:
+            ``{"status", "stdout", "stderr", "return_code", "duration"}``
         """
+        code = code or kwargs.get("code", "")
         if not code.strip():
-            return {
-                "status": "no_code",
-                "stdout": "",
-                "stderr": "",
-                "return_code": 0,
-                "duration": 0.0,
-            }
+            return ToolResult.ok(
+                self.name, "execute",
+                result={"status": "no_code", "stdout": "", "stderr": "",
+                        "return_code": 0, "duration": 0.0},
+                message="No code provided",
+            )
 
         # Syntax validation
-        try:
-            ast.parse(code)
-        except SyntaxError as e:
-            return {
-                "status": "syntax_error",
-                "stdout": "",
-                "stderr": f"SyntaxError: {e}",
-                "return_code": -1,
-                "duration": 0.0,
-            }
+        valid, err = self.validate(code=code)
+        if not valid:
+            return ToolResult.fail(self.name, "execute", err)
 
         start = time.time()
         try:
@@ -88,28 +109,34 @@ class PythonTool(BaseTool):
             duration = round(time.time() - start, 3)
             stdout = (proc.stdout or "")[-self.max_output_chars :]
             stderr = (proc.stderr or "")[-self.max_output_chars :]
+            is_ok = proc.returncode == 0
 
-            return {
-                "status": "ok" if proc.returncode == 0 else "error",
-                "stdout": stdout,
-                "stderr": stderr,
-                "return_code": proc.returncode,
-                "duration": duration,
-            }
+            return ToolResult(
+                success=is_ok,
+                tool=self.name,
+                action="execute",
+                result={
+                    "status": "ok" if is_ok else "error",
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "return_code": proc.returncode,
+                    "duration": duration,
+                },
+                message=f"Python {'succeeded' if is_ok else 'failed'} (exit={proc.returncode})",
+                duration=duration,
+            )
 
         except subprocess.TimeoutExpired:
-            return {
-                "status": "timeout",
-                "stdout": "",
-                "stderr": "",
-                "return_code": -1,
-                "duration": float(self.timeout),
-            }
+            return ToolResult.fail(
+                self.name, "execute",
+                f"Execution timed out after {self.timeout}s",
+                result={"status": "timeout", "stdout": "", "stderr": "",
+                        "return_code": -1, "duration": float(self.timeout)},
+            )
         except FileNotFoundError:
-            return {
-                "status": "error",
-                "stdout": "",
-                "stderr": "Python interpreter not found",
-                "return_code": -1,
-                "duration": 0.0,
-            }
+            return ToolResult.fail(
+                self.name, "execute",
+                "Python interpreter not found",
+                result={"status": "error", "stdout": "", "stderr": "",
+                        "return_code": -1, "duration": 0.0},
+            )

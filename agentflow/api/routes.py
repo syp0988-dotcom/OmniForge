@@ -174,6 +174,8 @@ async def chat_stream(request: ChatRequest):
                         yield _sse_event("searching", {"phase": "搜索网络信息"})
                     elif node_name == "python":
                         yield _sse_event("executing", {"phase": "执行代码"})
+                    elif node_name == "tool_executor":
+                        yield _sse_event("executing", {"phase": "执行文件系统/工具操作"})
                     elif node_name == "answer":
                         yield _sse_event("generating", {"phase": "生成回答"})
                     elif node_name == "memory":
@@ -556,3 +558,41 @@ def clear_memories(category: str = "") -> JSONResponse:
     from agentflow.services.long_term_memory import LongTermMemory
     LongTermMemory(db=store).clear(category=category)
     return JSONResponse(content={"status": "cleared"})
+
+
+# -- Tool introspection -------------------------------------------------------
+
+
+@router.get("/tools")
+def list_tools() -> list[dict[str, object]]:
+    """List all registered tools with metadata."""
+    from agentflow.graph.workflow import get_executor
+    ex = get_executor()
+    if ex is None:
+        return []
+    return ex.tool_metadata()
+
+
+@router.get("/tools/capabilities")
+def list_tool_capabilities() -> list[str]:
+    """List all aggregated capabilities from registered tools."""
+    from agentflow.graph.workflow import get_executor
+    ex = get_executor()
+    if ex is None:
+        return []
+    return ex.get_capabilities()
+
+
+@router.get("/tools/executor")
+def executor_status() -> dict[str, object]:
+    """Return the Executor's status summary."""
+    from agentflow.graph.workflow import get_executor
+    ex = get_executor()
+    if ex is None:
+        return {"status": "not_initialised"}
+    return {
+        "status": "ready",
+        "tools": ex.list_tools(),
+        "capabilities": ex.get_capabilities(),
+        "summary": ex.summary,
+    }

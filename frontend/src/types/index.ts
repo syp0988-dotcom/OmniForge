@@ -95,3 +95,22 @@ export interface AgentInfo {
   capabilities: string[]
   module_path: string
 }
+
+export interface ToolInfo {
+  name: string
+  description: string
+  actions: string[]
+  version: string
+  metadata?: Record<string, unknown>
+}
+
+export interface ToolCapability {
+  action: string
+  tool: string
+  description: string
+}
+
+export interface ToolExecutorSummary {
+  registry: Record<string, string[]>
+  capabilities: string[]
+}

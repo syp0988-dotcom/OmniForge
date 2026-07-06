@@ -3,33 +3,24 @@
 The Planner is the **single entry point** for task planning in the system:
 
   - Analyses the user question and decides **whether** tools are needed
-  - Decides **which capabilities** are required (never tool names directly)
   - Outputs a structured ``Plan`` with concrete ``Task`` objects
-  - Falls back to rule-based planning when the LLM is unavailable or returns
-    unparseable output
+  - Supports two task formats:
+      * **New**: ``{"tool": "filesystem", "action": "mkdir", "input": {...}}``
+      * **Legacy**: ``{"capability": "web.search"}`` (resolved via CapabilityRegistry)
+  - Falls back to rule-based planning when the LLM is unavailable
 
 Architecture::
 
     RouterAgent  (category classification)
          │
          ▼
-    PlannerAgent
-         │
-    ┌────┴────────────┐
-    │  LLM Planner    │  ← primary path (deepseek-reasoner)
-    │  Rule Fallback  │  ← fallback when LLM fails
-    └────┬────────────┘
+    PlannerAgent  (LLM-first, rule-fallback)
          │
          ▼
-    Plan (direct_answer, tasks[].capability)
-         │
-    CapabilityRegistry.resolve()
+    Plan (tasks[] with tool, action, goal, input)
          │
          ▼
-    Task (tool resolved, ready for Executor)
-         │
-         ▼
-    Executor → Tool.execute()
+    Executor → ToolRegistry → BaseTool.execute()
 """
 
 from __future__ import annotations
@@ -55,19 +46,37 @@ logger = build_logger("planner")
 _TOOL_TO_NODE: dict[str, str] = {
     "search": "search",
     "python": "python",
+    "filesystem": "tool_executor",
+    "git": "tool_executor",
+    "browser": "tool_executor",
+    "database": "tool_executor",
+    "mcp": "tool_executor",
 }
 
 
 class PlannerAgent(AgentProtocol):
-    """Analyse the user question and produce a capability-oriented Plan.
+    """Analyse the user question and produce a Plan with explicit task objects.
 
-    Design decisions:
-      - The LLM path uses capabilities (``web.search``, ``python.execute``).
-        The rule path does the same for consistency.
-      - Capabilities are resolved to tool names *after* plan generation,
-        so the Planner never embeds tool names directly.
-      - ``direct_answer=True`` signals that no tool is needed; the AnswerAgent
-        can respond immediately.
+    Supports two task formats:
+
+    **New format** (preferred)::
+
+        {
+            "tool": "filesystem",
+            "action": "mkdir",
+            "goal": "创建项目目录",
+            "input": {"path": "app"}
+        }
+
+    **Legacy format** (backward compat)::
+
+        {
+            "capability": "web.search",
+            "goal": "搜索网络信息"
+        }
+
+    Legacy tasks are resolved via CapabilityRegistry → tool name.
+    New format tasks are used directly as-is.
     """
 
     def __init__(self) -> None:
@@ -211,33 +220,44 @@ class PlannerAgent(AgentProtocol):
     def _build_plan_from_json(data: dict[str, Any]) -> Plan:
         """Convert a validated JSON dict into a Plan object.
 
-        Supports two JSON schemas:
+        Supports three JSON schemas (auto-detected):
 
-        **New format** (preferred)::
-
-            {
-                "need_web": bool,
-                "tool": "web.search" | "python.execute" | "",
-                "intent": "weather" | "news" | ... | "",
-                "reasoning": str
-            }
-
-        **Legacy format** (backward compatible)::
+        **1. Explicit task format** (preferred)::
 
             {
-                "direct_answer": bool,
-                "reasoning": str,
-                "tasks": [{"goal": str, "capability": str}]
+                "direct_answer": false,
+                "reasoning": "...",
+                "tasks": [
+                    {"tool": "filesystem", "action": "mkdir", "goal": "...", "input": {...}},
+                    {"tool": "search", "action": "web.search", "goal": "...", "input": {...}}
+                ]
             }
+
+        **2. need_web format** (legacy)::
+
+            {"need_web": bool, "tool": "web.search", "intent": "...", "reasoning": "..."}
+
+        **3. Capability format** (legacy)::
+
+            {"direct_answer": bool, "reasoning": str, "tasks": [{"goal": str, "capability": str}]}
 
         Raises ``ValueError`` when required fields are missing or invalid.
         """
-        # --- Detect format: new (need_web) vs legacy (direct_answer) ---
+        # --- Detect format ---
         if "need_web" in data:
             return PlannerAgent._build_plan_from_new_format(data)
 
-        # --- Legacy format handling ---
-        return PlannerAgent._build_plan_from_legacy_format(data)
+        if "direct_answer" in data:
+            tasks_raw = data.get("tasks", [])
+            # Heuristic: if any task has a "tool" key, it's the explicit format
+            if tasks_raw and isinstance(tasks_raw, list) and any(
+                isinstance(t, dict) and "tool" in t for t in tasks_raw
+            ):
+                return PlannerAgent._build_plan_from_explicit_tasks(data)
+            return PlannerAgent._build_plan_from_legacy_format(data)
+
+        # Fallback: treat as explicit format
+        return PlannerAgent._build_plan_from_explicit_tasks(data)
 
     @staticmethod
     def _build_plan_from_new_format(data: dict[str, Any]) -> Plan:
@@ -329,9 +349,67 @@ class PlannerAgent(AgentProtocol):
             intent=str(data.get("intent", "")),
         )
 
-    # ------------------------------------------------------------------
-    # Capability → Tool resolution
-    # ------------------------------------------------------------------
+    @staticmethod
+    def _build_plan_from_explicit_tasks(data: dict[str, Any]) -> Plan:
+        """Build Plan from the new explicit task format.
+
+        Each task has ``tool``, ``action``, ``goal``, and ``input`` fields::
+
+            {"tool": "filesystem", "action": "mkdir", "goal": "创建目录",
+             "input": {"path": "app"}}
+        """
+        direct_answer = bool(data.get("direct_answer", False))
+        tasks_raw = data.get("tasks", [])
+        reasoning = str(data.get("reasoning", ""))
+
+        if not isinstance(tasks_raw, list):
+            raise ValueError("'tasks' must be a list")
+
+        tasks: list[Task] = []
+        for i, item in enumerate(tasks_raw):
+            if not isinstance(item, dict):
+                logger.warning("Skipping non-dict task entry at index %d", i)
+                continue
+
+            tool = str(item.get("tool", "")).strip()
+            action = str(item.get("action", "")).strip()
+            goal = str(item.get("goal", "")).strip()
+            inp = item.get("input", {})
+
+            if not isinstance(inp, dict):
+                logger.warning("Task %d 'input' is not a dict; resetting", i)
+                inp = {}
+
+            if not tool:
+                logger.warning("Task %d has no 'tool'; skipping", i)
+                continue
+
+            # Build capability from tool.action for backward compat
+            capability = f"{tool}.{action}" if action else tool
+
+            tasks.append(Task(
+                goal=goal or f"执行 {tool}.{action}" if action else f"执行 {tool}",
+                capability=capability,
+                tool=tool,
+                agent="planner",
+                input=inp,
+            ))
+
+        # Consistency check
+        if direct_answer and tasks:
+            logger.warning(
+                "Plan has direct_answer=true but %d tasks; clearing tasks",
+                len(tasks),
+            )
+            tasks = []
+
+        return Plan(
+            goal="",
+            category="",
+            tasks=tasks,
+            direct_answer=direct_answer,
+            reasoning=reasoning,
+        )
 
     @staticmethod
     def _resolve_capabilities(plan: Plan) -> None:

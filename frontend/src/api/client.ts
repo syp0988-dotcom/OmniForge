@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-import type { AgentInfo, CreatedFile, Session } from '@/types'
+import type { AgentInfo, CreatedFile, Session, ToolInfo, ToolCapability, ToolExecutorSummary } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
@@ -15,11 +15,13 @@ export async function postChatStream(
   history: Array<{ role: string; content: string }>,
   sessionId: number | undefined,
   onEvent: (event: string, data: Record<string, unknown>) => void,
+  signal?: AbortSignal,
 ): Promise<{ answer: string; session_id?: number }> {
   const response = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, history, session_id: sessionId }),
+    signal,
   })
 
   if (!response.ok) {
@@ -117,6 +119,23 @@ export async function searchKnowledge(query: string, topK = 5) {
 export async function getAgents() {
   const resp = await axios.get(`${API_BASE}/agents`)
   return resp.data as AgentInfo[]
+}
+
+/* ---- Tools introspection ------------------------------------------------ */
+
+export async function getTools() {
+  const resp = await axios.get(`${API_BASE}/tools`)
+  return resp.data as ToolInfo[]
+}
+
+export async function getCapabilities() {
+  const resp = await axios.get(`${API_BASE}/tools/capabilities`)
+  return resp.data as ToolCapability[]
+}
+
+export async function getExecutor() {
+  const resp = await axios.get(`${API_BASE}/tools/executor`)
+  return resp.data as ToolExecutorSummary
 }
 
 /* ---- Sessions ----------------------------------------------------------- */

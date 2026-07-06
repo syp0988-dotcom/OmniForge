@@ -47,8 +47,9 @@
           >
             <Mic class="w-4 h-4" />
           </button>
-          <!-- Send -->
+          <!-- Send / Stop -->
           <button
+            v-if="!chatState.thinking.value"
             :disabled="!text.trim()"
             class="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-150"
             :class="
@@ -59,6 +60,14 @@
             @click="sendMessage"
           >
             <ArrowUp class="w-4 h-4" />
+          </button>
+          <button
+            v-else
+            class="w-8 h-8 rounded-full flex items-center justify-center bg-red-500 text-white hover:bg-red-600 transition-all duration-150 animate-pulse"
+            title="中断生成 (ESC)"
+            @click="chatState.stopChat()"
+          >
+            <Square class="w-3.5 h-3.5 fill-current" />
           </button>
         </div>
       </div>
@@ -80,8 +89,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, inject } from 'vue'
-import { Mic, ArrowUp } from 'lucide-vue-next'
+import { ref, inject, onMounted, onUnmounted } from 'vue'
+import { Mic, ArrowUp, Square } from 'lucide-vue-next'
 import UploadButton from './UploadButton.vue'
 import ModelSelector from './ModelSelector.vue'
 import type { ChatState } from '@/composables/useChatState'
@@ -141,6 +150,17 @@ async function onDrop(e: DragEvent) {
 function handleUpload(files: File[]) {
   chatState.uploadFiles(files)
 }
+
+/* ---- Global ESC to stop ---- */
+function onGlobalKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && chatState.thinking.value) {
+    e.preventDefault()
+    chatState.stopChat()
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onGlobalKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onGlobalKeydown))
 
 defineExpose({ focus: () => textareaRef.value?.focus() })
 </script>

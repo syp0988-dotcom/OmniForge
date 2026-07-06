@@ -1,73 +1,85 @@
-"""Executor — Task lifecycle manager for the Agent Framework.
+"""Executor — task lifecycle manager backed by the ToolRegistry.
 
-The Executor routes Tasks to the correct Tool via a typed registry and
-manages the full Task lifecycle:
+The Executor is the single dispatch point between the Planner's tasks and
+the concrete Tool implementations.  It:
 
-  - Status transitions (READY → RUNNING → COMPLETED / FAILED)
-  - Tool dispatch via ``tool.execute(**task.input)`` (uniform BaseTool protocol)
-  - Lifecycle events via EventBus (task.created, tool.started, …)
-  - Error capture and task marking
+  - Receives ``Task`` objects (or task dicts) from the Planner
+  - Validates and dispatches each task to the correct tool via ``ToolRegistry``
+  - Manages the full Task lifecycle (READY → RUNNING → COMPLETED / FAILED)
+  - Emits structured events via ``EventBus``
+  - Records structured logs for every dispatch (tool, action, duration, result)
 
-Every Tool registered with the Executor must implement ``BaseTool`` so that
-dispatch requires zero per-tool adapter code.
+Architecture::
+
+    Planner ──→ Task ──→ Executor ──→ ToolRegistry ──→ BaseTool.execute()
+                                                           │
+                                                           ▼
+                                                      ToolResult
 """
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from agentflow.graph.context import WorkflowContext
 from agentflow.graph.event import EventBus
 from agentflow.graph.task import Task, TaskStatus
 from agentflow.tools.base import BaseTool
+from agentflow.tools.registry import ToolRegistry
+from agentflow.tools.result import ToolResult
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("executor")
 
 
 class Executor:
-    """Routes Tasks to Tools and manages their lifecycle.
+    """Routes Tasks to Tools via the ToolRegistry and manages lifecycle.
 
     Usage::
 
         executor = Executor()
-        executor.register_tool("search", SearchTool())
+        executor.register_tool("search", SearchTool())  # legacy API
+        # or
+        executor.registry.register(SearchTool())         # new plugin API
 
         task = Task(goal="搜索", tool="search", input={"query": "hello"})
-        executor.execute(ctx, task)
+        executor.execute(ctx, task)                      # single task
+        executor.execute_plan(ctx, plan)                 # all tasks in a Plan
     """
 
     def __init__(self) -> None:
-        self._tools: dict[str, BaseTool] = {}
+        self.registry = ToolRegistry()
 
-    # -- Tool registry ----------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Legacy tool registration (delegates to ToolRegistry)
+    # ------------------------------------------------------------------
 
     def register_tool(self, name: str, tool: BaseTool) -> None:
-        """Register a ``BaseTool`` instance under a logical name.
+        """Register a tool by name (legacy — delegates to ``registry``).
 
-        ``name`` is matched against ``task.tool`` at execution time.
+        For new code, prefer ``registry.register(tool)`` which uses the
+        tool's own ``.name`` attribute.
         """
-        if not isinstance(tool, BaseTool):
-            raise TypeError(
-                f"Expected a BaseTool instance for '{name}', got {type(tool).__name__}"
-            )
-        self._tools[name] = tool
-        logger.debug("Registered tool '%s': %s", name, type(tool).__name__)
+        tool.name = name
+        self.registry.register(tool)
 
     def list_tools(self) -> list[str]:
-        """Return the names of all registered tools."""
-        return list(self._tools.keys())
+        """Return names of all registered tools."""
+        return self.registry.list_tools()
 
     def get_tool(self, name: str) -> BaseTool | None:
         """Look up a registered tool by name."""
-        return self._tools.get(name)
+        return self.registry.get(name)
 
-    # -- Execution --------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Single task execution
+    # ------------------------------------------------------------------
 
     def execute(self, ctx: WorkflowContext, task: Task) -> Task:
         """Run a single task through its full lifecycle.
 
-        The task is mutated in place.  Returns the task for chaining.
+        The task is mutated in place and returned for chaining.
 
         Lifecycle::
 
@@ -77,41 +89,159 @@ class Executor:
         if task.status not in (TaskStatus.PENDING, TaskStatus.READY):
             logger.warning(
                 "Task %s is not PENDING/READY (status=%s); skipping.",
-                task.id,
-                task.status.value,
+                task.id, task.status.value,
             )
             return task
 
+        start = time.time()
         EventBus.task_created(ctx, task)
         task.mark_ready()
         task.mark_running()
         EventBus.task_started(ctx, task)
 
-        # Look up the tool
-        tool = self._tools.get(task.tool)
+        # Look up tool via registry
+        tool = self.registry.get(task.tool)
         if tool is None:
-            task.fail(
+            err = (
                 f"No tool registered for '{task.tool}'.  "
-                f"Available: {list(self._tools.keys())}"
+                f"Available: {self.registry.list_tools()}"
             )
+            task.fail(err)
             EventBus.task_failed(ctx, task)
+            logger.error("Task %s failed: %s", task.id, err)
             return task
 
-        # Execute via uniform BaseTool protocol
-        try:
-            EventBus.tool_started(ctx, task, task.input)
-            result = tool.execute(**task.input)
-            task.complete(result)
-            EventBus.tool_finished(ctx, task, result)
+        # Execute via ToolRegistry (which handles validate + dispatch + logging)
+        tool_result = self.registry.execute_task(
+            task.tool,
+            action=task.goal,
+            **task.input,
+        )
+
+        duration = round(time.time() - start, 4)
+
+        if tool_result.success:
+            task.complete(tool_result.to_dict())
+            EventBus.tool_finished(ctx, task, tool_result.to_dict())
             EventBus.task_finished(ctx, task)
             logger.info(
-                "Task %s (%s) completed",
-                task.id,
-                task.tool,
+                "Task %s (%s.%s) completed in %.2fs — %s",
+                task.id, task.tool, task.goal, duration, tool_result.message,
             )
-        except Exception as exc:
-            logger.exception("Task %s (%s) failed", task.id, task.tool)
-            task.fail(str(exc))
+        else:
+            task.fail(tool_result.error or "Unknown error")
             EventBus.task_failed(ctx, task)
+            logger.warning(
+                "Task %s (%s.%s) FAILED in %.2fs — %s",
+                task.id, task.tool, task.goal, duration, tool_result.error,
+            )
 
         return task
+
+    # ------------------------------------------------------------------
+    # Dict-based execution (convenience for tool_executor node)
+    # ------------------------------------------------------------------
+
+    def execute_task_dict(
+        self,
+        task_dict: dict[str, Any],
+        ctx: WorkflowContext | None = None,
+    ) -> ToolResult:
+        """Execute a task described as a dict.
+
+        Expected keys: ``{"tool", "action", ...}``.
+        When a *ctx* is provided, events are emitted.
+        """
+        tool_name = str(task_dict.get("tool", ""))
+        action = str(task_dict.get("action", ""))
+        goal = str(task_dict.get("goal", ""))
+        kwargs = {k: v for k, v in task_dict.items() if k not in ("tool", "action", "goal")}
+
+        if ctx:
+            # Create a lightweight Task for event tracking
+            from agentflow.graph.task import Task as _Task
+            t = _Task(goal=goal or action, tool=tool_name, input=kwargs, agent="executor")
+            return self.execute(ctx, t).result  # type: ignore[return-value]
+        return self.registry.execute_task(tool_name, action=action, **kwargs)
+
+    def execute_batch(
+        self,
+        task_dicts: list[dict[str, Any]],
+        ctx: WorkflowContext | None = None,
+        stop_on_failure: bool = False,
+    ) -> list[ToolResult]:
+        """Execute a sequence of task dicts in order.
+
+        When *stop_on_failure* is True, the batch short-circuits on error.
+        """
+        results: list[ToolResult] = []
+        for td in task_dicts:
+            r = self.execute_task_dict(td, ctx=ctx)
+            results.append(r)
+            if not r.success and stop_on_failure:
+                logger.warning("Batch stopped at task %d due to failure", len(results))
+                break
+        return results
+
+    # ------------------------------------------------------------------
+    # Plan execution (batch from a Plan object)
+    # ------------------------------------------------------------------
+
+    def execute_plan(
+        self,
+        ctx: WorkflowContext,
+        plan: Any,  # Plan dataclass — avoid circular import at type-check level
+        stop_on_failure: bool = False,
+    ) -> list[ToolResult]:
+        """Execute all tasks in a Plan and return their results.
+
+        Each task is converted to a dict and dispatched through the registry.
+        """
+        from agentflow.graph.plan import Plan as _Plan
+
+        if not isinstance(plan, _Plan):
+            logger.warning("execute_plan called with non-Plan object: %s", type(plan).__name__)
+            return []
+
+        results: list[ToolResult] = []
+        for task in plan.tasks:
+            if task.is_terminal:
+                continue
+            task_dict = {
+                "tool": task.tool,
+                "action": task.goal,
+                "goal": task.goal,
+                **task.input,
+            }
+            r = self.execute_task_dict(task_dict, ctx=ctx)
+            results.append(r)
+            if not r.success and stop_on_failure:
+                logger.warning("Plan execution stopped at task %s due to failure", task.id)
+                break
+        return results
+
+    # ------------------------------------------------------------------
+    # Introspection
+    # ------------------------------------------------------------------
+
+    def tool_metadata(self) -> list[dict[str, Any]]:
+        """Return metadata for every registered tool."""
+        return self.registry.list_with_metadata()
+
+    def get_capabilities(self) -> list[str]:
+        """Aggregate capabilities from all registered tools."""
+        caps: list[str] = []
+        for tool in self.registry._tools.values():
+            caps.extend(tool.capabilities())
+        return sorted(set(caps))
+
+    @property
+    def summary(self) -> str:
+        """Human-readable status summary."""
+        tools = self.registry.list_tools()
+        caps = self.get_capabilities()
+        return (
+            f"Executor: {len(tools)} tool(s), {len(caps)} capabilit(ies)\n"
+            f"  Tools: {', '.join(tools)}\n"
+            f"  Capabilities: {', '.join(caps)}"
+        )

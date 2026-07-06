@@ -7,6 +7,9 @@ import {
   deleteDocument,
   searchKnowledge,
   getAgents,
+  getTools,
+  getCapabilities,
+  getExecutor,
   createFile,
   getOutputFiles,
   listSessions,
@@ -18,7 +21,7 @@ import {
   createServerFolder,
   browseDirectory,
 } from '@/api/client'
-import type { Msg, Section, DebugData, KnowledgeDoc, SearchResult, AgentInfo, FileProposal, CreatedFile, Session } from '@/types'
+import type { Msg, Section, DebugData, KnowledgeDoc, SearchResult, AgentInfo, FileProposal, CreatedFile, Session, ToolInfo, ToolCapability, ToolExecutorSummary } from '@/types'
 
 /* ------------------------------------------------------------------ */
 /*  Singleton reactive state shared across all components              */
@@ -45,6 +48,9 @@ const thinking = ref(false)
 const activeSection = ref<Section>('chat')
 const debugData = ref<DebugData | null>(null)
 
+/* Streaming abort — created per request, null when idle */
+const abortController = ref<AbortController | null>(null)
+
 /* Streaming phase — updated live during SSE streaming */
 const streamingPhase = ref<string>('')
 const streamingCategory = ref<string>('')
@@ -56,6 +62,9 @@ const uploading = ref(false)
 const uploadStatus = ref<string | null>(null)
 
 const agents = ref<AgentInfo[]>([])
+const tools = ref<ToolInfo[]>([])
+const toolCapabilities = ref<ToolCapability[]>([])
+const toolExecutor = ref<ToolExecutorSummary | null>(null)
 
 const outputFiles = ref<CreatedFile[]>([])
 const fileProposalStatuses = ref<Record<string, 'pending' | 'created' | 'dismissed'>>({})
@@ -147,6 +156,10 @@ export function useChatState() {
     thinking.value = true
     streamingPhase.value = '发送中...'
 
+    // Create abort controller for this request
+    abortController.value = new AbortController()
+    const signal = abortController.value!.signal
+
     const history = messages.value
       .filter((m) => m.id !== localId)
       .map((m) => ({
@@ -170,11 +183,14 @@ export function useChatState() {
           } else if (event === 'searching') {
             streamingPhase.value = (data.phase as string) || '搜索中...'
           } else if (event === 'executing') {
-            streamingPhase.value = '执行代码...'
+            streamingPhase.value = (data.phase as string) || '执行中...'
           } else if (event === 'generating') {
             streamingPhase.value = '生成回答...'
+          } else if (event === 'tools') {
+            streamingPhase.value = '加载工具列表...'
           }
         },
+        signal,
       )
       reply = result.answer || '[no reply]'
 
@@ -192,7 +208,12 @@ export function useChatState() {
       messages.value = [...messages.value, agentMsg]
       await _refreshSessions()
       streamingPhase.value = ''
-    } catch {
+    } catch (err) {
+      // User aborted → clean up, no fallback
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        streamingPhase.value = '已中断'
+        return
+      }
       // Fallback to non-streaming POST
       try {
         const data = await postChat(text, history, currentSessionId.value ?? undefined)
@@ -228,7 +249,19 @@ export function useChatState() {
       }
     } finally {
       thinking.value = false
-      streamingPhase.value = ''
+      abortController.value = null
+      if (streamingPhase.value === '已中断') {
+        // keep the "已中断" message briefly
+        setTimeout(() => { streamingPhase.value = '' }, 1000)
+      } else {
+        streamingPhase.value = ''
+      }
+    }
+  }
+
+  const stopChat = () => {
+    if (abortController.value) {
+      abortController.value.abort()
     }
   }
 
@@ -289,6 +322,23 @@ export function useChatState() {
     } catch (e) {
       console.warn('Failed to load agents:', e)
       agents.value = []
+    }
+  }
+
+  /* ---- Tools ---- */
+
+  const loadTools = async () => {
+    try {
+      const [toolList, caps, executorSummary] = await Promise.all([
+        getTools(),
+        getCapabilities(),
+        getExecutor(),
+      ])
+      tools.value = toolList
+      toolCapabilities.value = caps
+      toolExecutor.value = executorSummary
+    } catch (e) {
+      console.warn('Failed to load tools:', e)
     }
   }
 
@@ -486,6 +536,9 @@ export function useChatState() {
     uploading,
     uploadStatus,
     agents,
+    tools,
+    toolCapabilities,
+    toolExecutor,
     outputFiles,
     fileProposalStatuses,
     // workspace state
@@ -496,12 +549,15 @@ export function useChatState() {
     workspaceError,
     // chat methods
     handleSend,
+    stopChat,
     newChat,
     switchSession,
     deleteSessionById,
     renameSessionById,
-    // agents methods
+    // agent methods
     loadAgents,
+    // tool methods
+    loadTools,
     // file methods
     createOutputFile,
     dismissProposal,
