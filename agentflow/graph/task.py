@@ -22,25 +22,32 @@ from typing import Any
 class TaskStatus(str, Enum):
     """Full lifecycle states for a single Task.
 
-    The typical flow::
+    Primary states (Task Queue model)::
 
-        PENDING → READY → RUNNING → COMPLETED
-                              ├── → WAITING → READY → RUNNING → COMPLETED
-                              ├── → RETRYING → READY → RUNNING → COMPLETED
-                              └── → FAILED
-        PENDING → SKIPPED
-        RUNNING → CANCELLED
+        TODO → RUNNING → DONE
+                   ├── → FAILED
+                   └── → BLOCKED → TODO
+        TODO → SKIPPED
+
+    Legacy states (kept for backward compat): PENDING, READY, WAITING,
+    RETRYING, COMPLETED, CANCELLED.
     """
 
-    PENDING = "pending"       # Created but not yet ready
-    READY = "ready"           # Ready to execute (dependencies met)
+    # ── Primary states (Task Queue) ──
+    TODO = "todo"             # Waiting to be picked up
     RUNNING = "running"       # Currently executing
-    WAITING = "waiting"       # Blocked on a sub-task or external signal
-    RETRYING = "retrying"     # Will retry after a transient failure
-    COMPLETED = "completed"   # Finished successfully
+    DONE = "done"             # Finished successfully
     FAILED = "failed"         # Finished with an unrecoverable error
-    CANCELLED = "cancelled"   # Aborted before completion
-    SKIPPED = "skipped"       # Deliberately skipped (e.g. preconditions unmet)
+    BLOCKED = "blocked"       # Blocked on dependency or external signal
+    SKIPPED = "skipped"       # Deliberately skipped
+
+    # ── Legacy (kept for backward compat) ──
+    PENDING = "pending"
+    READY = "ready"
+    WAITING = "waiting"
+    RETRYING = "retrying"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
 
 
 @dataclass
@@ -63,11 +70,15 @@ class Task:
         updated_at: ISO-8601 timestamp of last status change.
     """
 
-    goal: str
+    task_id: str = ""
+    title: str = ""
+    priority: int = 50
+    dependencies: list[str] = field(default_factory=list)
+    goal: str = ""
     capability: str = ""
     agent: str = ""
     tool: str = ""
-    status: TaskStatus = TaskStatus.PENDING
+    status: TaskStatus = TaskStatus.TODO
     parent_id: str | None = None
     input: dict[str, Any] = field(default_factory=dict)
     steps: list[dict[str, Any]] = field(default_factory=list)
@@ -136,7 +147,7 @@ class Task:
     @property
     def is_finished(self) -> bool:
         """Whether the task finished successfully."""
-        return self.status == TaskStatus.COMPLETED
+        return self.status in (TaskStatus.COMPLETED, TaskStatus.DONE)
 
     # -- Serialization ----------------------------------------------------------
 
@@ -144,6 +155,10 @@ class Task:
         """Serialize to a plain dict (JSON-safe)."""
         return {
             "id": self.id,
+            "task_id": self.task_id,
+            "title": self.title,
+            "priority": self.priority,
+            "dependencies": list(self.dependencies),
             "goal": self.goal,
             "capability": self.capability,
             "agent": self.agent,
@@ -164,11 +179,15 @@ class Task:
         """Restore a Task from a dict produced by ``to_dict``."""
         return cls(
             id=data.get("id", uuid.uuid4().hex[:12]),
+            task_id=data.get("task_id", ""),
+            title=data.get("title", ""),
+            priority=data.get("priority", 50),
+            dependencies=data.get("dependencies", []),
             goal=data.get("goal", ""),
             capability=data.get("capability", ""),
             agent=data.get("agent", ""),
             tool=data.get("tool", ""),
-            status=TaskStatus(data.get("status", TaskStatus.PENDING.value)),
+            status=TaskStatus(data.get("status", TaskStatus.TODO.value)),
             parent_id=data.get("parent_id"),
             input=data.get("input", {}),
             steps=data.get("steps", []),

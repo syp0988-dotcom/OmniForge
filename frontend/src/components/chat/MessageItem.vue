@@ -40,13 +40,11 @@
 </template>
 
 <script setup lang="ts">
-import { inject, ref, onMounted, onBeforeUnmount } from 'vue'
+import { inject, ref } from 'vue'
 import type { Msg, FileProposal } from '@/types'
 import type { ChatState } from '@/composables/useChatState'
 import MarkdownRenderer from '@/components/markdown/MarkdownRenderer.vue'
 import FileProposalCard from './FileProposalCard.vue'
-
-const avatarImages = ['/images/avatar-1.png', '/images/avatar-2.png', '/images/avatar-3.png']
 
 const props = defineProps<{
   msg: Msg
@@ -55,20 +53,7 @@ const props = defineProps<{
 const chatState = inject<ChatState>('chatState')!
 const loadingProposal = ref<string | null>(null)
 
-const currentAvatarIndex = ref(0)
-const currentAvatar = ref(avatarImages[0])
-let avatarTimer: ReturnType<typeof setInterval> | null = null
-
-onMounted(() => {
-  avatarTimer = setInterval(() => {
-    currentAvatarIndex.value = (currentAvatarIndex.value + 1) % avatarImages.length
-    currentAvatar.value = avatarImages[currentAvatarIndex.value]
-  }, 3000)
-})
-
-onBeforeUnmount(() => {
-  if (avatarTimer) clearInterval(avatarTimer)
-})
+const currentAvatar = ref('/images/avatar-1.png')
 
 function getProposalStatus(suggestionId: string): 'pending' | 'created' | 'dismissed' {
   return chatState.fileProposalStatuses.value[suggestionId] || 'pending'

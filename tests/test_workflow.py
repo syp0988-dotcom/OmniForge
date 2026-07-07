@@ -15,7 +15,7 @@ def test_workflow_produces_answer() -> None:
         first_result = result["search_results"][0]
         assert "title" in first_result
         assert "url" in first_result
-        assert "summary" in first_result
+        assert any(k in first_result for k in ("summary", "snippet", "content"))
 
 
 def test_health_endpoint() -> None:

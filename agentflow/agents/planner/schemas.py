@@ -4,8 +4,11 @@ Each entry in ``TOOL_FUNCTIONS`` follows the ``tools`` parameter format
 of the Chat Completions API so the Planner can pass them directly to
 ``LLMService.complete_with_tools()``.
 
-Function names follow the ``{tool}.{action}`` convention so the Planner
-can parse them back into ``Task`` objects (``tool``, ``action``, ``input``).
+Function names follow the ``{tool}__{action}`` convention (double underscore
+separator) so the Planner can parse them back into ``Task`` objects
+(``tool``, ``action``, ``input``).  Using ``__`` avoids dots in function
+names (which many LLM APIs reject via ``^[a-zA-Z0-9_-]+$``) while still
+allowing dots in action names (e.g. ``web.search``).
 """
 
 from __future__ import annotations
@@ -63,7 +66,7 @@ def _fn(
 
 SEARCH_FUNCTIONS = [
     _fn(
-        "search.web.search",
+        "search__search",
         "Search the web for real-time information (news, weather, prices, etc.)",
         properties={
             "query": {**_STR, "description": "The search query, concise and specific"},
@@ -78,7 +81,7 @@ SEARCH_FUNCTIONS = [
 
 PYTHON_FUNCTIONS = [
     _fn(
-        "python.execute",
+        "python__execute",
         "Execute Python code in a sandboxed subprocess with a 30 s timeout",
         properties={
             "code": {**_STR, "description": "The Python source code to execute"},
@@ -93,13 +96,13 @@ PYTHON_FUNCTIONS = [
 
 FILESYSTEM_FUNCTIONS = [
     _fn(
-        "filesystem.mkdir",
+        "filesystem__mkdir",
         "Create a directory (parents=True, exist_ok=True)",
         properties={"path": {**_STR, "description": "Directory path relative to workspace"}},
         required=["path"],
     ),
     _fn(
-        "filesystem.create_file",
+        "filesystem__create_file",
         "Create a new file (fails if it already exists)",
         properties={
             "path": {**_STR, "description": "File path relative to workspace"},
@@ -108,7 +111,7 @@ FILESYSTEM_FUNCTIONS = [
         required=["path"],
     ),
     _fn(
-        "filesystem.write_file",
+        "filesystem__write_file",
         "Write content to a file (overwrites if exists)",
         properties={
             "path": {**_STR, "description": "File path relative to workspace"},
@@ -117,7 +120,7 @@ FILESYSTEM_FUNCTIONS = [
         required=["path", "content"],
     ),
     _fn(
-        "filesystem.append_file",
+        "filesystem__append_file",
         "Append content to an existing file",
         properties={
             "path": {**_STR, "description": "File path relative to workspace"},
@@ -126,13 +129,13 @@ FILESYSTEM_FUNCTIONS = [
         required=["path", "content"],
     ),
     _fn(
-        "filesystem.read_file",
+        "filesystem__read_file",
         "Read the full contents of a file",
         properties={"path": {**_STR, "description": "File path relative to workspace"}},
         required=["path"],
     ),
     _fn(
-        "filesystem.edit_file",
+        "filesystem__edit_file",
         "Replace the FIRST occurrence of old_string with new_string in a file",
         properties={
             "path": {**_STR, "description": "File path relative to workspace"},
@@ -142,7 +145,7 @@ FILESYSTEM_FUNCTIONS = [
         required=["path", "old_string", "new_string"],
     ),
     _fn(
-        "filesystem.replace_text",
+        "filesystem__replace_text",
         "Replace ALL occurrences matching a regex pattern in a file",
         properties={
             "path": {**_STR, "description": "File path relative to workspace"},
@@ -152,19 +155,19 @@ FILESYSTEM_FUNCTIONS = [
         required=["path", "pattern", "replacement"],
     ),
     _fn(
-        "filesystem.delete_file",
+        "filesystem__delete_file",
         "Delete a single file (not a directory)",
         properties={"path": {**_STR, "description": "File path relative to workspace"}},
         required=["path"],
     ),
     _fn(
-        "filesystem.delete_directory",
+        "filesystem__delete_directory",
         "Delete a directory and all its contents (USE WITH CAUTION)",
         properties={"path": {**_STR, "description": "Directory path relative to workspace"}},
         required=["path"],
     ),
     _fn(
-        "filesystem.move_file",
+        "filesystem__move_file",
         "Move a file from src to dst",
         properties={
             "src": {**_STR, "description": "Source file path"},
@@ -173,7 +176,7 @@ FILESYSTEM_FUNCTIONS = [
         required=["src", "dst"],
     ),
     _fn(
-        "filesystem.copy_file",
+        "filesystem__copy_file",
         "Copy a file from src to dst",
         properties={
             "src": {**_STR, "description": "Source file path"},
@@ -182,7 +185,7 @@ FILESYSTEM_FUNCTIONS = [
         required=["src", "dst"],
     ),
     _fn(
-        "filesystem.rename_file",
+        "filesystem__rename_file",
         "Rename a file or directory within the same parent",
         properties={
             "path": {**_STR, "description": "Current file/directory path"},
@@ -191,20 +194,20 @@ FILESYSTEM_FUNCTIONS = [
         required=["path", "name"],
     ),
     _fn(
-        "filesystem.exists",
+        "filesystem__exists",
         "Check whether a file or directory exists in the workspace",
         properties={"path": {**_STR, "description": "Path to check"}},
         required=["path"],
     ),
     _fn(
-        "filesystem.list_directory",
+        "filesystem__list_directory",
         "List the contents of a directory (non-recursive)",
         properties={
             "path": {**_STR, "description": "Directory path (default: workspace root)"},
         },
     ),
     _fn(
-        "filesystem.tree",
+        "filesystem__tree",
         "Generate a recursive directory tree (text format)",
         properties={
             "path": {**_STR, "description": "Directory path (default: workspace root)"},
@@ -220,17 +223,17 @@ FILESYSTEM_FUNCTIONS = [
 
 GIT_FUNCTIONS = [
     _fn(
-        "git.status",
+        "git__status",
         "Show the working tree status (modified, staged, untracked files)",
         properties={},
     ),
     _fn(
-        "git.diff",
+        "git__diff",
         "Show unstaged changes (diff of working tree vs index)",
         properties={},
     ),
     _fn(
-        "git.add",
+        "git__add",
         "Stage file(s) for commit",
         properties={
             "files": {
@@ -241,7 +244,7 @@ GIT_FUNCTIONS = [
         required=["files"],
     ),
     _fn(
-        "git.commit",
+        "git__commit",
         "Create a new commit with the given message",
         properties={
             "message": {**_STR, "description": "Commit message"},
@@ -249,7 +252,7 @@ GIT_FUNCTIONS = [
         required=["message"],
     ),
     _fn(
-        "git.checkout",
+        "git__checkout",
         "Switch branches or restore files",
         properties={
             "branch": {**_STR, "description": "Branch name to switch to"},
@@ -257,21 +260,21 @@ GIT_FUNCTIONS = [
         required=["branch"],
     ),
     _fn(
-        "git.branch",
+        "git__branch",
         "List branches or create a new branch",
         properties={
             "name": {**_STR, "description": "New branch name (omit to list)"},
         },
     ),
     _fn(
-        "git.log",
+        "git__log",
         "Show commit history",
         properties={
             "max_count": {**_INT, "description": "Max commits to show", "default": 10},
         },
     ),
     _fn(
-        "git.show",
+        "git__show",
         "Show the details of a specific commit",
         properties={
             "hash": {**_STR, "description": "Commit hash to show"},
@@ -286,7 +289,7 @@ GIT_FUNCTIONS = [
 
 BROWSER_FUNCTIONS = [
     _fn(
-        "browser.open_url",
+        "browser__open_url",
         "[LIMITED] Open a URL in a browser — interface only, not fully implemented",
         properties={
             "url": {**_STR, "description": "URL to open"},
@@ -301,7 +304,7 @@ BROWSER_FUNCTIONS = [
 
 DATABASE_FUNCTIONS = [
     _fn(
-        "database.query",
+        "database__query",
         "[LIMITED] Execute a SELECT / read-only SQL query — interface only",
         properties={
             "sql": {**_STR, "description": "SQL query to execute"},
@@ -316,7 +319,7 @@ DATABASE_FUNCTIONS = [
 
 MCP_FUNCTIONS = [
     _fn(
-        "mcp.execute",
+        "mcp__execute",
         "[LIMITED] Invoke an MCP server tool — interface only",
         properties={
             "server": {**_STR, "description": "MCP server name"},
@@ -333,7 +336,7 @@ MCP_FUNCTIONS = [
 
 COMPOSIO_FUNCTIONS = [
     _fn(
-        "composio.execute",
+        "composio__execute",
         "Execute any tool from the Composio platform — 500+ integrations "
         "(Gmail, Slack, GitHub, Notion, Jira, Linear, Google Sheets, etc.). "
         "Pass the tool slug and all required parameters as keyword arguments.",
@@ -375,20 +378,23 @@ def get_tool_schemas() -> list[dict[str, Any]]:
 
 
 def get_function_names() -> list[str]:
-    """Return all registered function names (``tool.action`` format)."""
+    """Return all registered function names (``tool__action`` format)."""
     return [fn["function"]["name"] for fn in TOOL_FUNCTIONS]
 
 
 def parse_function_name(name: str) -> tuple[str, str]:
-    """Parse ``tool.action`` → (tool, action).
+    """Parse ``tool__action`` → (tool, action).
+
+    Uses ``__`` as separator (dots are valid in action names for
+    nested dispatch like ``web.search``).
 
     Examples::
-        >>> parse_function_name("filesystem.mkdir")
+        >>> parse_function_name("filesystem__mkdir")
         ("filesystem", "mkdir")
-        >>> parse_function_name("search.web.search")
-        ("search", "web.search")
+        >>> parse_function_name("search__search")
+        ("search", "search")
     """
-    dot = name.find(".")
-    if dot == -1:
+    sep = name.find("__")
+    if sep == -1:
         return name, ""
-    return name[:dot], name[dot + 1:]
+    return name[:sep], name[sep + 2:]

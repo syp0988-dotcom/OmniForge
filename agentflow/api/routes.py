@@ -80,46 +80,82 @@ def list_agents() -> list[dict[str, object]]:
 # -- Chat -------------------------------------------------------------------
 
 
-@router.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
-    """Handle chat requests through the workflow."""
+@router.post("/chat")
+async def chat(request: ChatRequest):
+    """Handle chat requests — delegates to the streaming generator internally.
+
+    This endpoint is non-blocking (async) and streams the workflow execution
+    in the background, returning only the final result after completion.
+    Previously this was a blocking synchronous call — now it uses the same
+    async infrastructure as ``/chat/stream`` for consistency.
+    """
+    from agentflow.conversation.session_state import SessionState
+    from agentflow.graph.context import WorkflowContext
+
+    # -- Session setup --
+    session_id = request.session_id
+    if session_id is None:
+        sess = get_store().create_session()
+        session_id = sess["id"]
+    else:
+        existing = get_store().get_session(session_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+    history_dicts = [
+        {"role": m.role, "content": m.content} for m in request.history
+    ]
+
+    # Load session_state from DB
+    saved_state_str = get_store().get_session_state(session_id)
+    session_state_dict = json.loads(saved_state_str) if saved_state_str else None
+
+    workflow = build_workflow()
+
+    initial_state: dict = {
+        "question": request.message,
+        "workflow": [],
+        "history": history_dicts,
+    }
+    if history_dicts:
+        initial_state["memory"] = {"history": list(history_dicts)}
+    if session_state_dict:
+        initial_state["session_state"] = SessionState.from_dict(session_state_dict)
+
+    # Use astream to capture all node outputs (same approach as test_debug.py).
+    # Each node in our graph returns the full state dict, so we accumulate
+    # the latest output from each node as the graph progresses.
     try:
-        # Ensure session exists
-        session_id = request.session_id
-        if session_id is None:
-            # Create a new session for anonymous chats
-            sess = get_store().create_session()
-            session_id = sess["id"]
-        else:
-            existing = get_store().get_session(session_id)
-            if existing is None:
-                raise HTTPException(status_code=404, detail="Session not found")
+        final_state: dict | None = None
+        async for event in workflow.astream(initial_state):
+            for node_name, state_update in event.items():
+                # Each node returns the full state dict — capture the latest.
+                final_state = dict(state_update)
+                logger.debug("Node '%s' emitted keys: %s", node_name, list(state_update.keys())[:10])
 
-        workflow = build_workflow()
-        history_dicts = [
-            {"role": m.role, "content": m.content} for m in request.history
-        ]
+        # After all nodes complete, final_state should hold the state after "memory" (the end node).
+        answer = (final_state or {}).get("answer", "")
+        error = (final_state or {}).get("error", "")
 
-        # Load session_state from DB (Conversation Runtime)
-        saved_state_str = get_store().get_session_state(session_id)
-        session_state = json.loads(saved_state_str) if saved_state_str else None
+        logger.info("Chat final_state keys: %s", list((final_state or {}).keys())[:20])
+        if not answer:
+            logger.warning("Chat: answer is empty. error=%s keys=%s",
+                           error, list((final_state or {}).keys())[:20])
 
-        result = run_workflow(
-            workflow,
-            request.message,
-            history=history_dicts,
-            session_state=session_state,
-        )
-
-        # Persist session_state after the turn
-        new_state = result.get("session_state")
-        if new_state and isinstance(new_state, dict):
-            get_store().update_session_state(session_id, json.dumps(new_state, ensure_ascii=False))
-
+        # Persist messages
         get_store().add_message("user", request.message, session_id=session_id)
-        get_store().add_message("assistant", result["answer"], session_id=session_id)
+        if answer:
+            get_store().add_message("assistant", answer, session_id=session_id)
 
-        # Auto-title: use first user message as session title
+        # Persist session_state
+        if final_state:
+            ctx = WorkflowContext(final_state)
+            result_dict = ctx.to_dict()
+            new_state = result_dict.get("session_state")
+            if new_state and isinstance(new_state, dict):
+                get_store().update_session_state(session_id, json.dumps(new_state, ensure_ascii=False))
+
+        # Auto-title
         sess = get_store().get_session(session_id)
         if sess and sess["title"] == "新对话":
             title = request.message[:50]
@@ -128,16 +164,16 @@ def chat(request: ChatRequest) -> ChatResponse:
             get_store().update_session_title(session_id, title)
 
         debug_data = {
-            "category": result.get("category"),
-            "workflow": result.get("workflow"),
-            "search_results": result.get("search_results", []),
-            "router": result.get("router", {}),
+            "goal": (final_state or {}).get("goal_analysis", {}),
+            "category": (final_state or {}).get("category"),
+            "workflow": (final_state or {}).get("workflow"),
+            "search_results": (final_state or {}).get("search_results", []),
         }
         return ChatResponse(
-            reply=result["answer"],
+            reply=answer,
             metadata={"status": "ok", "session_id": session_id},
             debug=debug_data,
-            proposed_files=propose_files(result["answer"]),
+            proposed_files=propose_files(answer),
         )
     except Exception as exc:
         logger.exception("Chat error")
@@ -192,12 +228,16 @@ async def chat_stream(request: ChatRequest):
 
         # -- Stream workflow execution --
         final_state: dict | None = None
+        answer_text: str | None = None  # captured from answer node for chunked delivery
         try:
             async for event in workflow.astream(initial_state):
                 for node_name, state_update in event.items():
-                    if node_name == "router":
-                        category = state_update.get("category", "")
-                        yield _sse_event("thinking", {"phase": "分析问题", "category": category})
+                    if node_name == "goal_analyzer":
+                        goal = state_update.get("goal_analysis", {})
+                        goal_type = goal.get("goal_type", "") if isinstance(goal, dict) else ""
+                        yield _sse_event("thinking", {"phase": "分析用户目标", "goal_type": goal_type})
+                    elif node_name == "capability_analyzer":
+                        yield _sse_event("thinking", {"phase": "分析能力需求"})
                     elif node_name == "planner":
                         yield _sse_event("planning", {"phase": "制定执行计划"})
                     elif node_name == "knowledge":
@@ -207,8 +247,14 @@ async def chat_stream(request: ChatRequest):
                     elif node_name == "python":
                         yield _sse_event("executing", {"phase": "执行代码"})
                     elif node_name == "tool_executor":
-                        yield _sse_event("executing", {"phase": "执行文件系统/工具操作"})
+                        # Emit task details if available
+                        task_id = state_update.get("task_id", "")
+                        phase = f"执行: {task_id}" if task_id else "执行文件系统/工具操作"
+                        yield _sse_event("executing", {"phase": phase})
+                    elif node_name == "reflector":
+                        yield _sse_event("thinking", {"phase": "检查执行结果"})
                     elif node_name == "answer":
+                        answer_text = state_update.get("answer", "")
                         yield _sse_event("generating", {"phase": "生成回答"})
                     elif node_name == "memory":
                         final_state = dict(state_update)
@@ -217,8 +263,16 @@ async def chat_stream(request: ChatRequest):
             yield _sse_event("error", {"error": str(exc)})
             return
 
-        # -- Extract final answer --
-        answer = final_state.get("answer", "") if final_state else ""
+        # -- Deliver answer text in chunks for true streaming feel --
+        answer = answer_text or (final_state.get("answer", "") if final_state else "")
+
+        # Stream answer text incrementally
+        if answer:
+            chunk_size = 15  # characters per chunk
+            for i in range(0, len(answer), chunk_size):
+                chunk = answer[i:i + chunk_size]
+                yield _sse_event("text", {"text": chunk})
+                await asyncio.sleep(0.02)  # small delay for streaming effect
 
         # -- Persist messages --
         get_store().add_message("user", request.message, session_id=session_id)
@@ -436,11 +490,12 @@ def list_output_files(workspace_path: str | None = None) -> list[dict[str, objec
     if not base.exists():
         return []
     files: list[dict[str, object]] = []
-    for p in sorted(base.iterdir()):
+    for p in sorted(base.rglob("*")):
         if p.is_file():
+            rel = p.relative_to(base)
             files.append(
                 {
-                    "filename": p.name,
+                    "filename": str(rel),
                     "size": p.stat().st_size,
                     "created_at": datetime.fromtimestamp(p.stat().st_ctime).isoformat(),
                     "path": str(p),

@@ -23,15 +23,20 @@ from agentflow.graph.task import Task
 class Plan:
     """A structured workflow plan — a sequence of concrete Tasks.
 
+    In the Dynamic Task Queue model, each Plan represents **3-5 new tasks**
+    to add to the global Task Queue.  The Planner is called repeatedly,
+    generating small batches, until ``goal_completed`` is ``True``.
+
     Attributes:
         goal: The overall goal this plan achieves (typically the user question).
         category: Query category from RouterAgent (e.g. "search", "identity").
-        tasks: Ordered list of Task objects to execute.
+        tasks: New tasks to add to the Task Queue (3-5 per invocation).
         direct_answer: If True, answer directly without invoking any tool.
-            Planner sets this when the question requires no tool capability.
         priority: Execution hint ("normal", "high", "low").
         reasoning: Human-readable explanation of why this plan was chosen.
+        intent: Original user intent.
         metadata: Extensible metadata for future use.
+        goal_completed: True when the entire goal has been achieved.
     """
 
     goal: str
@@ -42,6 +47,9 @@ class Plan:
     reasoning: str = ""
     intent: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    # Dynamic Task Queue
+    goal_completed: bool = False
 
     # -- Derived helpers -------------------------------------------------------
 
@@ -87,6 +95,7 @@ class Plan:
             "required_tools": self.required_tools,
             "active_agents": self.active_agents,
             "metadata": self.metadata,
+            "goal_completed": self.goal_completed,
         }
 
     @classmethod
@@ -103,4 +112,5 @@ class Plan:
             reasoning=data.get("reasoning", ""),
             intent=data.get("intent", ""),
             metadata=data.get("metadata", {}),
+            goal_completed=data.get("goal_completed", False),
         )

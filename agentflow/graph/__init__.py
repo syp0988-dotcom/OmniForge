@@ -21,10 +21,27 @@ __all__ = [
     "SessionState",
     "Task",
     "TaskStatus",
+    "TaskQueue",
+    "ContextBuilder",
     "build_workflow",
     "get_executor",
     "run_workflow",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy-import optional modules to avoid circular imports."""
+    if name == "TaskQueue":
+        from agentflow.graph.task_queue import TaskQueue as _tq
+        return _tq
+    if name == "ContextBuilder":
+        from agentflow.graph.context_builder import ContextBuilder as _cb
+        return _cb
+    if name in ("build_workflow", "get_executor", "run_workflow"):
+        import agentflow.graph.workflow as wf
+        return getattr(wf, name)
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
 
 
 def __getattr__(name: str) -> Any:

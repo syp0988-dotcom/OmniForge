@@ -47,32 +47,42 @@ def get(key: str) -> AgentInfo | None:
 # ---- Populate registry ------------------------------------------------ #
 
 register(AgentInfo(
-    key="router",
-    name="Query Router",
-    description="Classifies user queries by intent using regex pattern matching",
-    category="routing",
+    key="goal_analyzer",
+    name="Goal Analyzer",
+    description="Understands user's true goal using LLM, replaces regex-based router",
+    category="analysis",
     status="active",
-    capabilities=["intent classification", "pattern matching"],
-    module_path="agentflow.agents.router.agent",
+    capabilities=["goal understanding", "intent analysis", "goal type classification"],
+    module_path="agentflow.agents.goal_analyzer.agent",
+))
+
+register(AgentInfo(
+    key="capability_analyzer",
+    name="Capability Analyzer",
+    description="Determines which capabilities are needed to accomplish the user's goal",
+    category="analysis",
+    status="active",
+    capabilities=["capability detection", "tool requirement analysis"],
+    module_path="agentflow.agents.capability_analyzer.agent",
 ))
 
 register(AgentInfo(
     key="planner",
-    name="Workflow Planner",
-    description="Defines the execution workflow steps based on query category",
+    name="Goal-Driven Planner",
+    description="Generates task trees from user goals using LLM-driven planning",
     category="planning",
     status="active",
-    capabilities=["workflow generation", "step sequencing"],
+    capabilities=["task tree generation", "goal decomposition", "step sequencing"],
     module_path="agentflow.agents.planner.agent",
 ))
 
 register(AgentInfo(
     key="knowledge",
     name="Knowledge Retriever",
-    description="Retrieves relevant document chunks from the local knowledge base using TF-IDF",
+    description="Retrieves relevant document references from the local knowledge base",
     category="retrieval",
     status="active",
-    capabilities=["document search", "TF-IDF retrieval", "semantic ranking"],
+    capabilities=["document search", "semantic retrieval", "reference provision"],
     module_path="agentflow.agents.knowledge.agent",
 ))
 
@@ -89,10 +99,10 @@ register(AgentInfo(
 register(AgentInfo(
     key="answer",
     name="Answer Generator",
-    description="Synthesizes final answers using LLM with context from knowledge, search, and memory",
+    description="Synthesises completion summaries or LLM answers from workflow context",
     category="generation",
     status="active",
-    capabilities=["LLM completion", "context-aware answering", "multi-source synthesis"],
+    capabilities=["completion summarisation", "context-aware answering", "project summary"],
     module_path="agentflow.agents.answer.agent",
 ))
 
@@ -104,6 +114,16 @@ register(AgentInfo(
     status="active",
     capabilities=["conversation tracking", "history accumulation", "context windowing"],
     module_path="agentflow.agents.memory.agent",
+))
+
+register(AgentInfo(
+    key="reflection",
+    name="Task Reflection Evaluator",
+    description="LLM-based evaluation of task results, decides retry/replan/done",
+    category="evaluation",
+    status="active",
+    capabilities=["task evaluation", "result analysis", "retry decision"],
+    module_path="agentflow.agents.reflection.agent",
 ))
 
 register(AgentInfo(

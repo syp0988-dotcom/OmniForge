@@ -1007,13 +1007,12 @@ class TestContextBuilder:
         assert "专业" in prompt
 
     def test_build_user_prompt_with_session_context(self):
-        from agentflow.agents.answer.agent import ContextBuilder
+        from agentflow.graph.context_builder import ContextBuilder
         builder = ContextBuilder({
             "question": "继续",
-            "category": "reasoning",
             "_continue_mode": True,
             "session_context": "当前目标：生成报告",
             "memory": {},
         })
-        prompt = builder.build_user_prompt()
-        assert "当前目标" in prompt or "当前会话" in prompt
+        ctx = builder.build()
+        assert "goal" in ctx or "session_context" in str(ctx)

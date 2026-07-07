@@ -626,6 +626,7 @@ class TestPlannerExplicitTasks:
     def test_build_plan_from_explicit_tasks(self):
         data = {
             "direct_answer": False,
+            "goal_completed": False,
             "reasoning": "需要创建项目目录和主文件",
             "tasks": [
                 {"tool": "filesystem", "action": "mkdir", "goal": "创建目录",
@@ -634,8 +635,9 @@ class TestPlannerExplicitTasks:
                  "input": {"path": "my_app/main.py", "content": "print('hello')"}},
             ],
         }
-        plan = PlannerAgent._build_plan_from_explicit_tasks(data)
+        plan = PlannerAgent._build_plan_from_json(data, goal="创建应用", goal_type="project")
         assert plan.direct_answer is False
+        assert plan.goal_completed is False
         assert len(plan.tasks) == 2
         assert plan.tasks[0].tool == "filesystem"
         assert plan.tasks[0].input["path"] == "my_app"
@@ -648,8 +650,9 @@ class TestPlannerExplicitTasks:
             "reasoning": "无需工具",
             "tasks": [],
         }
-        plan = PlannerAgent._build_plan_from_explicit_tasks(data)
+        plan = PlannerAgent._build_plan_from_json(data, goal="测试", goal_type="question")
         assert plan.direct_answer is True
+        assert plan.goal_completed is True
         assert len(plan.tasks) == 0
 
     def test_build_plan_auto_detects_explicit_format(self):
@@ -658,7 +661,7 @@ class TestPlannerExplicitTasks:
             "reasoning": "test",
             "tasks": [{"tool": "filesystem", "action": "mkdir", "input": {"path": "x"}}],
         }
-        plan = PlannerAgent._build_plan_from_json(data)
+        plan = PlannerAgent._build_plan_from_json(data, goal="test", goal_type="project")
         assert len(plan.tasks) == 1
         assert plan.tasks[0].tool == "filesystem"
 
@@ -668,7 +671,7 @@ class TestPlannerExplicitTasks:
             "reasoning": "test",
             "tasks": [{"capability": "web.search", "goal": "搜索"}],
         }
-        plan = PlannerAgent._build_plan_from_json(data)
+        plan = PlannerAgent._build_plan_from_json(data, goal="test", goal_type="question")
         # Legacy format: capability is set, tool resolved later
         assert len(plan.tasks) == 1
         assert plan.tasks[0].capability == "web.search"

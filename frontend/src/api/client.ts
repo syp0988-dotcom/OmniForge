@@ -4,11 +4,6 @@ import type { AgentInfo, CreatedFile, Session, ToolInfo, ToolCapability, ToolExe
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
-export async function postChat(message: string, history?: Array<{ role: string; content: string }>, sessionId?: number) {
-  const resp = await axios.post(`${API_BASE}/chat`, { message, history: history || [], session_id: sessionId })
-  return resp.data
-}
-
 /** Stream chat via SSE — calls onEvent for each SSE event, returns final data. */
 export async function postChatStream(
   message: string,
@@ -73,6 +68,16 @@ export async function postChatStream(
   }
 
   return { answer: finalAnswer, session_id: finalSessionId }
+}
+
+/**
+ * Non-streaming chat — only kept for backward compatibility.
+ * New code should use postChatStream exclusively.
+ * This now calls the async (non-blocking) endpoint internally.
+ */
+export async function postChat(message: string, history?: Array<{ role: string; content: string }>, sessionId?: number) {
+  const resp = await axios.post(`${API_BASE}/chat`, { message, history: history || [], session_id: sessionId })
+  return resp.data
 }
 
 export async function uploadDocument(file: File) {

@@ -86,9 +86,9 @@ class Executor:
             PENDING → READY → RUNNING → COMPLETED
                                     └── → FAILED
         """
-        if task.status not in (TaskStatus.PENDING, TaskStatus.READY):
+        if task.status not in (TaskStatus.TODO, TaskStatus.PENDING, TaskStatus.READY):
             logger.warning(
-                "Task %s is not PENDING/READY (status=%s); skipping.",
+                "Task %s is not TODO/PENDING/READY (status=%s); skipping.",
                 task.id, task.status.value,
             )
             return task
@@ -112,10 +112,13 @@ class Executor:
             return task
 
         # Execute via ToolRegistry (which handles validate + dispatch + logging)
+        # Use action from task.input if available, fall back to task.goal
+        inputs = dict(task.input)
+        tool_action = inputs.pop("action", None) or task.goal
         tool_result = self.registry.execute_task(
             task.tool,
-            action=task.goal,
-            **task.input,
+            action=tool_action,
+            **inputs,
         )
 
         duration = round(time.time() - start, 4)
@@ -150,19 +153,52 @@ class Executor:
         """Execute a task described as a dict.
 
         Expected keys: ``{"tool", "action", ...}``.
+        Automatically unwraps the nested ``input`` field if present so that
+        ``{"tool": "filesystem", "input": {"path": "app"}}`` becomes
+        ``tool.execute(path="app")``.
         When a *ctx* is provided, events are emitted.
         """
         tool_name = str(task_dict.get("tool", ""))
         action = str(task_dict.get("action", ""))
         goal = str(task_dict.get("goal", ""))
-        kwargs = {k: v for k, v in task_dict.items() if k not in ("tool", "action", "goal")}
+        # Unwrap nested "input" dict, or collect top-level keys as kwargs
+        if "input" in task_dict:
+            raw_input = task_dict["input"]
+            if isinstance(raw_input, dict):
+                kwargs = dict(raw_input)
+            else:
+                kwargs = {"input": raw_input}
+        else:
+            # No "input" key: collect all non-meta keys as kwargs
+            kwargs = {k: v for k, v in task_dict.items() if k not in ("tool", "action", "goal")}
+
+        # Preserve the action for tool dispatch (FileSystemTool needs
+        # action="mkdir" or "write_file" to find the right handler).
+        if action:
+            kwargs["action"] = action
 
         if ctx:
             # Create a lightweight Task for event tracking
             from agentflow.graph.task import Task as _Task
             t = _Task(goal=goal or action, tool=tool_name, input=kwargs, agent="executor")
-            return self.execute(ctx, t).result  # type: ignore[return-value]
-        return self.registry.execute_task(tool_name, action=action, **kwargs)
+            executed = self.execute(ctx, t)
+            if executed.is_finished and isinstance(executed.result, dict):
+                rd = executed.result
+                return ToolResult(
+                    success=rd.get("success", True),
+                    tool=rd.get("tool", tool_name),
+                    action=rd.get("action", action or goal),
+                    result=rd.get("result"),
+                    message=rd.get("message", ""),
+                    duration=rd.get("duration", 0.0),
+                    error=rd.get("error"),
+                )
+            return ToolResult(
+                success=False, tool=tool_name, action=action or goal,
+                error=executed.error or "Unknown error",
+            )
+        # When no ctx, pass kwargs directly (action is already in kwargs)
+        return self.registry.execute_task(tool_name, **kwargs)
 
     def execute_batch(
         self,

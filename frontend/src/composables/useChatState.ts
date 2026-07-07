@@ -1,6 +1,5 @@
 import { ref } from 'vue'
 import {
-  postChat,
   postChatStream,
   uploadDocument,
   getDocuments,
@@ -167,9 +166,13 @@ export function useChatState() {
         content: m.text,
       }))
 
+    // Pre-create a placeholder agent message that gets filled progressively
+    const agentMsgId = String(Date.now() + 1)
+    const agentMsg: Msg = { id: agentMsgId, role: 'agent', text: '' }
+    messages.value = [...messages.value, agentMsg]
+
     try {
-      // Try streaming first
-      let reply = ''
+      // Streaming-only — no blocking fallback
       const result = await postChatStream(
         text,
         history,
@@ -186,72 +189,59 @@ export function useChatState() {
             streamingPhase.value = (data.phase as string) || '执行中...'
           } else if (event === 'generating') {
             streamingPhase.value = '生成回答...'
+          } else if (event === 'text') {
+            // Progressive text delivery — update the placeholder message
+            agentMsg.text += (data.text as string) || ''
+            // Trigger reactivity by replacing the array entry
+            const idx = messages.value.findIndex((m) => m.id === agentMsgId)
+            if (idx !== -1) {
+              messages.value = [
+                ...messages.value.slice(0, idx),
+                { ...agentMsg },
+                ...messages.value.slice(idx + 1),
+              ]
+            }
           } else if (event === 'tools') {
             streamingPhase.value = '加载工具列表...'
           }
         },
         signal,
       )
-      reply = result.answer || '[no reply]'
+
+      // Finalize: if text events delivered all content, just finalize
+      if (result.answer && !agentMsg.text) {
+        agentMsg.text = result.answer
+        const idx = messages.value.findIndex((m) => m.id === agentMsgId)
+        if (idx !== -1) {
+          messages.value = [...messages.value.slice(0, idx), { ...agentMsg }, ...messages.value.slice(idx + 1)]
+        }
+      }
 
       // Track the session id from streaming response
       if (result.session_id) {
         currentSessionId.value = result.session_id
       }
 
-      const agentMsg: Msg = {
-        id: String(Date.now()),
-        role: 'agent',
-        text: reply,
-      }
-
-      messages.value = [...messages.value, agentMsg]
       await _refreshSessions()
       streamingPhase.value = ''
     } catch (err) {
-      // User aborted → clean up, no fallback
+      // User aborted → clean up
       if (err instanceof DOMException && err.name === 'AbortError') {
+        // Remove the empty placeholder
+        messages.value = messages.value.filter((m) => m.id !== agentMsgId)
         streamingPhase.value = '已中断'
         return
       }
-      // Fallback to non-streaming POST
-      try {
-        const data = await postChat(text, history, currentSessionId.value ?? undefined)
-        const reply = data.reply || '[no reply]'
-        debugData.value = data.debug || null
-
-        if (data.metadata?.session_id) {
-          currentSessionId.value = data.metadata.session_id
-        }
-
-        const agentMsg: Msg = {
-          id: String(Date.now()),
-          role: 'agent',
-          text: reply,
-        }
-
-        if (data.proposed_files && data.proposed_files.length > 0) {
-          agentMsg.proposals = data.proposed_files as FileProposal[]
-          const statusMap: Record<string, 'pending' | 'created' | 'dismissed'> = {}
-          for (const p of data.proposed_files as FileProposal[]) {
-            statusMap[p.suggestion_id] = 'pending'
-          }
-          fileProposalStatuses.value = statusMap
-        }
-
-        messages.value = [...messages.value, agentMsg]
-        await _refreshSessions()
-      } catch {
-        messages.value = [
-          ...messages.value,
-          { id: String(Date.now()), role: 'agent', text: '请求失败，请检查后端。' },
-        ]
+      // Streaming failed — update the placeholder with error message
+      agentMsg.text = '请求失败，请检查后端是否正常运行。'
+      const idx = messages.value.findIndex((m) => m.id === agentMsgId)
+      if (idx !== -1) {
+        messages.value = [...messages.value.slice(0, idx), { ...agentMsg }, ...messages.value.slice(idx + 1)]
       }
     } finally {
       thinking.value = false
       abortController.value = null
       if (streamingPhase.value === '已中断') {
-        // keep the "已中断" message briefly
         setTimeout(() => { streamingPhase.value = '' }, 1000)
       } else {
         streamingPhase.value = ''
