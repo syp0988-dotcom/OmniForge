@@ -75,15 +75,6 @@ class SQLiteStore:
             """)
 
             connection.execute("""
-                CREATE TABLE IF NOT EXISTS embeddings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chunk_id INTEGER NOT NULL UNIQUE,
-                    embedding BLOB NOT NULL,
-                    FOREIGN KEY (chunk_id) REFERENCES chunks(id) ON DELETE CASCADE
-                )
-            """)
-
-            connection.execute("""
                 CREATE TABLE IF NOT EXISTS knowledge_meta (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
@@ -418,36 +409,6 @@ class SQLiteStore:
             ]
         except sqlite3.OperationalError:
             return []
-
-    # -- Embeddings ------------------------------------------------------------
-
-    def add_embedding(self, chunk_id: int, embedding_blob: bytes) -> int:
-        with sqlite3.connect(self.db_path) as connection:
-            cursor = connection.execute(
-                "INSERT OR REPLACE INTO embeddings(chunk_id, embedding) VALUES (?, ?)",
-                (chunk_id, embedding_blob),
-            )
-            connection.commit()
-            return cursor.lastrowid  # type: ignore[return-value]
-
-    def get_all_embeddings_with_chunk(self) -> list[dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as connection:
-            cursor = connection.execute(
-                "SELECT e.id, e.chunk_id, e.embedding, c.document_id, c.content "
-                "FROM embeddings e "
-                "JOIN chunks c ON e.chunk_id = c.id"
-            )
-            rows = cursor.fetchall()
-        return [
-            {
-                "id": row[1],  # chunk_id
-                "chunk_id": row[1],
-                "embedding": row[2],
-                "document_id": row[3],
-                "content": row[4],
-            }
-            for row in rows
-        ]
 
     # -- Knowledge metadata ----------------------------------------------------
 

@@ -1,11 +1,7 @@
 <template>
   <div class="flex-1 flex flex-col items-center justify-center px-6 py-12">
     <!-- Logo -->
-    <div
-      class="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6"
-    >
-      <span class="text-3xl font-bold text-primary">OF</span>
-    </div>
+    <img src="/images/logo.png" alt="OmniForge" class="w-12 h-12 mb-6" />
 
     <!-- Greeting -->
     <h1 class="font-serif text-[48px] text-text leading-tight mb-1">

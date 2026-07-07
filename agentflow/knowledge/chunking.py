@@ -40,6 +40,12 @@ def _select_strategy(file_type: str) -> Callable[..., list[str]]:
     file_type = file_type.lower().lstrip(".")
     if file_type in ("md", "markdown", "rst"):
         return chunk_by_markdown
+    if file_type in ("html", "htm"):
+        return chunk_by_html
+    if file_type in ("xlsx", "xls", "csv"):
+        return chunk_by_table
+    if file_type == "pptx":
+        return chunk_by_slide
     if file_type in ("py", "js", "ts", "jsx", "tsx", "java", "go", "rs", "c", "cpp", "h", "hpp"):
         return chunk_by_code
     return chunk_by_paragraph
@@ -210,6 +216,106 @@ def _tail_overlap(paragraphs: list[str], overlap_chars: int) -> str:
     if "\n\n" in tail:
         tail = tail[tail.index("\n\n") + 2:]
     return tail
+
+
+# ---------------------------------------------------------------------------
+# Strategy: HTML heading-based (h1-h6, similar to markdown)
+# ---------------------------------------------------------------------------
+
+_HTML_HEADING_RE = re.compile(r"^#{1,6}\s+.*$", re.MULTILINE)
+
+
+def chunk_by_html(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
+    """Split HTML content on heading lines (``# `` to ``###### ``).
+
+    Behaves identically to ``chunk_by_markdown`` since the HTML parser
+    in ``_read_html`` already converts ``<h1>``-``<h6>`` to markdown-style
+    headings.
+    """
+    return chunk_by_markdown(text, chunk_size, overlap)
+
+
+# ---------------------------------------------------------------------------
+# Strategy: Table-aware (Excel / CSV)
+# ---------------------------------------------------------------------------
+
+
+def chunk_by_table(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
+    """Split table content by sheet/table boundaries, grouping rows into batches.
+
+    Each ``## Sheet: <name>`` section's rows are grouped into row batches
+    that each fit within ``chunk_size``.  Batches within the same sheet
+    are separated by ``\\n\\n`` so that large tables split cleanly at
+    row-group boundaries rather than mid-row.
+    """
+    if not text.strip():
+        return []
+
+    sections: list[tuple[str, str]] = []
+    current_heading = ""
+    current_rows: list[str] = []
+
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if current_rows:
+                body = _group_rows(current_rows, chunk_size)
+                sections.append((current_heading, body))
+            current_heading = line
+            current_rows = []
+        else:
+            current_rows.append(line)
+
+    if current_rows:
+        body = _group_rows(current_rows, chunk_size)
+        sections.append((current_heading, body))
+
+    if not sections:
+        return chunk_by_paragraph(text, chunk_size, overlap)
+
+    return _merge_or_split_sections(sections, chunk_size, overlap, _table_context)
+
+
+def _group_rows(rows: list[str], max_chars: int) -> str:
+    """Split rows into groups, each fitting within ``max_chars``.
+
+    Returns groups separated by ``\\n\\n`` so downstream paragraph-based
+    splitting can cleanly break at group boundaries.
+    """
+    groups: list[str] = []
+    batch: list[str] = []
+    batch_len = 0
+    for row in rows:
+        row_len = len(row) + 1  # +1 for the joining newline
+        if batch_len + row_len > max_chars and batch:
+            groups.append("\n".join(batch))
+            batch = [row]
+            batch_len = row_len
+        else:
+            batch.append(row)
+            batch_len += row_len
+    if batch:
+        groups.append("\n".join(batch))
+    return "\n\n".join(groups)
+
+
+def _table_context(heading: str, body: str) -> str:
+    if not heading:
+        return body
+    return f"{heading}\n\n{body}"
+
+
+# ---------------------------------------------------------------------------
+# Strategy: Slide-based (PowerPoint)
+# ---------------------------------------------------------------------------
+
+
+def chunk_by_slide(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
+    """Split PowerPoint content by slide boundaries.
+
+    Each ``## Slide N`` section becomes a chunk.  Long slides are split
+    by paragraph.
+    """
+    return chunk_by_table(text, chunk_size, overlap)  # same structure: ## headings
 
 
 # ---------------------------------------------------------------------------

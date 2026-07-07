@@ -234,7 +234,6 @@ class AnswerAgent(AgentProtocol):
 
     @staticmethod
     def _build_user_prompt(
-        self,
         question: str,
         category: str,
         search_results: object,
@@ -255,7 +254,7 @@ class AnswerAgent(AgentProtocol):
 
         if category == "search" and search_results:
             parts.append(
-                f"搜索结果：\n{self._format_search_context(search_results)}"
+                f"搜索结果：\n{AnswerAgent._format_search_context(search_results)}"
             )
 
         parts.append("请根据以上内容回答用户问题。")

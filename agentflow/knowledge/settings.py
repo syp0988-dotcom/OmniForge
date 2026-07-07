@@ -27,21 +27,21 @@ def chunk_params() -> tuple[int, int]:
     return settings.knowledge_chunk_size, settings.knowledge_chunk_overlap
 
 
-def faiss_index_path() -> Path:
-    """Return the FAISS index file path.
+def chroma_path() -> Path:
+    """Return the ChromaDB persistent storage path.
 
-    If ``knowledge_faiss_index_path`` is set, use it directly;
-    otherwise default to ``<project_root>/data/faiss.index``.
+    If ``knowledge_chroma_path`` is set, use it directly;
+    otherwise default to ``<project_root>/data/chromadb``.
     """
-    custom = settings.knowledge_faiss_index_path
+    custom = settings.knowledge_chroma_path
     if custom:
         return Path(custom)
-    return settings.project_root / "data" / "faiss.index"
+    return settings.project_root / "data" / "chromadb"
 
 
-def faiss_index_type() -> str:
-    """Return the FAISS index type (``"HNSW"`` | ``"Flat"``)."""
-    return settings.knowledge_faiss_index_type
+def chroma_collection() -> str:
+    """Return the ChromaDB collection name."""
+    return settings.knowledge_chroma_collection
 
 
 def search_defaults() -> tuple[int, float]:

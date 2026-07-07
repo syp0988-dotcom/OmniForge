@@ -13,11 +13,11 @@
     <div class="max-w-[760px] w-full animate-slide-up">
       <!-- Header -->
       <div class="flex items-center gap-2 mb-3">
-        <div
-          class="w-6 h-6 rounded-md bg-primary flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0"
-        >
-          OF
-        </div>
+        <img
+          :src="currentAvatar"
+          alt="AI"
+          class="w-12 h-12 rounded-md flex-shrink-0"
+        />
         <span class="text-xs font-medium text-secondary">OmniForge</span>
       </div>
       <!-- Content -->
@@ -40,11 +40,13 @@
 </template>
 
 <script setup lang="ts">
-import { inject, ref } from 'vue'
+import { inject, ref, onMounted, onBeforeUnmount } from 'vue'
 import type { Msg, FileProposal } from '@/types'
 import type { ChatState } from '@/composables/useChatState'
 import MarkdownRenderer from '@/components/markdown/MarkdownRenderer.vue'
 import FileProposalCard from './FileProposalCard.vue'
+
+const avatarImages = ['/images/avatar-1.png', '/images/avatar-2.png', '/images/avatar-3.png']
 
 const props = defineProps<{
   msg: Msg
@@ -52,6 +54,21 @@ const props = defineProps<{
 
 const chatState = inject<ChatState>('chatState')!
 const loadingProposal = ref<string | null>(null)
+
+const currentAvatarIndex = ref(0)
+const currentAvatar = ref(avatarImages[0])
+let avatarTimer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  avatarTimer = setInterval(() => {
+    currentAvatarIndex.value = (currentAvatarIndex.value + 1) % avatarImages.length
+    currentAvatar.value = avatarImages[currentAvatarIndex.value]
+  }, 3000)
+})
+
+onBeforeUnmount(() => {
+  if (avatarTimer) clearInterval(avatarTimer)
+})
 
 function getProposalStatus(suggestionId: string): 'pending' | 'created' | 'dismissed' {
   return chatState.fileProposalStatuses.value[suggestionId] || 'pending'

@@ -1,10 +1,13 @@
-"""High-level KnowledgeStore: parser → chunk → embed → index → search.
+"""High-level KnowledgeStore: parser → chunk → embed → ChromaDB → hybrid search.
 
 The ``KnowledgeStore`` ties together all knowledge-base components:
   - Document parsing and chunking (``parser`` / ``chunking``)
   - Embedding (``embedder.BaseEmbedder`` implementations)
-  - ANN indexing (``index.ANNIndex``)
+  - ANN indexing (``index.ChromaIndex``)
   - Hybrid retrieval (``retrieval.HybridRetriever``)
+
+Unlike the old FAISS-based architecture, ChromaDB handles vector persistence
+and ANN search internally — no manual load/save/rebuild needed.
 
 Usage::
 
@@ -27,9 +30,8 @@ from agentflow.database.sqlite import SQLiteStore
 from agentflow.knowledge.embedder import (
     SemanticEmbedder,
     TfidfEmbedder,
-    serialize_vector,
 )
-from agentflow.knowledge.index import ANNIndex
+from agentflow.knowledge.index import ChromaIndex
 from agentflow.knowledge.parser import parse_document
 from agentflow.knowledge.retrieval import HybridRetriever
 from agentflow.knowledge.settings import (
@@ -54,11 +56,16 @@ class KnowledgeStore:
         Falls back to ``settings.knowledge_embedder`` if ``None``.
     """
 
-    def __init__(self, db: SQLiteStore | None = None, embedder: str | None = None) -> None:
+    def __init__(
+        self,
+        db: SQLiteStore | None = None,
+        embedder: str | None = None,
+        chroma_index: ChromaIndex | None = None,
+    ) -> None:
         self.db = db or SQLiteStore()
         embedder_type_name = embedder or embedder_type()
         self.embedder = self._create_embedder(embedder_type_name)
-        self.ann_index: ANNIndex | None = None  # lazy-init on first use
+        self.chroma_index = chroma_index  # None → lazy-init on first use
         self.retriever: HybridRetriever | None = None
 
         # Load existing TF-IDF state if using tfidf embedder
@@ -106,47 +113,40 @@ class KnowledgeStore:
             vectors = self.embedder.embed(chunks)
         except Exception as exc:
             logger.error("Embedding failed for %s: %s", filename, exc)
-            # Clean up the partial document record
             self.db.delete_document_cascade(doc_id)
             raise
 
-        # 4. Persist chunks + embeddings to DB
+        # 5. Persist chunks to SQLite
         chunk_ids: list[int] = []
-        for i, (chunk_text, vec) in enumerate(zip(chunks, vectors)):
+        for i, chunk_text in enumerate(chunks):
             chunk_id = self.db.add_chunk(document_id=doc_id, content=chunk_text, chunk_index=i)
-            self.db.add_embedding(chunk_id, serialize_vector(vec))
             chunk_ids.append(chunk_id)
 
-        # 5. Update ANN index
-        if len(chunk_ids) > 0:
+        # 6. Store vectors in ChromaDB
+        if chunk_ids:
             self._ensure_index()
-            try:
-                vectors_array = np.array([v for v in vectors], dtype=np.float32)
-                self.ann_index.add(chunk_ids, vectors_array)
-                self.ann_index.save()
-                self._save_index_meta()
-            except Exception as exc:
-                logger.warning("ANN index update failed (non-fatal): %s", exc)
+            metadatas = [
+                {"document_id": doc_id, "chunk_index": i}
+                for i in range(len(chunk_ids))
+            ]
+            vectors_array = np.array([v for v in vectors], dtype=np.float32)
+            self.chroma_index.add(chunk_ids, vectors_array, metadatas)
 
         logger.info("  → Document #%d indexed successfully (%d chunks)", doc_id, len(chunks))
         return doc_id
 
     def delete_document(self, doc_id: int) -> None:
-        """Remove a document and all its chunks/embeddings/index entries."""
-        # Get chunk IDs for ANN index cleanup
+        """Remove a document and all its chunks/vectors."""
         chunks = self.db.get_chunks_by_document(doc_id)
         chunk_ids = [c["id"] for c in chunks]
 
-        # Remove from ANN index
-        if chunk_ids and self.ann_index is not None and self.ann_index.is_loaded:
-            try:
-                self.ann_index.remove(chunk_ids)
-                self.ann_index.save()
-                self._save_index_meta()
-            except Exception as exc:
-                logger.warning("ANN index removal failed (non-fatal): %s", exc)
+        # Remove from ChromaDB (ensure index is loaded first)
+        if chunk_ids:
+            self._ensure_index()
+            if self.chroma_index is not None:
+                self.chroma_index.remove(chunk_ids)
 
-        # Cascade delete from DB
+        # Cascade delete from SQLite
         self.db.delete_document_cascade(doc_id)
         logger.info("Document #%d deleted (removed %d chunks)", doc_id, len(chunk_ids))
 
@@ -159,7 +159,7 @@ class KnowledgeStore:
     def search(
         self, query: str, top_k: int | None = None, min_score: float | None = None
     ) -> list[dict[str, Any]]:
-        """Hybrid search: vector similarity + lexical (FTS5).
+        """Hybrid search: vector similarity (ChromaDB) + lexical (FTS5).
 
         Args:
             query: Natural language query string.
@@ -247,10 +247,8 @@ class KnowledgeStore:
             logger.debug("Failed to save TF-IDF cache (non-critical): %s", exc)
 
     def _ensure_index(self) -> None:
-        if self.ann_index is None:
-            self.ann_index = ANNIndex(dimension=self.embedder.dimension)
-            self._load_index_meta()
-            self.ann_index.load()
+        if self.chroma_index is None:
+            self.chroma_index = ChromaIndex()
 
     def _ensure_retriever(self) -> None:
         if self.retriever is not None:
@@ -261,34 +259,10 @@ class KnowledgeStore:
         self.retriever = HybridRetriever(
             embedder=self.embedder,
             db=self.db,
-            ann_index=self.ann_index,
+            chroma_index=self.chroma_index,
             alpha=alpha,
             beta=beta,
         )
-
-    # -- Index metadata persistence (in knowledge_meta table) -----------------
-
-    def _load_index_meta(self) -> None:
-        """Restore ANN index metadata from the database."""
-        if self.ann_index is None:
-            return
-        raw = self.db.get_knowledge_meta("ann_index_meta")
-        if raw:
-            try:
-                self.ann_index.load_metadata(json.loads(raw))
-                logger.debug("Loaded ANN index metadata from DB")
-            except (json.JSONDecodeError, TypeError) as exc:
-                logger.warning("Failed to load ANN index metadata: %s", exc)
-
-    def _save_index_meta(self) -> None:
-        """Persist ANN index metadata to the database."""
-        if self.ann_index is None:
-            return
-        try:
-            meta = self.ann_index.save_metadata()
-            self.db.set_knowledge_meta("ann_index_meta", json.dumps(meta))
-        except Exception as exc:
-            logger.debug("Failed to save ANN index metadata (non-critical): %s", exc)
 
     def _maybe_load_cache(self) -> None:
         """For TF-IDF embedder: restore cached vocab if available.

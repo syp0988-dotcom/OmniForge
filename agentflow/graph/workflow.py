@@ -65,28 +65,26 @@ class WorkflowState(TypedDict, total=False):
     tool_results: list[dict[str, Any]]
 
 
-# Compiled workflow cache (built once, reused across requests)
-_compiled_workflow: Any | None = None
-
-
 def build_workflow() -> Any:
-    """Build the LangGraph workflow for the system.
+    """Build and compile the LangGraph workflow for the system.
+
+    Returns a **fresh compiled instance** on every call.
+    LangGraph's ``StateGraph`` is designed to be compiled per-invocation;
+    caching the compiled graph as a module-level singleton would risk
+    shared-state corruption under concurrent ``astream`` calls.
 
     Flow::
 
       conversation_manager → (conditional)
-        ├── continue mode → knowledge → answer → memory → END
+        ├── continue mode → knowledge → planner → (conditional)
         └── new task → router → (conditional) knowledge / planner
                                            planner → (conditional)
                                                search → answer
                                                python → answer
                                                tool_executor → answer
+                                               direct_answer → answer
                                                answer → memory → END
     """
-    global _compiled_workflow
-    if _compiled_workflow is not None:
-        return _compiled_workflow
-
     cm = ConversationManager()
     router = QueryRouterAgent()
     planner = PlannerAgent()
@@ -129,11 +127,12 @@ def build_workflow() -> Any:
         {"knowledge": "knowledge", "planner": "planner"},
     )
 
-    # After knowledge
+    # After knowledge — always route to planner (even in continue mode)
+    # so the planner can decide whether new tools are needed or just answer.
     workflow.add_conditional_edges(
         "knowledge",
         _route_after_knowledge,
-        {"answer": "answer", "planner": "planner"},
+        {"planner": "planner"},
     )
 
     # After planner: route based on required tools
@@ -160,8 +159,7 @@ def build_workflow() -> Any:
     workflow.add_edge("answer", "memory")
     workflow.add_edge("memory", END)
 
-    _compiled_workflow = workflow.compile()
-    return _compiled_workflow
+    return workflow.compile()
 
 
 # -- Routing functions ---------------------------------------------------------
@@ -175,9 +173,14 @@ def _route_after_conversation_manager(state: WorkflowState) -> str:
 
 
 def _route_after_knowledge(state: WorkflowState) -> str:
-    """Continue mode → answer, else → planner."""
-    if state.get("_continue_mode", False) or _session_is_waiting(state):
-        return "answer"
+    """Always route to planner — it decides whether tools or a direct answer are needed.
+
+    Previously this function routed directly to ``answer`` in continue mode,
+    which meant the ``AnswerAgent`` had to produce a response without any
+    plan at all.  Routing through the planner lets it emit ``direct_answer``
+    (which goes straight to ``answer``) while keeping the option to create
+    new tool tasks if the turn warrants them.
+    """
     return "planner"
 
 
@@ -222,7 +225,7 @@ def _route_after_planner(state: WorkflowState) -> str:
             return "query_rewriter"
         if tool == "python":
             return "python"
-        if tool in ("filesystem", "git", "browser", "database", "mcp"):
+        if tool in ("filesystem", "git", "browser", "database", "mcp", "composio"):
             return "tool_executor"
 
     # ---- Fallback: category-based routing (backward compat) ----
@@ -397,6 +400,7 @@ def _build_executor() -> Executor:
     from agentflow.tools.browser_tool import BrowserTool
     from agentflow.tools.database_tool import DatabaseTool
     from agentflow.tools.mcp_tool import MCPTool
+    from agentflow.tools.composio_tool import ComposioTool
 
     ex.registry.register(SearchTool())
     ex.registry.register(PythonTool())
@@ -405,6 +409,18 @@ def _build_executor() -> Executor:
     ex.registry.register(BrowserTool())
     ex.registry.register(DatabaseTool())
     ex.registry.register(MCPTool())
+    ex.registry.register(ComposioTool())
+
+    # Warn about stub tools that have no real implementation yet
+    _stub_tools = {"browser": BrowserTool, "database": DatabaseTool, "mcp": MCPTool}
+    for name, cls in _stub_tools.items():
+        meta = cls().metadata()
+        if meta.get("status") == "interface_only":
+            logger.warning(
+                "Tool '%s' is an interface placeholder (status=interface_only). "
+                "Its actions will fail until a concrete implementation is provided.",
+                name,
+            )
 
     _executor_instance = ex
     logger.info("Executor initialised with tools: %s", ex.list_tools())

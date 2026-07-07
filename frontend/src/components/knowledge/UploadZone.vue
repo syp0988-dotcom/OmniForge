@@ -17,7 +17,7 @@
         ref="fileInputRef"
         type="file"
         multiple
-        accept=".pdf,.docx,.doc,.txt,.md,.markdown"
+        accept=".pdf,.docx,.doc,.txt,.md,.markdown,.html,.htm,.xlsx,.xls,.pptx,.csv,.epub,.py,.js,.ts,.jsx,.tsx,.java,.go,.rs,.c,.cpp,.h,.hpp,.zip"
         class="hidden"
         @change="onFileSelect"
       />
@@ -32,7 +32,7 @@
       <div class="flex flex-col items-center gap-2">
         <Upload class="w-8 h-8 text-secondary" />
         <div class="text-sm text-text">{{ uploading ? '上传中...' : '拖拽文件或文件夹到此处' }}</div>
-        <div class="text-xs text-secondary">支持 PDF、DOCX、TXT、Markdown 格式</div>
+        <div class="text-xs text-secondary">支持 PDF、DOCX、TXT、MD、HTML、XLSX、PPTX、CSV、EPUB、代码文件、ZIP 压缩包</div>
         <div class="flex gap-3 mt-2">
           <button
             type="button"

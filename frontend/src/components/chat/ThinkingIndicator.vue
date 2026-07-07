@@ -1,10 +1,6 @@
 <template>
   <div class="flex items-start gap-3 animate-fade-in">
-    <div
-      class="w-6 h-6 rounded-md bg-primary/20 flex items-center justify-center text-[10px] font-bold flex-shrink-0"
-    >
-      OF
-    </div>
+    <img src="/images/logo.png" alt="OmniForge" class="w-12 h-12 flex-shrink-0" />
     <div class="flex items-center gap-1.5 py-2">
       <span
         v-for="i in 3"

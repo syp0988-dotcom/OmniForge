@@ -75,7 +75,11 @@ class SearchService:
 
         # --- Execute via SearchTool (BaseTool protocol) ---
         try:
-            items = self._tool.execute(query=cleaned)
+            tool_result = self._tool.execute(query=cleaned)
+            # ToolResult.result is {"items": [...], "count": ..., "query": ...}
+            raw_items: list[Any] = []
+            if tool_result.success and isinstance(tool_result.result, dict):
+                raw_items = tool_result.result.get("items", [])
         except Exception as exc:
             logger.exception("Search failed for query: %.80s", cleaned)
             return SearchResult(
@@ -84,7 +88,7 @@ class SearchService:
             )
 
         # --- Normalization ---
-        normalized = self._normalize(items)
+        normalized = self._normalize(raw_items)
         result = SearchResult(
             query=cleaned,
             items=normalized,

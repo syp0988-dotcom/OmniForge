@@ -9,7 +9,7 @@ chunking
 embedder
     Embedding interface (``BaseEmbedder``) with TF-IDF and semantic implementations.
 index
-    FAISS ANN index management (HNSW) for efficient vector search.
+    ChromaDB vector index for efficient ANN search.
 retrieval
     Hybrid retrieval pipeline (vector + lexical search).
 store

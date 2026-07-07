@@ -1,8 +1,8 @@
-"""Hybrid retrieval pipeline: vector similarity + lexical (FTS5) search.
+"""Hybrid retrieval pipeline: vector similarity (ChromaDB) + lexical (FTS5) search.
 
 The ``HybridRetriever`` runs both retrievers in parallel and fuses results
-via Reciprocal Rank Fusion (RRF).  If no ANN index is available it falls
-back to brute-force cosine similarity over all stored embeddings.
+via Reciprocal Rank Fusion (RRF).  ChromaDB handles all vector search
+internally — no brute-force fallback needed.
 """
 
 from __future__ import annotations
@@ -13,12 +13,8 @@ from typing import Any
 import numpy as np
 
 from agentflow.database.sqlite import SQLiteStore
-from agentflow.knowledge.embedder import (
-    BaseEmbedder,
-    batch_cosine_similarity,
-    deserialize_vector,
-)
-from agentflow.knowledge.index import ANNIndex
+from agentflow.knowledge.embedder import BaseEmbedder
+from agentflow.knowledge.index import ChromaIndex
 from agentflow.knowledge.settings import hybrid_weights, search_defaults
 
 logger = logging.getLogger("knowledge.retrieval")
@@ -32,9 +28,9 @@ class HybridRetriever:
     embedder : BaseEmbedder
         The embedding model used for vector search.
     db : SQLiteStore
-        Database handle for FTS5 and embedding lookups.
-    ann_index : ANNIndex | None
-        Optional ANN index for fast vector search (O(log N) instead of O(N)).
+        Database handle for FTS5 and chunk-metadata lookups.
+    chroma_index : ChromaIndex | None
+        ChromaDB index for fast vector search.
     alpha : float
         Weight for vector similarity score (default 0.7).
     beta : float
@@ -45,13 +41,13 @@ class HybridRetriever:
         self,
         embedder: BaseEmbedder,
         db: SQLiteStore,
-        ann_index: ANNIndex | None = None,
+        chroma_index: ChromaIndex | None = None,
         alpha: float | None = None,
         beta: float | None = None,
     ) -> None:
         self.embedder = embedder
         self.db = db
-        self.ann_index = ann_index
+        self.chroma_index = chroma_index
         if alpha is not None and beta is not None:
             self.alpha = alpha
             self.beta = beta
@@ -89,10 +85,10 @@ class HybridRetriever:
         if not vector_results:
             return self._format_lexical_only(lexical_results, top_k, min_score)
         if not lexical_results:
-            return self._format_vector_only(vector_results, query_vec, top_k, min_score)
+            return self._format_vector_only(vector_results, top_k, min_score)
 
         # 3. Hybrid fusion via RRF
-        merged = self._rrf_fusion(vector_results, lexical_results, top_k)
+        merged = self._rrf_fusion(vector_results, lexical_results, top_k, alpha=self.alpha, beta=self.beta)
 
         # 4. Augment with metadata and filter by score
         results: list[dict[str, Any]] = []
@@ -115,36 +111,15 @@ class HybridRetriever:
 
         return results[:top_k]
 
-    # -- Vector search ------------------------------------------------------
+    # -- Vector search (ChromaDB) -------------------------------------------
 
     def _vector_search(
         self, query_vec: np.ndarray, top_k: int
     ) -> list[tuple[int, float]]:
-        """Vector (dense) retrieval — ANN preferred, brute-force fallback."""
-        if self.ann_index and self.ann_index.is_loaded and self.ann_index.size > 0:
-            try:
-                return self.ann_index.search(query_vec, top_k)
-            except Exception as exc:
-                logger.warning("ANN search failed, falling back to brute-force: %s", exc)
-
-        return self._brute_force_search(query_vec, top_k)
-
-    def _brute_force_search(
-        self, query_vec: np.ndarray, top_k: int
-    ) -> list[tuple[int, float]]:
-        """Fallback: load all embeddings from DB and compute cosine similarity."""
-        all_emb = self.db.get_all_embeddings_with_chunk()
-        if not all_emb:
+        """Vector (dense) retrieval via ChromaDB."""
+        if self.chroma_index is None or self.chroma_index.size == 0:
             return []
-
-        candidates: list[tuple[int, np.ndarray]] = []
-        for emb in all_emb:
-            chunk_id = emb["chunk_id"]
-            vec = deserialize_vector(emb["embedding"])
-            candidates.append((chunk_id, vec))
-
-        scored = batch_cosine_similarity(query_vec, candidates)
-        return scored[:top_k]
+        return self.chroma_index.search(query_vec, top_k)
 
     # -- Lexical search (FTS5) ---------------------------------------------
 
@@ -156,7 +131,6 @@ class HybridRetriever:
         Returns [(chunk_id, score), ...] where score is derived from
         the FTS5 rank (BM25-style).
         """
-        # Prepare FTS5 query: escape special characters and tokenise
         fts_query = self._to_fts_query(query)
         if not fts_query:
             return []
@@ -169,8 +143,6 @@ class HybridRetriever:
         for row in rows:
             chunk_id = row["chunk_id"]
             rank = row["rank"]
-            # Convert FTS5 rank (negative = better) to a normalised [0, 1] score
-            # BM25 rank is typically negative; more negative = better match
             score = 1.0 / (1.0 + abs(rank))
             results.append((chunk_id, score))
 
@@ -201,14 +173,19 @@ class HybridRetriever:
         lexical_results: list[tuple[int, float]],
         top_k: int,
         k: int = 60,
+        alpha: float = 0.7,
+        beta: float = 0.3,
     ) -> list[tuple[int, float, float, float]]:
-        """Reciprocal Rank Fusion with score carry-over.
+        """Reciprocal Rank Fusion with weighted raw-score carry-over.
+
+        RRF ranking determines result order, but the returned ``hybrid_score``
+        is the weighted combination of raw similarity scores so that the value
+        stays in a meaningful range (not compressed by ``1/(k+rank)``).
 
         Returns
         -------
         list[(chunk_id, hybrid_score, vector_score, lexical_score)]
         """
-        # Build rank maps
         v_ranks: dict[int, int] = {
             cid: idx for idx, (cid, _) in enumerate(vector_results)
         }
@@ -216,11 +193,9 @@ class HybridRetriever:
             cid: idx for idx, (cid, _) in enumerate(lexical_results)
         }
 
-        # Score maps (raw similarity)
         v_scores: dict[int, float] = dict(vector_results)
         l_scores: dict[int, float] = dict(lexical_results)
 
-        # Collect all unique chunk_ids
         all_ids = set(v_ranks) | set(l_ranks)
 
         scored: list[tuple[int, float, float, float]] = []
@@ -229,20 +204,22 @@ class HybridRetriever:
             lr = l_ranks.get(cid, top_k * 2)
             vs = v_scores.get(cid, 0.0)
             ls_ = l_scores.get(cid, 0.0)
-            # RRF score
-            hybrid_score = (1.0 / (k + vr)) + (1.0 / (k + lr))
-            scored.append((cid, hybrid_score, vs, ls_))
+            # RRF score for ranking only
+            rrf_score = (1.0 / (k + vr)) + (1.0 / (k + lr))
+            # Weighted raw scores for the displayed score
+            hybrid_score = alpha * vs + beta * ls_
+            scored.append((cid, rrf_score, vs, ls_, hybrid_score))
 
-        # Sort by hybrid score descending
+        # Sort by RRF score for ranking
         scored.sort(key=lambda x: x[1], reverse=True)
-        return scored[:top_k]
+        # Return (chunk_id, hybrid_score, vector_score, lexical_score)
+        return [(cid, hs, vs, ls) for cid, _, vs, ls, hs in scored[:top_k]]
 
     # -- Format helpers for single-strategy results -------------------------
 
     def _format_vector_only(
         self,
         vector_results: list[tuple[int, float]],
-        query_vec: np.ndarray,
         top_k: int,
         min_score: float,
     ) -> list[dict[str, Any]]:

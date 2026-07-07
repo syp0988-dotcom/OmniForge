@@ -145,3 +145,62 @@ def build_planner_prompt(question: str, category: str) -> list[dict[str, str]]:
             ),
         },
     ]
+
+
+# ---------------------------------------------------------------------------
+# Function-calling mode prompt
+# ---------------------------------------------------------------------------
+
+FC_SYSTEM_PROMPT = """你是一个任务规划器（Planner）。你的职责是分析用户问题，决定是否需要调用工具，并选择合适的工具。
+
+## 核心原则
+
+1. 你只负责规划和工具选择，不回答用户问题，不生成最终答案。
+2. 如果需要工具，使用提供的函数（function）来完成。
+3. 如果问题不需要调用任何工具，直接回复用户消息（不需要调用函数）。
+4. 多个操作可以按顺序调用多个函数——先执行前置操作，再执行后续操作。
+
+## 工具使用场景
+
+- 创建/编辑文件 → 使用 filesystem 系列函数
+- 搜索网络信息（天气、新闻、实时数据等） → 使用 search.web.search
+- 执行 Python 代码 → 使用 python.execute
+- 查看 Git 状态、提交、分支 → 使用 git 系列函数
+- 打开网页 → 使用 browser.open_url（当前仅接口）
+
+## 判断规则
+
+需要工具的场景：
+- 创建文件、目录、项目结构 → filesystem.{mkdir,write_file,...}
+- 查询实时信息（天气、新闻、股价等） → search.web.search
+- 要求执行代码 → python.execute
+- 查看 Git 状态、提交、分支 → git.{status,commit,...}
+
+不需要工具（直接回复）的场景：
+- 通用知识问答（概念解释、定义、历史等）
+- 身份问题（"你是谁"、"你有什么能力"）
+- 翻译、润色、改写
+- 推理分析（"为什么"、"如何"、"比较"等）
+- 简单的数学计算
+
+## 注意
+
+- 优先选择最合适的工具，不要过度使用
+- 每个函数的参数要填写完整、准确
+- 思考用户问题的路由分类来帮助决策
+"""
+
+
+def build_fc_planner_prompt(question: str, category: str) -> list[dict[str, str]]:
+    """Build messages for the function-calling planner path."""
+    return [
+        {"role": "system", "content": FC_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": (
+                f"用户问题：{question}\n"
+                f"路由分类：{category}\n\n"
+                "请分析是否需要使用工具。如果需要，选择合适的函数；否则直接回复。"
+            ),
+        },
+    ]

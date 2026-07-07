@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     knowledge_beta: float = Field(default=0.3, alias="KNOWLEDGE_BETA")
     knowledge_chunk_size: int = Field(default=500, alias="KNOWLEDGE_CHUNK_SIZE")
     knowledge_chunk_overlap: int = Field(default=50, alias="KNOWLEDGE_CHUNK_OVERLAP")
-    knowledge_faiss_index_path: str = Field(default="", alias="KNOWLEDGE_FAISS_INDEX_PATH")
-    knowledge_faiss_index_type: str = Field(default="HNSW", alias="KNOWLEDGE_FAISS_INDEX_TYPE")
+    knowledge_chroma_path: str = Field(default="", alias="KNOWLEDGE_CHROMA_PATH")
+    knowledge_chroma_collection: str = Field(default="knowledge_chunks", alias="KNOWLEDGE_CHROMA_COLLECTION")
     knowledge_top_k: int = Field(default=5, alias="KNOWLEDGE_TOP_K")
     knowledge_min_score: float = Field(default=0.05, alias="KNOWLEDGE_MIN_SCORE")
 

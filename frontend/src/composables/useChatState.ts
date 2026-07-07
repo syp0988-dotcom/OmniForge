@@ -449,13 +449,18 @@ export function useChatState() {
 
   const uploadFiles = async (files: File[]) => {
     if (files.length === 0) return
-    const allowedExts = ['.pdf', '.docx', '.doc', '.txt', '.md', '.markdown']
+    const allowedExts = [
+      '.pdf', '.docx', '.doc', '.txt', '.md', '.markdown',
+      '.html', '.htm', '.xlsx', '.xls', '.pptx', '.csv', '.epub',
+      '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.go', '.rs',
+      '.c', '.cpp', '.h', '.hpp',
+    ]
     const filtered = files.filter((f) => {
       const ext = '.' + f.name.split('.').pop()?.toLowerCase()
       return allowedExts.includes(ext)
     })
     if (filtered.length === 0) {
-      uploadStatus.value = '没有支持的文档格式（PDF、DOCX、TXT、MD）'
+      uploadStatus.value = '没有支持的文档格式（PDF、DOCX、TXT、MD、HTML、XLSX、PPTX、CSV、EPUB、代码文件）'
       return
     }
     uploading.value = true

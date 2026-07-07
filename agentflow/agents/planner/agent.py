@@ -33,10 +33,11 @@ from agentflow.agents.planner.capability import (
     list_capabilities,
     resolve as resolve_capability,
 )
-from agentflow.agents.planner.prompt import build_planner_prompt
+from agentflow.agents.planner.prompt import build_fc_planner_prompt, build_planner_prompt
+from agentflow.agents.planner.schemas import get_tool_schemas, parse_function_name
 from agentflow.graph.plan import Plan
 from agentflow.graph.task import Task
-from agentflow.services.llm_service import get_llm_service
+from agentflow.services.llm_service import LLMResponse, ToolCall, get_llm_service
 from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
 
@@ -51,6 +52,7 @@ _TOOL_TO_NODE: dict[str, str] = {
     "browser": "tool_executor",
     "database": "tool_executor",
     "mcp": "tool_executor",
+    "composio": "tool_executor",
 }
 
 
@@ -97,12 +99,17 @@ class PlannerAgent(AgentProtocol):
         question = str(state.get("question", ""))
         category = str(state.get("category", "reasoning"))
 
-        # --- 1. Try LLM-based planning ---
-        plan = self._llm_plan(question, category)
+        # --- 1. Try function-calling planning (schema-enforced) ---
+        plan = self._fc_plan(question, category)
 
-        # --- 2. Fallback to rule-based planning ---
+        # --- 2. Fallback to JSON-based LLM planning ---
         if plan is None:
-            logger.info("LLM plan failed, falling back to rule-based planner")
+            logger.info("FC planner failed, trying JSON-based planner")
+            plan = self._llm_plan(question, category)
+
+        # --- 3. Fallback to rule-based planning ---
+        if plan is None:
+            logger.info("LLM planner failed, falling back to rule-based planner")
             plan = self._build_plan(question, category)
 
         # --- 3. Resolve capabilities → concrete tool names ---
@@ -174,6 +181,102 @@ class PlannerAgent(AgentProtocol):
         except (ValueError, KeyError, TypeError) as exc:
             logger.warning("LLM planner JSON validation failed: %s", exc)
             return None
+
+    # ------------------------------------------------------------------
+    # Function-calling planning  (primary path for compatible models)
+    # ------------------------------------------------------------------
+
+    def _fc_plan(self, question: str, category: str) -> Plan | None:
+        """Try to generate a Plan via OpenAI-compatible function calling.
+
+        Passes tool definitions as the ``tools`` parameter to the LLM so
+        parameters are schema-enforced at the API level (no JSON parsing).
+        Falls back to the caller (JSON prompt or rules) on any failure.
+
+        Returns ``None`` on any failure so the caller can fall back.
+        """
+        if not question:
+            return None
+
+        # Build messages
+        try:
+            messages = build_fc_planner_prompt(question, category)
+        except Exception as exc:
+            logger.warning("FC planner prompt build failed: %s", exc)
+            return None
+
+        # Get tool schemas
+        tools = get_tool_schemas()
+
+        # Call LLM with function definitions
+        try:
+            resp: LLMResponse = self._llm.complete_with_tools(
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+            )
+        except Exception as exc:
+            logger.warning("FC planner LLM call failed: %s", exc)
+            return None
+
+        # --- Case A: LLM returned tool calls → build Plan with tasks ---
+        if resp.tool_calls:
+            return self._build_plan_from_tool_calls(resp.tool_calls, resp.content)
+
+        # --- Case B: LLM returned text only (no tools needed) ---
+        content = resp.content.strip()
+        if content:
+            return Plan(
+                goal=question,
+                category=category,
+                tasks=[],
+                direct_answer=True,
+                reasoning=content[:500],
+            )
+
+        return None
+
+    @staticmethod
+    def _build_plan_from_tool_calls(
+        tool_calls: list[ToolCall],
+        reasoning: str,
+    ) -> Plan:
+        """Convert a list of ``ToolCall`` objects into a ``Plan``.
+
+        Each tool-call's function name is parsed as ``{tool}.{action}``
+        and its arguments decoded as the task ``input`` dict.
+        """
+        tasks: list[Task] = []
+        for tc in tool_calls:
+            tool, action = parse_function_name(tc.name)
+
+            # Parse arguments JSON
+            inp: dict = {}
+            if tc.arguments and tc.arguments.strip():
+                try:
+                    inp = json.loads(tc.arguments)
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "Failed to parse arguments for %s: %s", tc.name, tc.arguments[:100],
+                    )
+
+            capability = f"{tool}.{action}" if action else tool
+
+            tasks.append(Task(
+                goal=f"执行 {tc.name}",
+                capability=capability,
+                tool=tool,
+                input=inp,
+                agent="planner",
+            ))
+
+        return Plan(
+            goal="",
+            category="",
+            tasks=tasks,
+            direct_answer=False,
+            reasoning=reasoning[:1000] if reasoning else f"通过函数调用执行 {len(tasks)} 个任务",
+        )
 
     # ------------------------------------------------------------------
     # JSON parser (robust — handles code blocks and extra text)
@@ -464,10 +567,7 @@ class PlannerAgent(AgentProtocol):
             return Plan(
                 goal=question,
                 category=category,
-                tasks=[
-                    Task(goal="生成身份介绍信息回答用户"),
-                    Task(goal="将此次对话写入历史记录"),
-                ],
+                tasks=[],
                 direct_answer=True,
                 reasoning="身份问题无需搜索或知识库（规则回退）",
             )
@@ -496,14 +596,7 @@ class PlannerAgent(AgentProtocol):
         return Plan(
             goal=question,
             category=category,
-            tasks=[
-                Task(
-                    goal="综合上下文信息回答用户问题",
-                ),
-                Task(
-                    goal="将此次对话写入历史记录",
-                ),
-            ],
+            tasks=[],
             direct_answer=True,
             reasoning=f"通用问答无需工具调用（category={category}，规则回退）",
         )

@@ -37,6 +37,11 @@ class WorkflowContext(dict):
       The ``version`` field (default ``"1.0"``) tracks the context schema
       version.  Bump it when making backward-incompatible changes so that
       external consumers (e.g. frontend, logging pipeline) can adapt.
+
+    Dict/property consistency:
+      ``__setitem__`` is overridden to normalize known types so that
+      dict-style assignment (``ctx["session_state"] = {...}``) is
+      equivalent to property-style assignment (``ctx.session_state = {...}``).
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -44,6 +49,18 @@ class WorkflowContext(dict):
         # Ensure default version is set
         if "version" not in self:
             self["version"] = "1.0"
+
+    # -- Dict/property consistency -----------------------------------------------
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Override to normalize known types on dict-style assignment.
+
+        Ensures ``ctx["session_state"] = {...}`` stores a ``SessionState``
+        object, matching the behaviour of ``ctx.session_state = {...}``.
+        """
+        if key == "session_state" and isinstance(value, dict) and not isinstance(value, SessionState):
+            value = SessionState.from_dict(value)
+        super().__setitem__(key, value)
 
     # -- Version ----------------------------------------------------------------
 

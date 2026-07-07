@@ -31,6 +31,7 @@ from agentflow.knowledge.embedder import (
     serialize_vector,
     deserialize_vector,
 )
+from agentflow.knowledge.index import ChromaIndex
 from agentflow.knowledge.parser import parse_document, chunk_text
 from agentflow.knowledge.store import KnowledgeStore
 
@@ -192,12 +193,14 @@ class TestTfidfEmbedder:
 class TestKnowledgeStore:
     @pytest.fixture(autouse=True)
     def _setup(self):
-        """Use a temporary DB for each test."""
+        """Use a temporary DB and in-memory ChromaDB for each test."""
         import time
         self._tmp_db_path = tempfile.mktemp(suffix=".db")
+        import uuid
+        chroma_idx = ChromaIndex.in_memory(collection_name=f"test_{uuid.uuid4().hex}")
         from agentflow.database.sqlite import SQLiteStore
         self.db = SQLiteStore(Path(self._tmp_db_path))
-        self.store = KnowledgeStore(db=self.db)
+        self.store = KnowledgeStore(db=self.db, chroma_index=chroma_idx)
         yield
         # Cleanup: close all connections by deleting the reference
         self.store = None

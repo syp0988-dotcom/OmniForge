@@ -4,7 +4,7 @@
     <div>
       <h2 class="text-lg font-semibold text-text">知识库</h2>
       <p class="text-sm text-secondary mt-1">
-        上传文档（PDF、Word、TXT、Markdown），系统将自动解析、分块并向量化存储。
+        上传文档（PDF、DOCX、TXT、MD、HTML、XLSX、PPTX、CSV、EPUB、代码文件），系统将自动解析、分块并向量化存储。
       </p>
     </div>
 

@@ -35,8 +35,8 @@ class QueryRouterAgent(AgentProtocol):
     CODING_PATTERNS = [
         r"写.*代码",
         r"生成.*代码",
-        r"实现.*",
         r"调试.*",
+        r"修复.*bug",
         r"解释.*Python",
         r"Python.*(解释|怎么|如何)",
         r"函数|类|语法|遍历|循环|异常",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import shutil
 from datetime import datetime
@@ -25,8 +26,39 @@ from agentflow.utils.logging import build_logger
 
 router = APIRouter()
 logger = build_logger("api")
-store = SQLiteStore()
-knowledge_store = KnowledgeStore(db=store)
+
+# -- Lazy-initialised store accessors (decoupled for testability) -------------
+# Replace module-level globals with lazy accessors so tests can swap
+# implementations by calling set_store(mock_store) before routes are hit.
+
+_store: SQLiteStore | None = None
+_knowledge_store: KnowledgeStore | None = None
+
+
+def get_store() -> SQLiteStore:
+    global _store
+    if _store is None:
+        _store = SQLiteStore()
+    return _store
+
+
+def get_knowledge_store() -> KnowledgeStore:
+    global _knowledge_store
+    if _knowledge_store is None:
+        _knowledge_store = KnowledgeStore(db=get_store())
+    return _knowledge_store
+
+
+def set_store(store: SQLiteStore) -> None:
+    """Override the global store (for testing / DI)."""
+    global _store
+    _store = store
+
+
+def set_knowledge_store(ks: KnowledgeStore) -> None:
+    """Override the global knowledge store (for testing / DI)."""
+    global _knowledge_store
+    _knowledge_store = ks
 
 # Directory for uploaded document files
 UPLOAD_DIR = Path(__file__).resolve().parents[2] / "uploads"
@@ -56,10 +88,10 @@ def chat(request: ChatRequest) -> ChatResponse:
         session_id = request.session_id
         if session_id is None:
             # Create a new session for anonymous chats
-            sess = store.create_session()
+            sess = get_store().create_session()
             session_id = sess["id"]
         else:
-            existing = store.get_session(session_id)
+            existing = get_store().get_session(session_id)
             if existing is None:
                 raise HTTPException(status_code=404, detail="Session not found")
 
@@ -69,7 +101,7 @@ def chat(request: ChatRequest) -> ChatResponse:
         ]
 
         # Load session_state from DB (Conversation Runtime)
-        saved_state_str = store.get_session_state(session_id)
+        saved_state_str = get_store().get_session_state(session_id)
         session_state = json.loads(saved_state_str) if saved_state_str else None
 
         result = run_workflow(
@@ -82,18 +114,18 @@ def chat(request: ChatRequest) -> ChatResponse:
         # Persist session_state after the turn
         new_state = result.get("session_state")
         if new_state and isinstance(new_state, dict):
-            store.update_session_state(session_id, json.dumps(new_state, ensure_ascii=False))
+            get_store().update_session_state(session_id, json.dumps(new_state, ensure_ascii=False))
 
-        store.add_message("user", request.message, session_id=session_id)
-        store.add_message("assistant", result["answer"], session_id=session_id)
+        get_store().add_message("user", request.message, session_id=session_id)
+        get_store().add_message("assistant", result["answer"], session_id=session_id)
 
         # Auto-title: use first user message as session title
-        sess = store.get_session(session_id)
+        sess = get_store().get_session(session_id)
         if sess and sess["title"] == "新对话":
             title = request.message[:50]
             if len(request.message) > 50:
                 title += "…"
-            store.update_session_title(session_id, title)
+            get_store().update_session_title(session_id, title)
 
         debug_data = {
             "category": result.get("category"),
@@ -130,10 +162,10 @@ async def chat_stream(request: ChatRequest):
         # -- Session setup --
         session_id = request.session_id
         if session_id is None:
-            sess = store.create_session()
+            sess = get_store().create_session()
             session_id = sess["id"]
         else:
-            existing = store.get_session(session_id)
+            existing = get_store().get_session(session_id)
             if existing is None:
                 yield f"event: error\\ndata: {json.dumps({'error': 'Session not found'})}\\n\\n"
                 return
@@ -143,7 +175,7 @@ async def chat_stream(request: ChatRequest):
         ]
 
         # Load session_state from DB
-        saved_state_str = store.get_session_state(session_id)
+        saved_state_str = get_store().get_session_state(session_id)
         session_state_dict = json.loads(saved_state_str) if saved_state_str else None
 
         workflow = build_workflow()
@@ -189,9 +221,9 @@ async def chat_stream(request: ChatRequest):
         answer = final_state.get("answer", "") if final_state else ""
 
         # -- Persist messages --
-        store.add_message("user", request.message, session_id=session_id)
+        get_store().add_message("user", request.message, session_id=session_id)
         if answer:
-            store.add_message("assistant", answer, session_id=session_id)
+            get_store().add_message("assistant", answer, session_id=session_id)
 
         # -- Persist session_state --
         if final_state:
@@ -199,15 +231,15 @@ async def chat_stream(request: ChatRequest):
             result_dict = ctx.to_dict()
             new_state = result_dict.get("session_state")
             if new_state and isinstance(new_state, dict):
-                store.update_session_state(session_id, json.dumps(new_state, ensure_ascii=False))
+                get_store().update_session_state(session_id, json.dumps(new_state, ensure_ascii=False))
 
         # -- Auto-title --
-        sess = store.get_session(session_id)
+        sess = get_store().get_session(session_id)
         if sess and sess["title"] == "新对话":
             title = request.message[:50]
             if len(request.message) > 50:
                 title += "…"
-            store.update_session_title(session_id, title)
+            get_store().update_session_title(session_id, title)
 
         yield _sse_event("done", {"answer": answer})
 
@@ -229,13 +261,23 @@ async def upload_file(file: UploadFile = File(...)) -> JSONResponse:
         raise HTTPException(status_code=400, detail="No filename provided")
 
     # Validate file type
-    allowed_types = {".pdf", ".docx", ".doc", ".txt", ".md", ".markdown"}
+    allowed_types = {
+        ".pdf", ".docx", ".doc", ".txt", ".md", ".markdown",
+        ".html", ".htm", ".xlsx", ".xls", ".pptx", ".csv", ".epub",
+        ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs",
+        ".c", ".cpp", ".h", ".hpp",
+    }
     ext = Path(file.filename).suffix.lower()
     if ext not in allowed_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(allowed_types)}",
+            detail=f"Unsupported file type '{ext}'. "
+                   f"Allowed: PDF, DOCX, TXT, MD, HTML, XLSX, PPTX, CSV, EPUB, 代码文件",
         )
+
+    # Handle ZIP archives: extract and ingest each file
+    if ext == ".zip":
+        return await _handle_zip_upload(file)
 
     # Save uploaded file temporarily
     temp_path = UPLOAD_DIR / file.filename
@@ -245,7 +287,7 @@ async def upload_file(file: UploadFile = File(...)) -> JSONResponse:
         logger.info("Saved uploaded file: %s (%d bytes)", file.filename, len(content))
 
         # Ingest into knowledge base
-        doc_id = knowledge_store.add_document(temp_path, file.filename)
+        doc_id = get_knowledge_store().add_document(temp_path, file.filename)
         return JSONResponse(
             content={
                 "status": "ok",
@@ -263,23 +305,76 @@ async def upload_file(file: UploadFile = File(...)) -> JSONResponse:
             temp_path.unlink(missing_ok=True)
 
 
+async def _handle_zip_upload(file: UploadFile) -> JSONResponse:
+    """Extract a ZIP archive and ingest each contained document."""
+    import zipfile
+    from agentflow.knowledge.parser import _read_raw_from_bytes
+
+    content = await file.read()
+    total = 0
+    success = 0
+    failed: list[str] = []
+    allowed_exts = {
+        ".pdf", ".docx", ".doc", ".txt", ".md", ".markdown",
+        ".html", ".htm", ".xlsx", ".xls", ".pptx", ".csv", ".epub",
+        ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs",
+        ".c", ".cpp", ".h", ".hpp",
+    }
+
+    with zipfile.ZipFile(io.BytesIO(content)) as zf:
+        for info in zf.infolist():
+            fname = Path(info.filename)
+            if info.filename.startswith("__MACOSX/") or info.filename.startswith("."):
+                continue
+            if fname.suffix.lower() not in allowed_exts:
+                continue
+            total += 1
+            try:
+                raw = zf.read(info.filename)
+                file_type = fname.suffix.lstrip(".").lower()
+                text = _read_raw_from_bytes(raw, file_type)
+                if not text.strip():
+                    continue
+                # Save to temp file and ingest
+                temp_path = UPLOAD_DIR / fname.name
+                temp_path.write_bytes(raw)
+                try:
+                    get_knowledge_store().add_document(temp_path, fname.name)
+                    success += 1
+                finally:
+                    if temp_path.exists():
+                        temp_path.unlink(missing_ok=True)
+            except Exception as exc:
+                logger.warning("ZIP entry failed: %s (%s)", info.filename, exc)
+                failed.append(info.filename)
+
+    return JSONResponse(content={
+        "status": "ok",
+        "total": total,
+        "success": success,
+        "failed": failed,
+        "filename": file.filename,
+        "size": len(content),
+    })
+
+
 @router.get("/knowledge/documents")
 def list_documents() -> list[dict[str, object]]:
     """List all indexed documents."""
-    return knowledge_store.list_documents()
+    return get_knowledge_store().list_documents()
 
 
 @router.delete("/knowledge/documents/{doc_id}")
 def delete_document(doc_id: int) -> JSONResponse:
     """Delete a document and its chunks/embeddings from the knowledge base."""
-    knowledge_store.delete_document(doc_id)
+    get_knowledge_store().delete_document(doc_id)
     return JSONResponse(content={"status": "deleted", "document_id": doc_id})
 
 
 @router.post("/knowledge/search")
 def search_knowledge(query: str, top_k: int = 5) -> list[dict[str, object]]:
     """Search the knowledge base for relevant chunks."""
-    return knowledge_store.search(query, top_k=top_k)
+    return get_knowledge_store().search(query, top_k=top_k)
 
 
 # -- Chat history ----------------------------------------------------------
@@ -288,7 +383,7 @@ def search_knowledge(query: str, top_k: int = 5) -> list[dict[str, object]]:
 @router.get("/history")
 def history(limit: int = 20) -> list[dict[str, str]]:
     """Fetch recent chat history."""
-    return store.list_messages(limit=limit)
+    return get_store().list_messages(limit=limit)
 
 
 # -- File operations (agent-generated files) --------------------------------
@@ -431,23 +526,23 @@ def browse_directory(path: str = ".") -> JSONResponse:
 @router.post("/sessions/create")
 def create_session() -> JSONResponse:
     """Create a new chat session."""
-    sess = store.create_session()
+    sess = get_store().create_session()
     return JSONResponse(content=sess)
 
 
 @router.get("/sessions")
 def list_sessions(limit: int = 50) -> list[dict[str, object]]:
     """List all chat sessions, most recent first."""
-    return store.list_sessions(limit=limit)
+    return get_store().list_sessions(limit=limit)
 
 
 @router.get("/sessions/{session_id}/messages")
 def get_session_messages(session_id: int) -> list[dict[str, object]]:
     """Get all messages for a session."""
-    sess = store.get_session(session_id)
+    sess = get_store().get_session(session_id)
     if sess is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    return store.get_session_messages(session_id)
+    return get_store().get_session_messages(session_id)
 
 
 @router.put("/sessions/{session_id}/rename")
@@ -456,7 +551,7 @@ def rename_session(session_id: int, body: dict[str, str]) -> JSONResponse:
     title = body.get("title", "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Title is required")
-    ok = store.update_session_title(session_id, title)
+    ok = get_store().update_session_title(session_id, title)
     if not ok:
         raise HTTPException(status_code=404, detail="Session not found")
     return JSONResponse(content={"status": "ok"})
@@ -465,7 +560,7 @@ def rename_session(session_id: int, body: dict[str, str]) -> JSONResponse:
 @router.delete("/sessions/{session_id}")
 def delete_session_endpoint(session_id: int) -> JSONResponse:
     """Delete a session and all its messages."""
-    ok = store.delete_session(session_id)
+    ok = get_store().delete_session(session_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Session not found")
     return JSONResponse(content={"status": "deleted"})
@@ -478,14 +573,14 @@ def delete_session_endpoint(session_id: int) -> JSONResponse:
 def list_models() -> list[dict[str, object]]:
     """List all configured LLM models (API key excluded in response)."""
     from agentflow.models.model_config import LLMModelResponse
-    rows = store.get_all_models()
+    rows = get_store().get_all_models()
     return [LLMModelResponse.from_db_row(r).model_dump() for r in rows]
 
 
 @router.post("/models", status_code=201)
 def create_model(config: LLMModelCreate) -> dict[str, object]:
     """Create a new LLM model configuration."""
-    model_id = store.add_model(
+    model_id = get_store().add_model(
         name=config.name,
         provider=config.provider,
         base_url=config.base_url,
@@ -500,7 +595,7 @@ def create_model(config: LLMModelCreate) -> dict[str, object]:
 @router.put("/models/{model_id}")
 def update_model(model_id: int, config: LLMModelUpdate) -> dict[str, object]:
     """Update an existing LLM model configuration."""
-    ok = store.update_model(model_id, **config.model_dump(exclude_unset=True))
+    ok = get_store().update_model(model_id, **config.model_dump(exclude_unset=True))
     if not ok:
         raise HTTPException(status_code=404, detail="Model not found")
     return {"status": "updated"}
@@ -509,7 +604,7 @@ def update_model(model_id: int, config: LLMModelUpdate) -> dict[str, object]:
 @router.delete("/models/{model_id}")
 def delete_model(model_id: int) -> dict[str, object]:
     """Delete an LLM model configuration."""
-    ok = store.delete_model(model_id)
+    ok = get_store().delete_model(model_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Model not found")
     return {"status": "deleted"}
@@ -518,10 +613,10 @@ def delete_model(model_id: int) -> dict[str, object]:
 @router.post("/models/{model_id}/activate")
 def activate_model(model_id: int) -> dict[str, object]:
     """Set a model as the active LLM configuration."""
-    model = store.get_model(model_id)
+    model = get_store().get_model(model_id)
     if model is None:
         raise HTTPException(status_code=404, detail="Model not found")
-    store.set_active_model(model_id)
+    get_store().set_active_model(model_id)
     return {"status": "activated", "model_name": model["model_name"]}
 
 
@@ -532,21 +627,21 @@ def activate_model(model_id: int) -> dict[str, object]:
 def list_memories(category: str = "", limit: int = 50) -> list[dict[str, object]]:
     """List all long-term memories, optionally filtered by category."""
     from agentflow.services.long_term_memory import LongTermMemory
-    return LongTermMemory(db=store).get_all(category=category)
+    return LongTermMemory(db=get_store()).get_all(category=category)
 
 
 @router.get("/memory/search")
 def search_memories(query: str, limit: int = 10) -> list[dict[str, object]]:
     """Search long-term memories by keyword."""
     from agentflow.services.long_term_memory import LongTermMemory
-    return LongTermMemory(db=store).recall(query, limit=limit)
+    return LongTermMemory(db=get_store()).recall(query, limit=limit)
 
 
 @router.delete("/memory/{key}")
 def delete_memory(key: str) -> JSONResponse:
     """Delete a specific long-term memory."""
     from agentflow.services.long_term_memory import LongTermMemory
-    ok = LongTermMemory(db=store).forget(key)
+    ok = LongTermMemory(db=get_store()).forget(key)
     if not ok:
         raise HTTPException(status_code=404, detail="Memory not found")
     return JSONResponse(content={"status": "deleted"})
@@ -556,7 +651,7 @@ def delete_memory(key: str) -> JSONResponse:
 def clear_memories(category: str = "") -> JSONResponse:
     """Clear all long-term memories, optionally filtered by category."""
     from agentflow.services.long_term_memory import LongTermMemory
-    LongTermMemory(db=store).clear(category=category)
+    LongTermMemory(db=get_store()).clear(category=category)
     return JSONResponse(content={"status": "cleared"})
 
 

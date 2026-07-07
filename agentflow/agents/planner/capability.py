@@ -53,6 +53,8 @@ _REGISTRY: list[tuple[str, str | None, str]] = [
     # -- MCP capabilities (interface) ----------------------------------------
     ("mcp.discover", "mcp", "发现 MCP 服务器的可用工具"),
     ("mcp.execute", "mcp", "调用 MCP 工具的指定操作"),
+    # -- Composio capabilities ------------------------------------------------
+    ("composio.execute", "composio", "通过 Composio 平台调用 500+ 第三方工具（Gmail、Slack、GitHub 等）"),
 ]
 
 # Derived lookup maps (built once)

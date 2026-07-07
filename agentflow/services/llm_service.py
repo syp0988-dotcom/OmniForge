@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from openai import OpenAI
@@ -18,26 +19,51 @@ _BASE_DELAY = 1.0
 _MAX_DELAY = 10.0
 
 
+@dataclass
+class ToolCall:
+    """Represents a single function-call request from the LLM."""
+
+    id: str
+    name: str  # e.g. "filesystem.mkdir"
+    arguments: str  # JSON string of parameters
+
+
+@dataclass
+class LLMResponse:
+    """Rich response from ``complete_with_tools``.
+
+    Attributes:
+        content: Textual reply (when no tool is invoked).
+        tool_calls: List of tool-call requests from the LLM.
+    """
+
+    content: str = ""
+    tool_calls: list[ToolCall] | None = None
+
+
 class LLMService:
     """Thin wrapper around an OpenAI-compatible client.
 
     Supports two modes:
     1. Database-driven: an active model config is loaded from the llm_models table.
     2. Env-driven: falls back to settings.py / .env configuration.
+
+    Accepts an optional ``db`` for dependency injection (e.g. a mock in tests).
+    When omitted, a default ``SQLiteStore`` is created automatically.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, db: SQLiteStore | None = None) -> None:
         self._client: Any | None = None
         self._model_name: str = settings.model_name
         self._temperature: float = settings.temperature
         self._max_tokens: int = settings.max_tokens
+        self._db = db or SQLiteStore()
         self._try_load_active_model()
 
     def _try_load_active_model(self) -> None:
         """If a model is marked active in the database, override env settings."""
         try:
-            db = SQLiteStore()
-            active = db.get_active_model()
+            active = self._db.get_active_model()
             if active and active.get("api_key"):
                 self._init_client(
                     api_key=active["api_key"],
@@ -141,6 +167,78 @@ class LLMService:
                 fallback_content = messages[-1].get("content", "")[:160]
                 return f"[fallback] {fallback_content}" if fallback_content else ""
             return f"[fallback] {prompt[:160]}"
+
+    # ------------------------------------------------------------------
+    # Function calling support
+    # ------------------------------------------------------------------
+
+    def complete_with_tools(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = "auto",
+    ) -> LLMResponse:
+        """Call the LLM with OpenAI-compatible function definitions.
+
+        Args:
+            messages: Chat messages (system + user).
+            tools: List of OpenAI-compatible function definitions.
+            tool_choice: ``"auto"`` (default), ``"required"``, ``"none"``,
+                or ``{"type": "function", "function": {"name": "..."}}``.
+
+        Returns:
+            ``LLMResponse`` with ``content`` and/or ``tool_calls``.
+        """
+        if not self.client:
+            logger.warning("No API key configured; returning empty response")
+            return LLMResponse(content="")
+
+        kwargs: dict[str, Any] = {
+            "model": self._model_name,
+            "messages": messages,
+            "temperature": self._temperature,
+            "max_tokens": self._max_tokens,
+        }
+        if tools:
+            kwargs["tools"] = tools
+        if tool_choice is not None:
+            kwargs["tool_choice"] = tool_choice
+
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                response = self.client.chat.completions.create(**kwargs)
+                msg = response.choices[0].message
+
+                content = msg.content or ""
+                raw_calls = msg.tool_calls
+
+                if not raw_calls:
+                    return LLMResponse(content=content)
+
+                tool_calls = [
+                    ToolCall(
+                        id=tc.id,
+                        name=tc.function.name,
+                        arguments=tc.function.arguments,
+                    )
+                    for tc in raw_calls
+                ]
+                return LLMResponse(content=content, tool_calls=tool_calls)
+
+            except Exception as exc:
+                last_exc = exc
+                if attempt < _MAX_RETRIES:
+                    delay = min(_BASE_DELAY * (2 ** attempt), _MAX_DELAY)
+                    delay += random.uniform(0, 0.5)
+                    logger.warning(
+                        "LLM request failed (attempt %d/%d): %s. Retrying in %.1fs...",
+                        attempt + 1, _MAX_RETRIES + 1, exc, delay,
+                    )
+                    time.sleep(delay)
+
+        logger.exception("LLM request failed after %d retries: %s", _MAX_RETRIES + 1, last_exc)
+        return LLMResponse(content="")
 
 
 _llm_service = LLMService()
