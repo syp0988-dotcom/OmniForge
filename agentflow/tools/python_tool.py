@@ -61,8 +61,19 @@ class PythonTool(BaseTool):
     # Introspection
     # ------------------------------------------------------------------
 
-    def capabilities(self) -> list[str]:
-        return ["python.execute", "python.script"]
+    def actions(self) -> dict[str, dict]:
+        return {
+            "execute": {
+                "description": "在沙箱子进程中执行 Python 代码（30 秒超时）",
+                "parameters": {
+                    "code": {"type": "string", "description": "要执行的 Python 源代码"},
+                },
+                "required": ["code"],
+            },
+        }
+
+    def routing_node(self) -> str:
+        return "python"
 
     # ------------------------------------------------------------------
     # Validation

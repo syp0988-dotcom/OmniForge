@@ -23,6 +23,7 @@ Usage::
 from __future__ import annotations
 
 import math
+import os
 import re
 from abc import ABC, abstractmethod
 from collections import Counter
@@ -34,7 +35,7 @@ import numpy as np
 # Tokenizer (shared)
 # ---------------------------------------------------------------------------
 
-_CHINESE_RE = re.compile(r"[一-鿿㐀-䶿豈-﫿]")
+_CHINESE_RE = re.compile(r"[\u4e00-\u9fff]")
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9_\-]+|[^\s]")
 
 
@@ -353,6 +354,11 @@ class SemanticEmbedder(BaseEmbedder):
         """Lazy-load the sentence-transformers model."""
         if self._model is not None:
             return self._model
+        if os.getenv("AGENTFLOW_ENABLE_SEMANTIC_EMBEDDER", "").lower() not in ("1", "true", "yes"):
+            raise ImportError(
+                "SemanticEmbedder is disabled by default. "
+                "Set AGENTFLOW_ENABLE_SEMANTIC_EMBEDDER=1 to enable it."
+            )
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:
@@ -368,10 +374,16 @@ class SemanticEmbedder(BaseEmbedder):
             if _cert_path and not _os.path.exists(_cert_path):
                 _os.environ.pop(_env_key, None)
 
-        self._model = SentenceTransformer(
-            self._model_name,
-            device="cpu",
-        )
+        kwargs = {"device": "cpu"}
+        if os.getenv("AGENTFLOW_ALLOW_MODEL_DOWNLOAD", "").lower() not in ("1", "true", "yes"):
+            kwargs["local_files_only"] = True
+        try:
+            self._model = SentenceTransformer(self._model_name, **kwargs)
+        except Exception as exc:
+            raise ImportError(
+                "SemanticEmbedder model is not available locally. "
+                "Set AGENTFLOW_ALLOW_MODEL_DOWNLOAD=1 to allow downloading it."
+            ) from exc
         return self._model
 
 

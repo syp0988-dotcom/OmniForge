@@ -6,12 +6,15 @@ current Task Queue and Workspace, and generates 3-5 new tasks (or task
 updates) to add to the queue.
 
 Core principle: This is a TASK GENERATION system, not a stage scheduler.
+
+All tool names, actions, and capabilities are now injected dynamically
+from the ToolRegistry via ``{capabilities}`` and ``{tool_actions}``
+template variables — no hardcoded allowlists.
 """
 
 from __future__ import annotations
 
-from agentflow.agents.planner.capability import registry_summary
-from agentflow.config.prompts import FC_PLANNER_SYSTEM_PROMPT, PLANNER_SYSTEM_PROMPT
+from agentflow.agents.planner.capability import registry_summary, tool_actions_summary
 
 SYSTEM_PROMPT = """你是一个动态任务队列规划器（Dynamic Task Queue Planner）。你的职责是观察当前工作区和任务队列，决定接下来 3~5 个最重要的任务。
 
@@ -23,17 +26,13 @@ SYSTEM_PROMPT = """你是一个动态任务队列规划器（Dynamic Task Queue 
 4. **检查工作区已有文件，不要重复创建已存在的内容。**
 5. 如果发现某些高优先级任务在任务队列中重复或已过时，可以直接调整它们的优先级。
 
+## 可用工具和动作（严格使用英文）
+
+{tool_actions}
+
 ## ⚠️ 严格规则：action 和 tool 必须使用英文
 
-**绝对禁止使用中文作为 action 名称！**
-
-可用的 action 值（仅限英文）：
-  - filesystem: mkdir, write_file, create_file, edit_file, append_file, read_file, delete_file, list_directory
-  - python: execute
-  - search: search
-  - git: status, diff, add, commit, checkout, branch, log
-
-tool 字段也只能使用: filesystem, python, search, git
+以上列表中的 action 和 tool 名称**必须使用英文**。绝对禁止使用中文。
 
 ## 任务优先级指南
 
@@ -62,36 +61,36 @@ tool 字段也只能使用: filesystem, python, search, git
 输出 JSON 对象（不要包含其他文字）：
 
 ```json
-{{
+{
     "goal_completed": false,
     "current_stage": "",
     "tasks": [
-        {{
+        {
             "task_id": "create_backend",
             "title": "创建后端应用",
             "priority": 80,
             "tool": "filesystem",
             "goal": "创建 app.py",
-            "input": {{
+            "input": {
                 "action": "write_file",
                 "path": "book_management/app.py",
                 "content": "..."
-            }}
-        }},
-        {{
+            }
+        },
+        {
             "task_id": "create_config",
             "title": "创建应用配置",
             "priority": 75,
             "tool": "filesystem",
             "goal": "创建 config.py",
-            "input": {{
+            "input": {
                 "action": "write_file",
                 "path": "book_management/config.py",
                 "content": "..."
-            }}
-        }}
+            }
+        }
     ]
-}}
+}
 ```
 
 ## 字段说明
@@ -102,7 +101,7 @@ tool 字段也只能使用: filesystem, python, search, git
   - **task_id**: 唯一标识（如 "create_backend"、"create_database"）
   - **title**: 任务标题（简短中文，仅用于显示）
   - **priority**: 优先级 0-100（越高越重要）
-  - **tool**: 工具名（必须是 filesystem, python, search, git 之一）
+  - **tool**: 工具名（必须是上面列出的英文 tool 名之一）
   - **goal**: 任务目标描述
   - **input**: 工具执行参数（**action 必须使用英文**，包含 action、path、content 等）
 
@@ -122,6 +121,7 @@ def build_planner_prompt(
     goal_type: str,
     context_str: str = "",
     replan_context: str = "",
+    registry=None,
 ) -> list[dict[str, str]]:
     """Build the full message list for the planner LLM call.
 
@@ -131,7 +131,11 @@ def build_planner_prompt(
         context_str: Aggregated context from ContextBuilder (includes
             task queue, workspace state, knowledge, etc.).
         replan_context: Previous failure context for re-plan iterations.
+        registry: ToolRegistry instance for dynamic capability/tool text.
     """
+    caps_text = registry_summary(registry)
+    tools_text = tool_actions_summary(registry) or "  (no tools registered)"
+
     user_content = (
         f"## 用户目标\n{goal}\n\n"
         f"## 目标类型\n{goal_type}\n\n"
@@ -151,8 +155,10 @@ def build_planner_prompt(
             "上一轮任务执行有误，请根据错误信息调整本阶段的计划。"
         )
 
+    system = SYSTEM_PROMPT.replace("{capabilities}", caps_text)
+    system = system.replace("{tool_actions}", tools_text)
     return [
-        {"role": "system", "content": PLANNER_SYSTEM_PROMPT.format(capabilities=registry_summary())},
+        {"role": "system", "content": system},
         {"role": "user", "content": user_content},
     ]
 
@@ -165,46 +171,45 @@ FC_SYSTEM_PROMPT = """你是一个动态任务队列规划器（Dynamic Task Que
 
 ## 核心原则
 
-1. 你每次直接生成 3~5 个文件创建任务。
-2. 不需要调用 list_directory 或 exists 来检查工作区——工作区状态已在上下文中提供。
-3. 直接使用 write_file 或 create_file 创建包含实际内容的文件。
-4. 创建目录使用 mkdir。
+1. 你每次直接生成 1~5 个文件创建任务，一次性完成用户目标。
+2. **绝对不要**调用 list_directory、tree、exists 或任何检查工作区的工具——工作区状态已在上下文中提供。
+3. 直接根据用户目标选择正确的工具：
+   - 生成 Word 文档/报告 → 使用 **docx.create**（content 为 Markdown 格式）
+   - 创建代码文件 → 使用 **filesystem.write_file**
+   - 创建目录 → 使用 **filesystem.mkdir**
+   - 执行 Python → 使用 **python.execute**
+4. 你不需要探索——直接创建用户需要的文件。
+
+## 可用工具和动作（严格使用英文）
+
+{tool_actions}
 
 ## ⚠️ 严格规则：工具和动作名称必须使用英文
 
-**绝对禁止使用中文作为工具名或动作名！** 以下是对照表：
+以上列表中的 tool 和 action 名称**必须使用英文**。绝对禁止使用中文。
 
-| 操作 | 英文 action（必须使用） | ❌ 禁止的中文 |
-|------|------------------------|--------------|
-| 创建目录 | `mkdir` | 创建项目根目录、新建文件夹 |
-| 写文件 | `write_file` | 创建文件、写入文件、生成文件 |
-| 创建文件 | `create_file` | 新建文件、建立文件 |
-| 编辑文件 | `edit_file` | 修改文件、编辑文件 |
-| 追加文件 | `append_file` | 追加内容、添加内容 |
-| 列出目录 | `list_directory` | 列出文件、查看目录 |
-| 执行代码 | `execute` | 运行代码、执行脚本 |
+## 工具选择指南
 
-**tool 字段**也只能使用这些英文值: filesystem, python, search, git
-
-## 工具使用原则
-
-- 创建文件 → 使用 filesystem.write_file（path, content）——必须包含实际内容
-- 创建目录 → 使用 filesystem.mkdir（path）
-- 执行 Python 代码 → 使用 python.execute
+- 用户要"生成报告"、"创建文档"、"写 docx" → **docx.create**
+- 用户要"创建项目"、"写代码" → **filesystem.write_file** + **filesystem.mkdir**
+- 用户要"运行脚本"、"执行程序" → **python.execute**
 
 ## 每次调用生成全部任务
 
-注意：你必须**一次性生成所有需要创建的文件**。不要分多次调用。
-例如，如果用户需要一个 Python 游戏，你应该同时生成：
-1. mkdir 创建项目目录
-2. write_file 创建 snake.py（包含完整游戏代码）
-3. write_file 创建 README.md（包含说明文档）
+你必须**一次性生成所有需要创建的文件**。不要分多次调用。
+例如，如果用户需要一份测试报告，你应该直接生成：
+1. docx.create 创建 report.docx（content 为完整的 Markdown 格式报告内容）
+
+如果用户需要一个 Python 游戏，你应该同时生成：
+1. filesystem.mkdir 创建项目目录
+2. filesystem.write_file 创建 game.py（包含完整游戏代码）
+3. filesystem.write_file 创建 README.md（包含说明文档）
 
 所有工具调用都在同一次响应中发出。
 
 ## 检查
 
-- 工作区状态已在上下文中提供——不需要用 list_directory 或 exists 检查
+- 工作区状态已在上下文中提供——**绝对不要**用任何工具检查
 - 确保文件内容完整可用（不要写空文件）
 - 你的目标不是回答。你的目标是创建文件来完成用户任务。
 """
@@ -215,8 +220,11 @@ def build_fc_planner_prompt(
     goal_type: str,
     context_str: str = "",
     replan_context: str = "",
+    registry=None,
 ) -> list[dict[str, str]]:
     """Build messages for the function-calling planner path."""
+    tools_text = tool_actions_summary(registry) or "  (no tools registered)"
+
     user_content = (
         f"## 用户目标\n{goal}\n\n"
         f"## 目标类型\n{goal_type}\n\n"
@@ -236,7 +244,8 @@ def build_fc_planner_prompt(
             "上一轮失败，请根据错误信息调整。"
         )
 
+    system = FC_SYSTEM_PROMPT.replace("{tool_actions}", tools_text)
     return [
-        {"role": "system", "content": FC_PLANNER_SYSTEM_PROMPT},
+        {"role": "system", "content": system},
         {"role": "user", "content": user_content},
     ]

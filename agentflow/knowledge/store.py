@@ -36,6 +36,7 @@ from agentflow.knowledge.parser import parse_document
 from agentflow.knowledge.retrieval import HybridRetriever
 from agentflow.knowledge.settings import (
     chunk_params,
+    chroma_collection,
     embedder_type,
     embedding_model,
     search_defaults,
@@ -117,21 +118,25 @@ class KnowledgeStore:
             self.db.delete_document_cascade(doc_id)
             raise
 
-        # 5. Persist chunks to SQLite
-        chunk_ids: list[int] = []
-        for i, chunk_text in enumerate(chunks):
-            chunk_id = self.db.add_chunk(document_id=doc_id, content=chunk_text, chunk_index=i)
-            chunk_ids.append(chunk_id)
+        try:
+            # 5. Persist chunks to SQLite
+            chunk_ids: list[int] = []
+            for i, chunk_text in enumerate(chunks):
+                chunk_id = self.db.add_chunk(document_id=doc_id, content=chunk_text, chunk_index=i)
+                chunk_ids.append(chunk_id)
 
-        # 6. Store vectors in ChromaDB
-        if chunk_ids:
-            self._ensure_index()
-            metadatas = [
-                {"document_id": doc_id, "chunk_index": i}
-                for i in range(len(chunk_ids))
-            ]
-            vectors_array = np.array([v for v in vectors], dtype=np.float32)
-            self.chroma_index.add(chunk_ids, vectors_array, metadatas)
+            # 6. Store vectors in ChromaDB
+            if chunk_ids:
+                metadatas = [
+                    {"document_id": doc_id, "chunk_index": i}
+                    for i in range(len(chunk_ids))
+                ]
+                vectors_array = np.array([v for v in vectors], dtype=np.float32)
+                self._ensure_index(dimension=vectors_array.shape[1])
+                self.chroma_index.add(chunk_ids, vectors_array, metadatas)
+        except Exception:
+            self.db.delete_document_cascade(doc_id)
+            raise
 
         logger.info("  → Document #%d indexed successfully (%d chunks)", doc_id, len(chunks))
         return doc_id
@@ -199,11 +204,11 @@ class KnowledgeStore:
                 embedder.embed(["probe"])
                 logger.info("Using SemanticEmbedder (model=%s)", embedding_model())
                 return embedder
-            except ImportError:
+            except Exception as exc:
                 logger.warning(
-                    "SemanticEmbedder requested but sentence-transformers not installed. "
-                    "Falling back to TfidfEmbedder. "
-                    "Install: pip install sentence-transformers"
+                    "SemanticEmbedder requested but unavailable (%s). "
+                    "Falling back to TfidfEmbedder.",
+                    exc,
                 )
                 return TfidfEmbedder()
         logger.info("Using TfidfEmbedder (fallback mode)")
@@ -255,9 +260,14 @@ class KnowledgeStore:
         except Exception as exc:
             logger.debug("Failed to save TF-IDF cache (non-critical): %s", exc)
 
-    def _ensure_index(self) -> None:
+    def _ensure_index(self, dimension: int | None = None) -> None:
         if self.chroma_index is None:
-            self.chroma_index = ChromaIndex()
+            collection_name = None
+            if isinstance(self.embedder, TfidfEmbedder):
+                dim = dimension or self.embedder.dimension
+                if dim > 0:
+                    collection_name = f"{chroma_collection()}_tfidf_{dim}"
+            self.chroma_index = ChromaIndex(collection_name=collection_name)
 
     def _ensure_retriever(self) -> None:
         if self.retriever is not None:

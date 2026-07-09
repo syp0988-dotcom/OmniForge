@@ -105,11 +105,17 @@ class WorkflowState(TypedDict, total=False):
 def build_workflow() -> Any:
     """Build and compile the goal-driven LangGraph workflow.
 
-    Returns a **fresh compiled instance** on every call.
+    Returns a **cached compiled instance**.  Agents and the compiled
+    graph are built once and reused across requests for performance.
     """
+    global _workflow_cache
+    if _workflow_cache is not None:
+        return _workflow_cache
+
     cm = ConversationManager()
     goal_analyzer = GoalAnalyzer()
-    planner = PlannerAgent()
+    executor = _build_executor()
+    planner = PlannerAgent(registry=executor.registry)
     query_rewriter = QueryRewriter()
     search = SearchAgent()
     answer = AnswerAgent()
@@ -117,7 +123,6 @@ def build_workflow() -> Any:
     knowledge = KnowledgeAgent()
     python_executor = PythonAgent()
     reflection = ReflectionAgent()
-    executor = _build_executor()
 
     workflow = StateGraph(WorkflowState)
 
@@ -127,7 +132,7 @@ def build_workflow() -> Any:
     workflow.add_node("knowledge", knowledge.run)
     workflow.add_node("planner", _make_planner_node(planner))
     workflow.add_node("query_rewriter", _make_query_rewriter_node(query_rewriter))
-    workflow.add_node("search", search.run)
+    workflow.add_node("search", _make_search_node(search))
     workflow.add_node("tool_executor", _make_tool_executor_node(executor))
     workflow.add_node("reflector", reflection.run)
     workflow.add_node("python", python_executor.run)
@@ -211,7 +216,9 @@ def build_workflow() -> Any:
     workflow.add_edge("answer", "memory")
     workflow.add_edge("memory", END)
 
-    return workflow.compile()
+    _workflow_cache = workflow.compile()
+    logger.info("Workflow compiled and cached")
+    return _workflow_cache
 
 
 # =========================================================================
@@ -230,10 +237,10 @@ def _route_after_goal_analyzer(state: WorkflowState) -> str:
       3. ``"hybrid"``  → Knowledge → Planner → ... then Answer fuses both.
          RAG context + LLM own knowledge combined naturally.
 
-    Also considers goal_type:
-      - ``other/translation/editing`` → direct answer (no planning needed)
-      - ``question/analysis/document`` → use knowledge_source
-      - ``project/coding/etc`` → skip knowledge (project doesn't need RAG)
+    Also considers goal_type (6-class simplified system):
+      - ``other`` → direct answer (chat, editing, translation, no planning)
+      - ``question`` → use knowledge_source (general → answer, local/hybrid → RAG)
+      - ``coding / project / search / tool_use`` → planner (skip knowledge)
     """
     goal = state.get("goal_analysis", {})
     goal_type = goal.get("goal_type", "") if isinstance(goal, dict) else ""
@@ -280,8 +287,8 @@ def _route_after_executor(state: WorkflowState) -> str:
       - No more TODO tasks remain (need goal_completed check)
       - Every N successful tasks (configurable periodic checkpoint)
 
-    On routine success with more TODO items, routes directly to the
-    appropriate executor node (~1 LLM call saved per task).
+    Routing is derived dynamically from the ToolRegistry — no hardcoded
+    tool-name lists.
     """
     # Check if the last task failed
     tool_results = state.get("tool_results", [])
@@ -296,15 +303,12 @@ def _route_after_executor(state: WorkflowState) -> str:
     next_task = _find_highest_priority_todo(queue)
     if next_task:
         tool = next_task.get("tool", "") or ""
-        if tool in ("filesystem", "git", "browser", "database", "mcp", "composio"):
-            return "tool_executor"
-        if tool == "search":
-            return "query_rewriter"
-        if tool == "python":
-            return "python"
         if tool == "knowledge":
             logger.info("Executor: knowledge tool task, routing to reflector")
             return "reflector"
+        node = _resolve_tool_node(tool)
+        if node:
+            return node
         logger.warning("Executor: unknown tool '%s', trying tool_executor", tool)
         return "tool_executor"
 
@@ -319,6 +323,9 @@ def _route_after_planner(state: WorkflowState) -> str:
     Priority: goal_completed, direct_answer, then highest-priority TODO.
     When there are no TODO tasks and the plan says incomplete, routes to
     ``reflector`` for LLM evaluation instead of going to ``answer``.
+
+    All tool→node mappings are resolved dynamically from the ToolRegistry
+    instead of hardcoded per-tool lists.
     """
     # Planner may force completion after too many cycles without progress
     if state.get("_reflection_result") == "done":
@@ -340,16 +347,12 @@ def _route_after_planner(state: WorkflowState) -> str:
     if next_task:
         tool = next_task.get("tool", "") or ""
         logger.info("Router: next TODO task tool=%s id=%s -> dispatcher", tool, next_task.get("task_id", "?"))
-        if tool in ("filesystem", "git", "browser", "database", "mcp", "composio"):
-            return "tool_executor"
-        if tool == "search":
-            return "query_rewriter"
-        if tool == "python":
-            return "python"
-        # Unknown tool (e.g. "knowledge" from LLM) — skip and go to reflector
         if tool == "knowledge":
             logger.info("Router: knowledge tool task (pre-planner node), routing to reflector")
             return "reflector"
+        node = _resolve_tool_node(tool)
+        if node:
+            return node
         # Fallback: try tool_executor for unknown tools
         logger.warning("Router: unknown tool '%s', trying tool_executor", tool)
         return "tool_executor"
@@ -393,27 +396,55 @@ def _route_after_reflector(state: WorkflowState) -> str:
     next_task = _find_highest_priority_todo(queue)
     if next_task:
         tool = next_task.get("tool", "") or ""
-        if tool in ("filesystem", "git", "browser", "database", "mcp", "composio"):
-            logger.info("Reflector -> tool_executor (next TODO: %s)", next_task.get("task_id", "?"))
-            return "tool_executor"
-        if tool == "search":
-            return "query_rewriter"
-        if tool == "python":
-            return "python"
         if tool == "knowledge":
             logger.info("Reflector: knowledge tool task, skipping -> planner")
             return "planner"
+        node = _resolve_tool_node(tool)
+        if node:
+            logger.info("Reflector -> %s (next TODO: %s)", node, next_task.get("task_id", "?"))
+            return node
         logger.warning("Reflector: unknown tool '%s', trying tool_executor", tool)
         return "tool_executor"
 
     # No TODO tasks but goal not completed -> need more from planner.
     # Guard against infinite planner↔reflector loops: check cycle count.
     cycle_count = int(state.get("_planner_cycle_count", 0))
+    stuck_rounds = int(state.get("_stuck_rounds", 0))
+    if stuck_rounds >= 3:
+        logger.warning("Reflector: %d stuck rounds without TODO, forcing answer", stuck_rounds)
+        return "answer"
     if cycle_count >= 4:
         logger.warning("Reflector: %d planner cycles without progress, forcing answer", cycle_count)
         return "answer"
     logger.info("Reflector -> planner (need more tasks, cycle %d)", cycle_count)
     return "planner"
+
+
+def _resolve_tool_node(tool: str) -> str | None:
+    """Resolve a tool name to a LangGraph node name via the ToolRegistry.
+
+    Returns ``None`` for unknown tools (caller should fall back).
+    """
+    if not tool:
+        return None
+    reg = _get_registry()
+    if reg is not None:
+        return reg.get_node_for_tool(tool)
+    # Fallback when registry not available (should not happen in practice)
+    _KNOWN = {
+        "search": "query_rewriter", "python": "python",
+        "filesystem": "tool_executor", "git": "tool_executor",
+        "browser": "tool_executor", "database": "tool_executor",
+        "mcp": "tool_executor", "composio": "tool_executor",
+    }
+    return _KNOWN.get(tool)
+
+
+def _get_registry():
+    """Return the ToolRegistry from the global executor instance."""
+    if _executor_instance is not None:
+        return _executor_instance.registry
+    return None
 
 
 def _find_highest_priority_todo(queue: list[dict]) -> dict | None:
@@ -467,6 +498,14 @@ def _make_planner_node(planner: PlannerAgent) -> object:
                 plan["direct_answer"] = True
                 plan["reasoning"] = str(plan.get("reasoning", "")) + " (达到最大规划次数，强制结束)"
                 result["plan"] = plan
+            elif plan is not None:
+                try:
+                    plan.goal_completed = True
+                    plan.direct_answer = True
+                    plan.reasoning = f"{getattr(plan, 'reasoning', '')} (达到最大规划次数，强制结束)"
+                    result["plan"] = plan
+                except AttributeError:
+                    pass
             result["_reflection_result"] = "done"
             result["_reflection_message"] = "达到最大规划次数，强制结束"
         result["_planner_cycle_count"] = count
@@ -518,7 +557,12 @@ def _make_conversation_manager_node(cm: ConversationManager) -> object:
 
 
 def _make_query_rewriter_node(qr: QueryRewriter) -> object:
-    """Factory: creates a query_rewriter node."""
+    """Factory: creates a query_rewriter node.
+
+    Also marks the first TODO search/pending task as ``running`` so the
+    frontend task tree updates correctly (the search node will mark it as
+    ``done`` afterwards).
+    """
 
     def _node(state: WorkflowState) -> dict[str, object]:
         question = str(
@@ -534,6 +578,13 @@ def _make_query_rewriter_node(qr: QueryRewriter) -> object:
         else:
             intent = getattr(plan, "intent", "")
 
+        # Mark the first TODO search task as running
+        queue = list(state.get("task_queue", []) or [])
+        for t in queue:
+            if isinstance(t, dict) and t.get("status", "todo") in ("todo", "queued"):
+                t["status"] = "running"
+                break
+
         rewritten = qr.rewrite(
             question=question,
             session_state=session_state,
@@ -545,16 +596,62 @@ def _make_query_rewriter_node(qr: QueryRewriter) -> object:
             "QueryRewriter: '%s' → '%s' (intent=%s)",
             question[:50], rewritten[:80], intent,
         )
-        return {"rewritten_query": rewritten}
+        return {"rewritten_query": rewritten, "task_queue": queue}
+
+    return _node
+
+
+def _make_search_node(search_agent: object) -> object:
+    """Factory: wraps the search agent so it updates task queue status.
+
+    Marks the first RUNNING search task as DONE after the search completes.
+    """
+
+    def _node(state: WorkflowState) -> dict[str, object]:
+        result = search_agent.run(state)
+        # Mark any running search tasks as done
+        queue = list(state.get("task_queue", []) or [])
+        for t in queue:
+            if isinstance(t, dict) and t.get("status") == "running":
+                t["status"] = "done"
+        result["task_queue"] = queue
+        return result
 
     return _node
 
 
 def _make_tool_executor_node(executor: Executor) -> object:
-    """Factory: creates a tool_executor node that runs one task at a time."""
+    """Factory: creates a tool_executor node."""
 
     def _node(state: WorkflowState) -> dict[str, object]:
         queue = list(state.get("task_queue", []) or [])
+
+        parallel_tasks = _select_parallel_filesystem_tasks(queue)
+        if len(parallel_tasks) > 1:
+            for task in parallel_tasks:
+                task["status"] = "running"
+            results = executor.execute_batch_parallel(parallel_tasks)
+            result_by_index = {
+                index: result for index, result in enumerate(results)
+            }
+            for index, task in enumerate(parallel_tasks):
+                result = result_by_index.get(index)
+                if result and result.success:
+                    task["status"] = "done"
+                elif result:
+                    task["status"] = "failed"
+                    task["error"] = result.error or "Unknown error"
+                else:
+                    task["status"] = "failed"
+                    task["error"] = "No result from executor"
+            logger.info(
+                "Tool executor: parallel filesystem batch completed (%d task(s))",
+                len(parallel_tasks),
+            )
+            return {
+                "task_queue": queue,
+                "tool_results": [r.to_dict() for r in results],
+            }
 
         # Find highest priority TODO
         next_task = _find_highest_priority_todo(queue)
@@ -604,6 +701,34 @@ def _make_tool_executor_node(executor: Executor) -> object:
     return _node
 
 
+def _select_parallel_filesystem_tasks(queue: list[dict]) -> list[dict]:
+    """Select independent filesystem write tasks that can safely run together."""
+    candidates = []
+    seen_paths: set[str] = set()
+    for task in queue:
+        if not isinstance(task, dict) or task.get("status", "") != "todo":
+            continue
+        if task.get("tool") != "filesystem":
+            continue
+        inp = task.get("input", {}) or {}
+        if not isinstance(inp, dict):
+            continue
+        action = str(inp.get("action", task.get("action", "")))
+        if action not in ("write_file", "create_file", "append_file"):
+            continue
+        path = str(inp.get("path", "")).strip()
+        if not path or path in seen_paths:
+            continue
+        seen_paths.add(path)
+        candidates.append(task)
+
+    if len(candidates) < 2:
+        return []
+    max_priority = max(int(t.get("priority", 0) or 0) for t in candidates)
+    selected = [t for t in candidates if int(t.get("priority", 0) or 0) == max_priority]
+    return selected[:8]
+
+
 # =========================================================================
 # Long-term memory recall
 # =========================================================================
@@ -630,44 +755,41 @@ def _recall_long_term_memories(question: str, session_context: str) -> str:
 
 
 _executor_instance: Executor | None = None
+_workflow_cache: Any = None
 
 
 def _build_executor() -> Executor:
-    """Create and configure the shared Executor instance."""
+    """Create and configure the shared Executor instance.
+
+    Uses ``ToolRegistry.auto_discover()`` to find all tool classes
+    automatically.  Tools needing special configuration (e.g. workspace
+    path) are passed as overrides.
+    """
     global _executor_instance
     if _executor_instance is not None:
         return _executor_instance
 
-    ex = Executor()
-
-    from agentflow.tools.search_tool import SearchTool
-    from agentflow.tools.python_tool import PythonTool
-    from agentflow.tools.filesystem_tool import FileSystemTool
-    from agentflow.tools.git_tool import GitTool
-    from agentflow.tools.browser_tool import BrowserTool
-    from agentflow.tools.database_tool import DatabaseTool
-    from agentflow.tools.mcp_tool import MCPTool
-    from agentflow.tools.composio_tool import ComposioTool
-
     from pathlib import Path
+
+    from agentflow.tools.filesystem_tool import FileSystemTool
+    from agentflow.tools.docx_tool import DocxTool
 
     # FileSystemTool writes to outputs/ so the frontend API (which scans
     # that directory by default) can discover generated files.
     _outputs_dir = Path(__file__).resolve().parents[2] / "outputs"
     _outputs_dir.mkdir(exist_ok=True)
 
-    ex.registry.register(SearchTool())
-    ex.registry.register(PythonTool())
-    ex.registry.register(FileSystemTool(workspace=str(_outputs_dir)))
-    ex.registry.register(GitTool())
-    ex.registry.register(BrowserTool())
-    ex.registry.register(DatabaseTool())
-    ex.registry.register(MCPTool())
-    ex.registry.register(ComposioTool())
+    ex = Executor()
 
-    _stub_tools = {"browser": BrowserTool, "database": DatabaseTool, "mcp": MCPTool}
-    for name, cls in _stub_tools.items():
-        meta = cls().metadata()
+    # Auto-discover and register all tools, with overrides for special config
+    ex.registry.register_all_discovered(overrides={
+        "filesystem": FileSystemTool(workspace=str(_outputs_dir)),
+        "docx": DocxTool(workspace=str(_outputs_dir)),
+    })
+
+    # Warn about interface-only placeholders
+    for name, tool in sorted(ex.registry._tools.items()):
+        meta = tool.metadata()
         if meta.get("status") == "interface_only":
             logger.warning(
                 "Tool '%s' is an interface placeholder (status=interface_only).",

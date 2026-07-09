@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import {
   postChatStream,
   uploadDocument,
@@ -50,7 +50,12 @@ const currentSessionId = ref<number | null>(null)
 })()
 
 const thinking = ref(false)
-const activeSection = ref<Section>('chat')
+const _savedSection = localStorage.getItem('active_section') as Section | null
+const activeSection = ref<Section>(_savedSection || 'chat')
+
+watch(activeSection, (val) => {
+  localStorage.setItem('active_section', val)
+})
 const debugData = ref<DebugData | null>(null)
 
 /* Streaming abort — created per request, null when idle */
@@ -338,9 +343,28 @@ export function useChatState() {
     }
   }
 
+  const switchingSession = ref(false)
+
   const switchSession = async (sessionId: number) => {
-    activeSection.value = 'chat'
-    await _loadSessionMessages(sessionId)
+    // Guard: don't switch to the already-active session
+    if (currentSessionId.value === sessionId && !switchingSession.value) return
+    // Guard: prevent concurrent session switches
+    if (switchingSession.value) return
+    // Abort any in-flight stream before switching
+    if (abortController.value) {
+      abortController.value.abort()
+      abortController.value = null
+    }
+    thinking.value = false
+    streamingPhase.value = ''
+    tasks.value = []
+    switchingSession.value = true
+    try {
+      activeSection.value = 'chat'
+      await _loadSessionMessages(sessionId)
+    } finally {
+      switchingSession.value = false
+    }
   }
 
   const deleteSessionById = async (sessionId: number) => {
@@ -593,6 +617,7 @@ export function useChatState() {
     sessions,
     currentSessionId,
     thinking,
+    switchingSession,
     streamingPhase,
     streamingCategory,
     activeSection,

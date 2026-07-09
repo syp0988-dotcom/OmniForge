@@ -66,27 +66,129 @@ class FileSystemTool(BaseTool):
     # Introspection
     # ------------------------------------------------------------------
 
-    def capabilities(self) -> list[str]:
-        return [
-            "filesystem.create",
-            "filesystem.read",
-            "filesystem.edit",
-            "filesystem.delete",
-            "filesystem.list",
-            "filesystem.tree",
-        ]
+    def actions(self) -> dict[str, dict]:
+        return {
+            "mkdir": {
+                "description": "创建目录（自动创建父目录，目录已存在不报错）",
+                "parameters": {"path": {"type": "string", "description": "目录路径（相对于工作区）"}},
+                "required": ["path"],
+            },
+            "create_file": {
+                "description": "创建新文件（文件已存在则失败）",
+                "parameters": {
+                    "path": {"type": "string", "description": "文件路径（相对于工作区）"},
+                    "content": {"type": "string", "description": "初始文件内容"},
+                },
+                "required": ["path"],
+            },
+            "write_file": {
+                "description": "写入文件内容（覆盖已有文件）",
+                "parameters": {
+                    "path": {"type": "string", "description": "文件路径（相对于工作区）"},
+                    "content": {"type": "string", "description": "要写入的完整内容"},
+                },
+                "required": ["path", "content"],
+            },
+            "append_file": {
+                "description": "向已有文件追加内容",
+                "parameters": {
+                    "path": {"type": "string", "description": "文件路径（相对于工作区）"},
+                    "content": {"type": "string", "description": "要追加的内容"},
+                },
+                "required": ["path", "content"],
+            },
+            "read_file": {
+                "description": "读取文件的完整内容",
+                "parameters": {"path": {"type": "string", "description": "文件路径（相对于工作区）"}},
+                "required": ["path"],
+            },
+            "edit_file": {
+                "description": "替换文件中首次出现的指定字符串",
+                "parameters": {
+                    "path": {"type": "string", "description": "文件路径（相对于工作区）"},
+                    "old_string": {"type": "string", "description": "要查找并替换的文本"},
+                    "new_string": {"type": "string", "description": "替换后的文本"},
+                },
+                "required": ["path", "old_string", "new_string"],
+            },
+            "replace_text": {
+                "description": "使用正则表达式替换文件中所有匹配的文本",
+                "parameters": {
+                    "path": {"type": "string", "description": "文件路径（相对于工作区）"},
+                    "pattern": {"type": "string", "description": "正则表达式模式"},
+                    "replacement": {"type": "string", "description": "替换文本"},
+                },
+                "required": ["path", "pattern", "replacement"],
+            },
+            "delete_file": {
+                "description": "删除单个文件（不能删除目录）",
+                "parameters": {"path": {"type": "string", "description": "文件路径（相对于工作区）"}},
+                "required": ["path"],
+            },
+            "delete_directory": {
+                "description": "删除目录及其所有内容（谨慎使用）",
+                "parameters": {"path": {"type": "string", "description": "目录路径（相对于工作区）"}},
+                "required": ["path"],
+            },
+            "move_file": {
+                "description": "将文件从源路径移动到目标路径",
+                "parameters": {
+                    "src": {"type": "string", "description": "源文件路径"},
+                    "dst": {"type": "string", "description": "目标文件路径"},
+                },
+                "required": ["src", "dst"],
+            },
+            "copy_file": {
+                "description": "复制文件到目标位置",
+                "parameters": {
+                    "src": {"type": "string", "description": "源文件路径"},
+                    "dst": {"type": "string", "description": "目标文件路径"},
+                },
+                "required": ["src", "dst"],
+            },
+            "rename_file": {
+                "description": "重命名文件或目录（在同一父目录下）",
+                "parameters": {
+                    "path": {"type": "string", "description": "文件/目录的当前路径"},
+                    "name": {"type": "string", "description": "新名称（非完整路径）"},
+                },
+                "required": ["path", "name"],
+            },
+            "exists": {
+                "description": "检查文件或目录是否存在于工作区",
+                "parameters": {"path": {"type": "string", "description": "要检查的路径"}},
+                "required": ["path"],
+            },
+            "list_directory": {
+                "description": "列出目录内容（非递归）",
+                "parameters": {
+                    "path": {"type": "string", "description": "目录路径（默认：工作区根目录）"},
+                },
+                "required": [],
+            },
+            "tree": {
+                "description": "生成递归目录树（文本格式）",
+                "parameters": {
+                    "path": {"type": "string", "description": "目录路径（默认：工作区根目录）"},
+                    "max_depth": {"type": "integer", "description": "最大递归深度", "default": 3},
+                    "show_hidden": {"type": "boolean", "description": "是否显示隐藏文件", "default": False},
+                },
+                "required": [],
+            },
+        }
 
     def metadata(self) -> dict[str, Any]:
         base = super().metadata()
         base["workspace"] = self._workspace_str
-        base["actions"] = [
-            "mkdir", "create_file", "write_file", "append_file",
-            "read_file", "edit_file", "replace_text",
-            "delete_file", "delete_directory",
-            "move_file", "copy_file", "rename_file",
-            "exists", "list_directory", "tree",
-        ]
         return base
+
+    def capabilities(self) -> list[str]:
+        return [
+            "filesystem.create",
+            "filesystem.read",
+            "filesystem.write",
+            *super().capabilities(),
+        ]
 
     # ------------------------------------------------------------------
     # Validation

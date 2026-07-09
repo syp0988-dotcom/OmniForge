@@ -114,8 +114,29 @@ class ComposioTool(BaseTool):
     # Introspection
     # ------------------------------------------------------------------
 
-    def capabilities(self) -> list[str]:
-        return ["composio.execute"]
+    def actions(self) -> dict[str, dict]:
+        return {
+            "execute": {
+                "description": (
+                    "通过 Composio 平台调用 500+ 第三方工具"
+                    "（Gmail、Slack、GitHub、Notion、Jira、Linear、Google Sheets 等）。"
+                    "传入工具 slug 和所需参数（以额外 keyword arguments 形式）"
+                ),
+                "parameters": {
+                    "slug": {
+                        "type": "string",
+                        "description": (
+                            "Composio 工具 slug，例如 "
+                            "GMAIL_SEND_EMAIL, SLACK_POST_MESSAGE, "
+                            "GITHUB_CREATE_ISSUE, NOTION_CREATE_PAGE, "
+                            "LINEAR_CREATE_ISSUE, GOOGLESHEETS_CREATE_SHEET"
+                        ),
+                    },
+                },
+                "required": ["slug"],
+                "_extra_params": {"additionalProperties": True},
+            },
+        }
 
     def metadata(self) -> dict[str, Any]:
         base = super().metadata()

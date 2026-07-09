@@ -26,7 +26,10 @@ import type { ChatState } from '@/composables/useChatState'
 const chatState = inject<ChatState>('chatState')!
 
 function formatRelativeTime(dateStr: string): string {
-  const ts = new Date(dateStr).getTime()
+  // SQLite datetime('now') returns UTC with no TZ marker.
+  // Make it explicit so every browser parses it as UTC.
+  const normalized = dateStr.replace(' ', 'T') + 'Z'
+  const ts = new Date(normalized).getTime()
   if (isNaN(ts)) return ''
   const diff = Date.now() - ts
   if (diff < 60000) return '刚刚'

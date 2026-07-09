@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterator
 
 from openai import OpenAI
 
@@ -133,10 +133,12 @@ class LLMResponse:
     Attributes:
         content: Textual reply (when no tool is invoked).
         tool_calls: List of tool-call requests from the LLM.
+        degraded: True when the LLM was unavailable and a fallback was used.
     """
 
     content: str = ""
     tool_calls: list[ToolCall] | None = None
+    degraded: bool = False
 
 
 class LLMService:
@@ -188,7 +190,7 @@ class LLMService:
         cert = _os.environ.get("SSL_CERT_FILE", "")
         if cert and not _os.path.exists(cert):
             _os.environ.pop("SSL_CERT_FILE", None)
-        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        self._client = OpenAI(api_key=api_key, base_url=base_url, timeout=60.0)
 
     def use_model(self, model_config: dict) -> None:
         """Switch to a specific model configuration at runtime."""
@@ -291,6 +293,67 @@ class LLMService:
                 return f"[fallback] {fallback_content}" if fallback_content else ""
             return f"[fallback] {prompt[:160]}"
 
+    def complete_stream(
+        self,
+        prompt: str | None = None,
+        messages: list[dict[str, str]] | None = None,
+        session_state: object | None = None,
+    ) -> Iterator[str]:
+        """Stream a completion token-by-token when the provider supports it."""
+        if messages is None:
+            if prompt is None:
+                logger.warning("No prompt or messages provided to LLMService.complete_stream")
+                return
+            messages = [{"role": "user", "content": prompt}]
+
+        if not self.client:
+            logger.warning("No API key configured; streaming fallback response")
+            fallback_content = prompt if prompt is not None else messages[-1].get("content", "")
+            fallback = f"[fallback] {fallback_content[:160]}" if fallback_content else ""
+            if fallback:
+                yield fallback
+            return
+
+        if session_state is not None and hasattr(session_state, "budget_remaining"):
+            input_tokens = sum(estimate_tokens(m.get("content", "")) for m in messages)
+            if input_tokens > session_state.budget_remaining(settings.max_session_tokens):
+                raise BudgetExceeded(
+                    f"Session token budget ({settings.max_session_tokens}) exhausted. "
+                    f"Estimated input: {input_tokens}, used: {session_state.token_usage}"
+                )
+
+        collected: list[str] = []
+        try:
+            stream = self.client.chat.completions.create(
+                model=self._model_name,
+                messages=messages,
+                temperature=self._temperature,
+                max_tokens=self._max_tokens,
+                stream=True,
+            )
+            for chunk in stream:
+                choices = getattr(chunk, "choices", None) or []
+                if not choices:
+                    continue
+                delta = getattr(choices[0], "delta", None)
+                content = getattr(delta, "content", None) if delta is not None else None
+                if content:
+                    collected.append(content)
+                    yield content
+        except BudgetExceeded:
+            raise
+        except Exception as exc:  # pragma: no cover - provider/runtime dependent
+            logger.exception("Streaming LLM request failed: %s", exc)
+            fallback_content = prompt if prompt is not None else messages[-1].get("content", "")
+            fallback = f"[fallback] {fallback_content[:160]}" if fallback_content else ""
+            if fallback:
+                yield fallback
+        finally:
+            if session_state is not None and hasattr(session_state, "add_token_usage"):
+                input_tokens = sum(estimate_tokens(m.get("content", "")) for m in messages)
+                output_tokens = estimate_tokens("".join(collected))
+                session_state.add_token_usage(input_tokens + output_tokens)
+
     # ------------------------------------------------------------------
     # Function calling support
     # ------------------------------------------------------------------
@@ -361,7 +424,9 @@ class LLMService:
                     time.sleep(delay)
 
         logger.exception("LLM request failed after %d retries: %s", _MAX_RETRIES + 1, last_exc)
-        return LLMResponse(content="")
+        # Return a degraded response so the planner can detect the failure
+        # instead of silently falling through to the "goal_completed" path.
+        return LLMResponse(content="[LLM_UNAVAILABLE]", degraded=True)
 
 
 _llm_service = LLMService()

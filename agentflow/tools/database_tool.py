@@ -29,6 +29,40 @@ class DatabaseTool(BaseTool):
     def __init__(self, connection_string: str | None = None) -> None:
         self.connection_string = connection_string
 
+    def actions(self) -> dict[str, dict]:
+        return {
+            "query": {
+                "description": "[接口预留] 执行 SELECT / 只读 SQL 查询",
+                "parameters": {"sql": {"type": "string", "description": "SQL 查询语句"}},
+                "required": ["sql"],
+            },
+            "insert": {
+                "description": "[接口预留] 向表中插入数据行",
+                "parameters": {
+                    "table": {"type": "string", "description": "目标表名"},
+                    "data": {"type": "object", "description": "要插入的数据记录"},
+                },
+                "required": ["table"],
+            },
+            "update": {
+                "description": "[接口预留] 更新表中的数据行",
+                "parameters": {
+                    "table": {"type": "string", "description": "目标表名"},
+                    "data": {"type": "object", "description": "要更新的数据"},
+                    "where": {"type": "string", "description": "WHERE 条件子句"},
+                },
+                "required": ["table"],
+            },
+            "delete": {
+                "description": "[接口预留] 删除表中的数据行",
+                "parameters": {
+                    "table": {"type": "string", "description": "目标表名"},
+                    "where": {"type": "string", "description": "WHERE 条件子句"},
+                },
+                "required": ["table"],
+            },
+        }
+
     def capabilities(self) -> list[str]:
         return [
             "database.query",
@@ -39,7 +73,6 @@ class DatabaseTool(BaseTool):
 
     def metadata(self) -> dict[str, Any]:
         base = super().metadata()
-        base["actions"] = ["query", "insert", "update", "delete"]
         base["status"] = "interface_only"
         base["message"] = (
             "This is an interface placeholder. "
@@ -47,7 +80,6 @@ class DatabaseTool(BaseTool):
             "to enable real data access."
         )
         if self.connection_string:
-            # Mask credentials in connection string for display
             safe = self.connection_string
             if "://" in safe:
                 safe = safe.split("://")[0] + "://***"

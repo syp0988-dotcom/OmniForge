@@ -42,19 +42,69 @@ class GitTool(BaseTool):
     # Introspection
     # ------------------------------------------------------------------
 
-    def capabilities(self) -> list[str]:
-        return [
-            "git.status", "git.diff", "git.add", "git.commit",
-            "git.checkout", "git.branch", "git.log", "git.show",
-        ]
+    def actions(self) -> dict[str, dict]:
+        return {
+            "status": {
+                "description": "查看 Git 仓库状态（修改、暂存、未跟踪文件）",
+                "parameters": {},
+                "required": [],
+            },
+            "diff": {
+                "description": "查看文件差异（工作区 vs 暂存区）",
+                "parameters": {
+                    "staged": {"type": "boolean", "description": "是否查看已暂存的差异", "default": False},
+                    "path": {"type": "string", "description": "指定文件路径（可选）"},
+                },
+                "required": [],
+            },
+            "add": {
+                "description": "暂存文件修改",
+                "parameters": {
+                    "files": {"type": "string", "description": "空格分隔的文件路径或 '.' 表示全部"},
+                },
+                "required": ["files"],
+            },
+            "commit": {
+                "description": "创建新的提交",
+                "parameters": {
+                    "message": {"type": "string", "description": "提交信息"},
+                },
+                "required": ["message"],
+            },
+            "checkout": {
+                "description": "切换分支或恢复文件",
+                "parameters": {
+                    "branch": {"type": "string", "description": "要切换到的分支名称"},
+                    "create": {"type": "boolean", "description": "是否创建新分支", "default": False},
+                },
+                "required": ["branch"],
+            },
+            "branch": {
+                "description": "列出分支或创建新分支",
+                "parameters": {
+                    "name": {"type": "string", "description": "新分支名称（省略则列出所有分支）"},
+                },
+                "required": [],
+            },
+            "log": {
+                "description": "查看提交历史",
+                "parameters": {
+                    "count": {"type": "integer", "description": "显示最近的提交数", "default": 10},
+                },
+                "required": [],
+            },
+            "show": {
+                "description": "显示指定提交的详细信息",
+                "parameters": {
+                    "revision": {"type": "string", "description": "提交哈希值"},
+                },
+                "required": ["revision"],
+            },
+        }
 
     def metadata(self) -> dict[str, Any]:
         base = super().metadata()
         base["repo_path"] = str(self._repo)
-        base["actions"] = [
-            "status", "diff", "add", "commit",
-            "checkout", "branch", "log", "show",
-        ]
         return base
 
     # ------------------------------------------------------------------

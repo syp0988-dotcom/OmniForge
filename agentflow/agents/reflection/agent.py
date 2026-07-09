@@ -123,6 +123,37 @@ class ReflectionAgent(AgentProtocol):
 
         # Non-project: just return done (backward compat)
         if current_queue.is_empty:
+            if goal_type == "project":
+                generated = _generate_stuck_tasks(goal, project_name, tool_results)
+                if generated:
+                    for cfg in generated:
+                        task_id = cfg.get("task_id", "")
+                        if not task_id:
+                            continue
+                        current_queue.add(Task(
+                            task_id=task_id,
+                            title=cfg.get("title", task_id),
+                            priority=cfg.get("priority", 50),
+                            tool=cfg.get("tool", "filesystem"),
+                            goal=cfg.get("title", task_id),
+                            input=cfg.get("input", {}),
+                            status=TaskStatus.TODO,
+                        ))
+                    state["task_queue"] = current_queue.to_dict_list()
+                    state["_reflection_result"] = "next"
+                    state["_reflection_message"] = "已生成文件创建兜底任务"
+                    state["_reflection_output"] = {
+                        "goal_completed": False,
+                        "task_updates": [],
+                        "new_tasks": generated,
+                        "remove_tasks": [],
+                        "reason": "项目队列为空，已补充文件创建任务",
+                    }
+                    logger.info(
+                        "Reflection: empty project queue -> added %d fallback task(s)",
+                        len(generated),
+                    )
+                    return state
             logger.info("Reflection: empty queue -> done")
             return self._done("任务队列为空，无需继续")
 
@@ -315,7 +346,11 @@ class ReflectionAgent(AgentProtocol):
             has_failure, all_done, stuck, len(rule_result.get("new_tasks", [])),
         )
 
-        if has_failure or all_done or stuck:
+        if all_done and not has_failure:
+            logger.info("Reflection eval -> rule-complete, skipping LLM")
+            return rule_result
+
+        if has_failure or stuck:
             logger.info("Reflection eval -> calling LLM")
             llm_result = self._llm_evaluate(goal, goal_type, queue, tool_results)
             if llm_result:
@@ -483,10 +518,7 @@ class ReflectionAgent(AgentProtocol):
                         temp_queue.update(tid, status=s)
                 goal_completed = is_goal_completed(template, temp_queue.all)
             elif goal_type in ("project", "coding"):
-                # Project/coding goals need LLM evaluation to determine if
-                # more tasks are needed.  Rule evaluation cannot know when
-                # a non-template project is complete.
-                goal_completed = False
+                goal_completed = _all_project_tasks_done(queue, results)
             else:
                 # Non-project goals: simple all-done check
                 goal_completed = all_ok and not queue.has_todo
@@ -603,6 +635,108 @@ def _fix_json_newlines(raw: str) -> str:
     return "".join(result)
 
 
+def _fallback_project_dir(goal: str, project_name: str) -> str:
+    """Return a stable directory for generated file fallbacks."""
+    text = (goal or "").lower()
+    if any(word in text for word in ("snake", "贪吃蛇")):
+        return "generated_files/snake_games"
+    if project_name:
+        cleaned = re.sub(r"[^\w\u4e00-\u9fff.-]+", "_", project_name).strip("._")
+        if cleaned and len(cleaned) <= 48:
+            return f"generated_files/{cleaned}"
+    return "generated_files"
+
+
+def _existing_file_names(results: list[dict[str, Any]], dir_name: str) -> set[str]:
+    """Collect known existing file names from previous filesystem results."""
+    existing: set[str] = set()
+    base = Path(dir_name)
+    if base.exists() and base.is_dir():
+        existing.update(p.name for p in base.iterdir() if p.is_file())
+
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        res = r.get("result", {}) or {}
+        path = ""
+        if isinstance(res, dict):
+            path = str(res.get("path", "") or res.get("file", "") or "")
+        elif isinstance(res, str):
+            path = res
+        if path:
+            existing.add(Path(path).name)
+    return existing
+
+
+def _deterministic_file_fallback_tasks(
+    goal: str,
+    project_name: str,
+    results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Create concrete file tasks for common explicit file-generation goals."""
+    text = (goal or "").lower()
+    wants_python = "python" in text or re.search(r"\bpy\b", text) is not None
+    wants_java = "java" in text
+    wants_snake = "snake" in text or "贪吃蛇" in goal
+    wants_files = any(token in goal for token in ("文件", "创建", "新建", "生成", "写"))
+
+    if not wants_files:
+        return []
+
+    dir_name = _fallback_project_dir(goal, project_name)
+    existing = _existing_file_names(results, dir_name)
+    specs: list[tuple[str, str]] = []
+
+    if wants_snake and wants_python:
+        specs.append(("python_snake.py", _PYTHON_SNAKE_TEMPLATE))
+    if wants_snake and wants_java:
+        specs.append(("SnakeGame.java", _JAVA_SNAKE_TEMPLATE))
+
+    if not specs:
+        if wants_python:
+            specs.append(("main.py", _BASIC_MAIN_PY.format(project_name=project_name or "project")))
+        if wants_java:
+            specs.append(("Main.java", _BASIC_MAIN_JAVA))
+
+    tasks: list[dict[str, Any]] = []
+    for filename, content in specs:
+        if filename in existing:
+            continue
+        task_id = f"create_{filename.replace('.', '_').replace('-', '_')}"
+        tasks.append({
+            "task_id": task_id,
+            "title": f"创建 {filename}",
+            "priority": 95,
+            "tool": "filesystem",
+            "input": {
+                "action": "write_file",
+                "path": f"{dir_name}/{filename}",
+                "content": content,
+            },
+        })
+
+    if tasks:
+        logger.info(
+            "Deterministic fallback: created %d file task(s): %s",
+            len(tasks),
+            [t.get("input", {}).get("path", "?") for t in tasks],
+        )
+    return tasks
+
+
+def _all_project_tasks_done(queue: TaskQueue, results: list[dict[str, Any]]) -> bool:
+    """Return True when a project/coding queue can be completed without LLM."""
+    if not queue.all or queue.has_todo:
+        return False
+    if any(t.status == TaskStatus.FAILED for t in queue.all):
+        return False
+    if not all(t.status == TaskStatus.DONE for t in queue.all):
+        return False
+    if not results:
+        return False
+    return all(not isinstance(r, dict) or r.get("success", False) for r in results)
+
+
 def _generate_stuck_tasks(
     goal: str,
     project_name: str,
@@ -619,6 +753,10 @@ def _generate_stuck_tasks(
     This is slower (N+1 LLM calls) but avoids the content-in-JSON
     corruption that plagued the single-call approach.
     """
+    deterministic = _deterministic_file_fallback_tasks(goal, project_name, results)
+    if deterministic:
+        return deterministic
+
     # ── Find the directory from the last successful mkdir result ──────
     dir_path = None
     for r in results:
@@ -641,27 +779,32 @@ def _generate_stuck_tasks(
                 dir_path = path
 
     if not dir_path:
-        logger.warning("Rule fallback: no mkdir result found")
-        return []
+        dir_path = _fallback_project_dir(goal, project_name)
+        logger.info("Rule fallback: no mkdir result found, using %s", dir_path)
 
     project_path = Path(dir_path)
-    if not project_path.exists() or not project_path.is_dir():
-        logger.warning("Rule fallback: mkdir path %r does not exist", dir_path)
+    if project_path.exists() and not project_path.is_dir():
+        logger.warning("Rule fallback: fallback path %r is not a directory", dir_path)
         return []
 
     dir_name = project_path.name
 
     existing_files = set()
-    for entry in project_path.iterdir():
-        if entry.is_file():
-            existing_files.add(entry.name)
+    if project_path.exists():
+        for entry in project_path.iterdir():
+            if entry.is_file():
+                existing_files.add(entry.name)
 
     file_list = "\n".join(f"  - {f}" for f in sorted(existing_files)) if existing_files else "  (空)"
 
     llm = get_llm_service()
 
+    batch_configs = _batch_code_fallback(goal, dir_name, project_path, existing_files, llm)
+    if batch_configs:
+        return batch_configs
+
     # ═══════════════════════════════════════════════════════════════════
-    # Phase 1:  Ask LLM for file list (small JSON, NO code content)
+    # Fallback: ask LLM for file list, then generate each file separately.
     # ═══════════════════════════════════════════════════════════════════
     structure_prompt = (
         f"用户目标：{goal}\n\n"
@@ -1032,6 +1175,273 @@ def main():
 
 if __name__ == "__main__":
     main()
+'''
+
+_BASIC_MAIN_JAVA = '''public class Main {
+    public static void main(String[] args) {
+        System.out.println("Hello from generated Java project!");
+    }
+}
+'''
+
+_PYTHON_SNAKE_TEMPLATE = '''import random
+import tkinter as tk
+
+CELL = 20
+WIDTH = 30
+HEIGHT = 20
+TICK_MS = 120
+
+
+class SnakeGame:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("Python Snake")
+        self.canvas = tk.Canvas(
+            self.root,
+            width=WIDTH * CELL,
+            height=HEIGHT * CELL,
+            bg="#111827",
+            highlightthickness=0,
+        )
+        self.canvas.pack()
+        self.root.bind("<KeyPress>", self.on_key)
+        self.reset()
+
+    def reset(self):
+        self.snake = [(WIDTH // 2, HEIGHT // 2), (WIDTH // 2 - 1, HEIGHT // 2)]
+        self.direction = (1, 0)
+        self.pending_direction = self.direction
+        self.food = self.new_food()
+        self.score = 0
+        self.game_over = False
+        self.tick()
+
+    def new_food(self):
+        while True:
+            food = (random.randrange(WIDTH), random.randrange(HEIGHT))
+            if food not in self.snake:
+                return food
+
+    def on_key(self, event):
+        keys = {
+            "Up": (0, -1),
+            "Down": (0, 1),
+            "Left": (-1, 0),
+            "Right": (1, 0),
+            "w": (0, -1),
+            "s": (0, 1),
+            "a": (-1, 0),
+            "d": (1, 0),
+        }
+        if event.keysym == "space" and self.game_over:
+            self.reset()
+            return
+        next_dir = keys.get(event.keysym)
+        if next_dir and (next_dir[0] != -self.direction[0] or next_dir[1] != -self.direction[1]):
+            self.pending_direction = next_dir
+
+    def tick(self):
+        if not self.game_over:
+            self.direction = self.pending_direction
+            head_x, head_y = self.snake[0]
+            dx, dy = self.direction
+            new_head = (head_x + dx, head_y + dy)
+
+            hit_wall = not (0 <= new_head[0] < WIDTH and 0 <= new_head[1] < HEIGHT)
+            hit_self = new_head in self.snake
+            if hit_wall or hit_self:
+                self.game_over = True
+            else:
+                self.snake.insert(0, new_head)
+                if new_head == self.food:
+                    self.score += 1
+                    self.food = self.new_food()
+                else:
+                    self.snake.pop()
+
+        self.draw()
+        self.root.after(TICK_MS, self.tick)
+
+    def draw(self):
+        self.canvas.delete("all")
+        fx, fy = self.food
+        self.canvas.create_oval(
+            fx * CELL + 3,
+            fy * CELL + 3,
+            (fx + 1) * CELL - 3,
+            (fy + 1) * CELL - 3,
+            fill="#ef4444",
+            outline="",
+        )
+        for index, (x, y) in enumerate(self.snake):
+            color = "#22c55e" if index else "#84cc16"
+            self.canvas.create_rectangle(
+                x * CELL + 1,
+                y * CELL + 1,
+                (x + 1) * CELL - 1,
+                (y + 1) * CELL - 1,
+                fill=color,
+                outline="",
+            )
+        self.canvas.create_text(10, 10, anchor="nw", fill="white", text=f"Score: {self.score}")
+        if self.game_over:
+            self.canvas.create_text(
+                WIDTH * CELL // 2,
+                HEIGHT * CELL // 2,
+                fill="white",
+                font=("Arial", 22, "bold"),
+                text="Game Over - press Space",
+            )
+
+    def run(self):
+        self.root.mainloop()
+
+
+if __name__ == "__main__":
+    SnakeGame().run()
+'''
+
+_JAVA_SNAKE_TEMPLATE = '''import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Point;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+import javax.swing.JFrame;
+import javax.swing.JPanel;
+import javax.swing.Timer;
+
+public class SnakeGame extends JPanel {
+    private static final int CELL = 20;
+    private static final int WIDTH = 30;
+    private static final int HEIGHT = 20;
+
+    private final Random random = new Random();
+    private final List<Point> snake = new ArrayList<>();
+    private Point food;
+    private int dx = 1;
+    private int dy = 0;
+    private int nextDx = 1;
+    private int nextDy = 0;
+    private int score = 0;
+    private boolean gameOver = false;
+
+    public SnakeGame() {
+        setPreferredSize(new Dimension(WIDTH * CELL, HEIGHT * CELL));
+        setBackground(new Color(17, 24, 39));
+        setFocusable(true);
+        addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent event) {
+                handleKey(event.getKeyCode());
+            }
+        });
+        reset();
+        new Timer(120, event -> tick()).start();
+    }
+
+    private void reset() {
+        snake.clear();
+        snake.add(new Point(WIDTH / 2, HEIGHT / 2));
+        snake.add(new Point(WIDTH / 2 - 1, HEIGHT / 2));
+        dx = nextDx = 1;
+        dy = nextDy = 0;
+        score = 0;
+        gameOver = false;
+        food = newFood();
+    }
+
+    private Point newFood() {
+        Point point;
+        do {
+            point = new Point(random.nextInt(WIDTH), random.nextInt(HEIGHT));
+        } while (snake.contains(point));
+        return point;
+    }
+
+    private void handleKey(int key) {
+        if (key == KeyEvent.VK_SPACE && gameOver) {
+            reset();
+            repaint();
+            return;
+        }
+        int candidateDx = nextDx;
+        int candidateDy = nextDy;
+        if (key == KeyEvent.VK_UP || key == KeyEvent.VK_W) {
+            candidateDx = 0;
+            candidateDy = -1;
+        } else if (key == KeyEvent.VK_DOWN || key == KeyEvent.VK_S) {
+            candidateDx = 0;
+            candidateDy = 1;
+        } else if (key == KeyEvent.VK_LEFT || key == KeyEvent.VK_A) {
+            candidateDx = -1;
+            candidateDy = 0;
+        } else if (key == KeyEvent.VK_RIGHT || key == KeyEvent.VK_D) {
+            candidateDx = 1;
+            candidateDy = 0;
+        }
+        if (candidateDx != -dx || candidateDy != -dy) {
+            nextDx = candidateDx;
+            nextDy = candidateDy;
+        }
+    }
+
+    private void tick() {
+        if (!gameOver) {
+            dx = nextDx;
+            dy = nextDy;
+            Point head = snake.get(0);
+            Point next = new Point(head.x + dx, head.y + dy);
+            boolean hitWall = next.x < 0 || next.x >= WIDTH || next.y < 0 || next.y >= HEIGHT;
+            boolean hitSelf = snake.contains(next);
+            if (hitWall || hitSelf) {
+                gameOver = true;
+            } else {
+                snake.add(0, next);
+                if (next.equals(food)) {
+                    score++;
+                    food = newFood();
+                } else {
+                    snake.remove(snake.size() - 1);
+                }
+            }
+        }
+        repaint();
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        g.setColor(new Color(239, 68, 68));
+        g.fillOval(food.x * CELL + 3, food.y * CELL + 3, CELL - 6, CELL - 6);
+        for (int i = 0; i < snake.size(); i++) {
+            Point part = snake.get(i);
+            g.setColor(i == 0 ? new Color(132, 204, 22) : new Color(34, 197, 94));
+            g.fillRect(part.x * CELL + 1, part.y * CELL + 1, CELL - 2, CELL - 2);
+        }
+        g.setColor(Color.WHITE);
+        g.drawString("Score: " + score, 10, 18);
+        if (gameOver) {
+            g.setFont(new Font("Arial", Font.BOLD, 22));
+            g.drawString("Game Over - press Space", WIDTH * CELL / 2 - 130, HEIGHT * CELL / 2);
+        }
+    }
+
+    public static void main(String[] args) {
+        JFrame frame = new JFrame("Java Snake");
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setResizable(false);
+        frame.add(new SnakeGame());
+        frame.pack();
+        frame.setLocationRelativeTo(null);
+        frame.setVisible(true);
+    }
+}
 '''
 
 

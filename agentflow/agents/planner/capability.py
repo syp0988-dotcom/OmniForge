@@ -1,121 +1,133 @@
 """Capability Registry — maps semantic capabilities to concrete tool names.
 
 The Planner reasons in terms of *capabilities* (what the user needs) and never
-mentions tool names.  The Capability Registry is the single source of truth
-for resolving capabilities to tools at runtime.
+mentions tool names.  The Capability Registry resolves capabilities to tools.
 
-New capabilities are added here; the corresponding tools are registered
-separately in the ``ToolRegistry``.  This separation means:
-  - Adding a new capability = adding one row here + creating a Tool class
-  - The Planner never hardcodes tool names
-  - The ToolRegistry never knows about capabilities
+**As of the plugin-framework refactoring, this module derives its data
+dynamically from the ToolRegistry.**  The old hardcoded ``_REGISTRY`` list
+has been removed.  All capability-to-tool resolution is now:
+``{tool}.{action}`` → tool name, derived from each tool's ``actions()``.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-# ---------------------------------------------------------------------------
-# Registry definition
-# ---------------------------------------------------------------------------
-# (capability, tool_name, description)
-# "tool_name=None" means capability recognised but not yet backed by a tool.
-_REGISTRY: list[tuple[str, str | None, str]] = [
-    # -- Existing capabilities ------------------------------------------------
-    ("web.search", "search", "从互联网搜索最新信息"),
-    ("knowledge.retrieve", None, "从本地知识库检索文档资料"),
-    ("python.execute", "python", "执行 Python 代码并获取运行结果"),
-    # -- Filesystem capabilities ----------------------------------------------
-    ("filesystem.create", "filesystem", "创建文件和目录"),
-    ("filesystem.read", "filesystem", "读取文件内容"),
-    ("filesystem.edit", "filesystem", "编辑和修改文件"),
-    ("filesystem.delete", "filesystem", "删除文件"),
-    ("filesystem.list", "filesystem", "列出目录内容"),
-    ("filesystem.tree", "filesystem", "生成目录树结构"),
-    # -- Git capabilities ----------------------------------------------------
-    ("git.status", "git", "查看 Git 仓库状态"),
-    ("git.diff", "git", "查看文件差异"),
-    ("git.add", "git", "暂存文件修改"),
-    ("git.commit", "git", "提交暂存区变更"),
-    ("git.checkout", "git", "切换分支或恢复文件"),
-    ("git.branch", "git", "管理 Git 分支"),
-    ("git.log", "git", "查看提交历史"),
-    # -- Browser capabilities (interface) ------------------------------------
-    ("browser.open", "browser", "在浏览器中打开 URL"),
-    ("browser.extract", "browser", "提取页面文本内容"),
-    ("browser.screenshot", "browser", "截取页面截图"),
-    ("browser.interact", "browser", "与页面元素交互（点击、输入、滚动）"),
-    # -- Database capabilities (interface) -----------------------------------
-    ("database.query", "database", "执行数据库查询"),
-    ("database.insert", "database", "插入数据"),
-    ("database.update", "database", "更新数据"),
-    ("database.delete", "database", "删除数据"),
-    # -- MCP capabilities (interface) ----------------------------------------
-    ("mcp.discover", "mcp", "发现 MCP 服务器的可用工具"),
-    ("mcp.execute", "mcp", "调用 MCP 工具的指定操作"),
-    # -- Composio capabilities ------------------------------------------------
-    ("composio.execute", "composio", "通过 Composio 平台调用 500+ 第三方工具（Gmail、Slack、GitHub 等）"),
-]
-
-# Derived lookup maps (built once)
-_CAPABILITY_TO_TOOL: dict[str, str | None] = {
-    cap: tool for cap, tool, _ in _REGISTRY
+_DEFAULT_CAPABILITIES: dict[str, str] = {
+    "web.search": "search",
+    "filesystem.create": "filesystem",
+    "filesystem.read": "filesystem",
+    "filesystem.write": "filesystem",
+    "filesystem.mkdir": "filesystem",
+    "filesystem.create_file": "filesystem",
+    "filesystem.write_file": "filesystem",
+    "git.status": "git",
+    "browser.open": "browser",
+    "browser.open_url": "browser",
+    "python.execute": "python",
 }
-_CAPABILITY_DESCRIPTION: dict[str, str] = {
-    cap: desc for cap, _, desc in _REGISTRY
+
+_DEFAULT_DESCRIPTIONS: dict[str, str] = {
+    "web.search": "Search the web",
+    "filesystem.create": "Create files or directories",
+    "filesystem.read": "Read files",
+    "filesystem.write": "Write files",
+    "git.status": "Show git status",
+    "browser.open": "Open a URL in a browser",
+    "python.execute": "Execute Python code",
 }
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def resolve(capability: str) -> str | None:
+def resolve(capability: str, registry: Any | None = None) -> str | None:
     """Resolve a capability name to a registered tool name.
 
-    Returns ``None`` when the capability is recognised but not yet backed
-    by a concrete tool, or when the capability is unknown.
+    Capability format: ``{tool}.{action}`` (e.g. ``"filesystem.mkdir"``).
+    Returns the tool name (e.g. ``"filesystem"``) or ``None``.
+
+    When *registry* is provided, validates against registered tools.
     """
-    return _CAPABILITY_TO_TOOL.get(capability)
+    if "." not in capability:
+        return None
+    tool_name = capability.split(".", 1)[0]
+    if registry is not None:
+        if registry.has_tool(tool_name):
+            return tool_name
+        return _DEFAULT_CAPABILITIES.get(capability)
+    return _DEFAULT_CAPABILITIES.get(capability)
 
 
-def get_description(capability: str) -> str:
-    """Return the human-readable description for a capability."""
-    return _CAPABILITY_DESCRIPTION.get(capability, "")
+def get_description(capability: str, registry: Any | None = None) -> str:
+    """Return the human-readable description for a capability.
+
+    Derives from tool's ``actions()`` metadata when registry is available.
+    """
+    if registry is None or "." not in capability:
+        return _DEFAULT_DESCRIPTIONS.get(capability, "")
+    tool_name, action = capability.split(".", 1)
+    tool = registry.get(tool_name)
+    if tool is None:
+        return ""
+    action_def = tool.actions().get(action, {})
+    return action_def.get("description", "")
 
 
-def list_capabilities() -> list[str]:
-    """Return all registered capability names."""
-    return list(_CAPABILITY_TO_TOOL.keys())
+def list_capabilities(registry: Any | None = None) -> list[str]:
+    """Return all registered capability names (from ToolRegistry or empty)."""
+    if registry is not None:
+        return sorted(set(registry.get_all_capabilities()) | set(_DEFAULT_CAPABILITIES))
+    return sorted(_DEFAULT_CAPABILITIES)
 
 
-def list_tool_capabilities() -> list[str]:
-    """Return only capabilities that have a concrete tool backing."""
-    return [cap for cap, tool in _CAPABILITY_TO_TOOL.items() if tool is not None]
+def list_tool_capabilities(registry: Any | None = None) -> list[str]:
+    """Return capabilities that have a concrete tool backing."""
+    if registry is not None:
+        return [
+            cap for cap in registry.get_all_capabilities()
+            if registry.has_tool(cap.split(".", 1)[0])
+        ]
+    return sorted(_DEFAULT_CAPABILITIES)
 
 
-def list_grouped() -> dict[str, list[dict[str, str]]]:
-    """Return capabilities grouped by domain prefix (e.g. ``web``, ``filesystem``)."""
+def list_grouped(registry: Any | None = None) -> dict[str, list[dict[str, str]]]:
+    """Return capabilities grouped by domain prefix."""
     groups: dict[str, list[dict[str, str]]] = {}
-    for cap, tool, desc in _REGISTRY:
+    caps = list_tool_capabilities(registry) if registry else []
+    for cap in caps:
         domain = cap.split(".")[0] if "." in cap else "other"
         if domain not in groups:
             groups[domain] = []
         groups[domain].append({
             "capability": cap,
-            "tool": tool or "",
-            "description": desc,
+            "tool": cap.split(".", 1)[0],
+            "description": get_description(cap, registry),
         })
     return groups
 
 
-def registry_summary() -> str:
-    """Return a formatted summary of all capabilities for use in prompts."""
-    lines: list[str] = []
-    for cap, _, desc in _REGISTRY:
-        lines.append(f"  - {cap}  —  {desc}")
-    return "\n".join(lines)
+def registry_summary(registry: Any | None = None) -> str:
+    """Return a formatted summary of all capabilities for use in prompts.
+
+    Derives from ToolRegistry when provided; falls back to empty string.
+    """
+    if registry is not None:
+        return registry.get_capability_descriptions()
+    return "\n".join(
+        f"  - {cap}  -  {_DEFAULT_DESCRIPTIONS.get(cap, '')}"
+        for cap in sorted(_DEFAULT_CAPABILITIES)
+    )
+
+
+def tool_actions_summary(registry: Any | None = None) -> str:
+    """Return a formatted tool→actions summary for use in prompts.
+
+    Example::
+
+        - filesystem: mkdir, write_file, create_file, read_file, ...
+        - git: status, diff, add, commit, ...
+    """
+    if registry is not None:
+        return registry.get_tool_actions_text()
+    return ""
 
 
 # -- Convenience alias -----------------------------------------------------
@@ -126,4 +138,5 @@ capability_registry: dict[str, Any] = {
     "list_capabilities": list_capabilities,
     "list_tool_capabilities": list_tool_capabilities,
     "registry_summary": registry_summary,
+    "tool_actions_summary": tool_actions_summary,
 }

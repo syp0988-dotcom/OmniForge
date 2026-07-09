@@ -86,21 +86,23 @@ class ContextBuilder:
 
     @staticmethod
     def _derive_capabilities(goal_type: str) -> tuple[bool, bool, bool, bool]:
-        """Derive capability hints from goal type.
+        """Derive capability hints from goal type (6-class simplified system).
 
         This replaces the old CapabilityAnalyzer LLM call with a simple
         heuristic, since the Planner's function calling already handles
         tool selection directly. These hints are only used for prompt
         decoration in ``format_planner_prompt()``.
         """
-        if goal_type in ("project",):
+        if goal_type == "project":
             return True, True, True, False
-        if goal_type in ("coding", "refactor", "debug"):
+        if goal_type in ("coding", "debug", "refactor"):
             return False, True, False, False
         if goal_type == "search":
             return False, False, False, False
         if goal_type == "question":
             return False, False, False, True
+        if goal_type == "tool_use":
+            return False, False, True, False
         return False, False, False, True
 
     # ------------------------------------------------------------------

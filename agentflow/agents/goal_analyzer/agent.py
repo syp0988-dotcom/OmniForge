@@ -1,17 +1,17 @@
-"""GoalAnalyzer — LLM-based goal understanding agent.
+"""GoalAnalyzer — hybrid intent understanding (embedding + LLM fallback).
 
-Replaces the regex-based QueryRouterAgent. This agent uses an LLM to
-understand the user's true goal without relying on keyword patterns.
+Architecture::
 
-Output (stored in state["goal_analysis"])::
+    User question
+        │
+        ├→ IntentIndex (embedding, ~10 ms, zero cost)
+        │     ├→ ratio ≥ 2.0x → matched goal (bypass LLM)
+        │     └→ ratio < 2.0x → LLM fallback (semantic understanding)
+        │
+        └→ Output: goal_analysis dict (same schema as before)
 
-    {
-        "goal": "创建一个完整可运行的图书管理系统",
-        "goal_type": "project",
-        "expected_outputs": ["project", "source_code", "database", "readme"],
-        "priority": "high",
-        "confidence": 0.99
-    }
+The embedding path handles ~30-50 % of queries instantly and for free.
+Only ambiguous or mixed-intent queries incur an LLM call.
 """
 
 from __future__ import annotations
@@ -20,6 +20,10 @@ import json
 from typing import Any
 
 from agentflow.agents.base import AgentProtocol
+from agentflow.agents.goal_analyzer.intent_index import (
+    INTENT_LABEL_TO_GOAL_TYPE,
+    IntentIndex,
+)
 from agentflow.config.prompts import GOAL_ANALYZER_SYSTEM_PROMPT
 from agentflow.services.llm_service import get_llm_service
 from agentflow.utils.decorators import safe_run
@@ -27,85 +31,89 @@ from agentflow.utils.logging import build_logger
 
 logger = build_logger("goal_analyzer")
 
-SYSTEM_PROMPT = """你是一个目标分析器（Goal Analyzer）。你的职责是理解用户的真实目标，而不是分类。
+# Lazily-initialised singleton — the SentenceTransformer model is loaded on
+# first use, so creating the index at import time is cheap.
+_intent_index: IntentIndex | None = None
 
-请分析用户的输入，理解其背后的真实意图和目标。完全不要使用关键词匹配或规则判断。
-仅依靠对语义的深层理解。
 
-输出 JSON 格式（不要包含其他文字）：
+def _get_intent_index() -> IntentIndex:
+    global _intent_index
+    if _intent_index is None:
+        _intent_index = IntentIndex()
+    return _intent_index
 
-{
-    "goal": "对用户真实目标的详细描述（清晰、具体）",
-    "goal_type": "目标类型",
-    "knowledge_source": "local | general | hybrid",
-    "expected_outputs": ["期望得到的输出类型列表"],
-    "priority": "优先级",
-    "confidence": 置信度 0-1
+
+# -- Mapping from intent label to default knowledge_source --------------------
+# Embedding-matched intents use these rule-based defaults instead of calling
+# the LLM to guess.  When the frontend toggle (future) passes an explicit
+# knowledge_mode, that takes precedence.
+_LABEL_KNOWLEDGE_SOURCE: dict[str, str] = {
+    "coding": "general",
+    "project": "general",
+    "question": "general",
+    "search": "general",
+    "tool": "general",
+    "chat": "general",
 }
 
-goal_type 必须是以下之一：
-- question:    知识问答、寻求解释、概念理解
-- project:     创建项目、搭建系统、构建应用（涉及多文件、多步骤）
-- coding:      编写代码片段、实现单个功能
-- debug:       调试代码、修复Bug、排查问题
-- refactor:    重构代码、优化性能、改善结构
-- analysis:    分析数据、比较方案、评估结果
-- workflow:    多步骤工作流、自动化流程
-- search:      搜索实时信息（新闻、天气、价格等）
-- document:    生成文档、编写说明
-- tool_use:    使用特定工具（git, shell等）
-- planning:    制定计划、设计方案
-- editing:     编辑修改现有内容
-- translation: 翻译
-- other:       其他（上述都不匹配时）
+# -- Mapping from intent label to expected_outputs ---------------------------
+_LABEL_EXPECTED_OUTPUTS: dict[str, list[str]] = {
+    "coding": ["source_code"],
+    "project": ["project", "source_code", "readme"],
+    "question": ["answer"],
+    "search": ["answer"],
+    "tool": ["answer"],
+    "chat": ["answer"],
+}
 
-knowledge_source 决定知识来源（双框架知识路由）：
-- "general":  通用常识类问题，不需要查询本地知识库。如"什么是REST API""Python 列表推导式怎么用"。直接走 LLM 自身的知识回答，更快更省。
-- "local":    项目/代码特有知识，必须查询本地知识库。如"这个项目的路由怎么配的""注释怎么写"。优先使用 RAG 检索结果。
-- "hybrid":   同时需要两者。如"如何在 FastAPI 里实现 JWT 认证"——RAG 提供项目上下文，LLM 提供用法指导。两路融合。
+# -- Mapping from intent label to priority -----------------------------------
+_LABEL_PRIORITY: dict[str, str] = {
+    "coding": "normal",
+    "project": "high",
+    "question": "normal",
+    "search": "normal",
+    "tool": "normal",
+    "chat": "low",
+}
 
-判断依据：
-- 完全不涉及项目代码的通用概念、技术问题 → knowledge_source="general"
-- 关于当前项目/代码库的具体实现、配置、注释 → knowledge_source="local"
-- 既需要通用知识又涉及项目上下文 → knowledge_source="hybrid"
-
-expected_outputs 可选值：answer, project, source_code, database, readme, test, docker, api, frontend, backend, config, script, document, plan
-
-判断依据：
-- 如果用户要求创建完整的项目/系统/应用（涉及多文件、多目录）→ goal_type="project"
-- 如果用户只要求写一段代码、一个函数、一个类 → goal_type="coding"
-- 如果用户询问概念、知识、解释 → goal_type="question"
-- 完全基于语义理解，不要用关键词匹配"""
-
-
+# -- Compact LLM fallback prompt (only used for low-confidence queries) ------
 SYSTEM_PROMPT = GOAL_ANALYZER_SYSTEM_PROMPT
 
 
 class GoalAnalyzer(AgentProtocol):
-    """LLM-based goal understanding. No regex, no rule-based classification."""
+    """Hybrid goal understanding: embedding first, LLM as safety net."""
 
     def __init__(self) -> None:
         self._llm = get_llm_service()
 
     @safe_run
     def run(self, state: dict[str, object]) -> dict[str, object]:
-        """Analyze the user's question and produce a structured goal."""
         question = str(state.get("question", ""))
         conversation_context = state.get("conversation_context")
         session_state = state.get("session_state")
         continue_mode = bool(state.get("_continue_mode", False))
 
-        # In continue mode, use existing goal from session if available
+        # Use the rewritten question when available — it carries conversation
+        # context (e.g. "什么意思" → "关于帮我写文章，用户问：什么意思"),
+        # which makes embedding matching far more accurate for follow-ups.
+        rewritten = str(state.get("rewritten_question", "") or "")
+        query_for_intent = rewritten if rewritten else question
+
         existing_goal = None
         if continue_mode and session_state:
             existing_goal = getattr(session_state, "current_goal", None) or (
                 session_state.get("current_goal") if isinstance(session_state, dict) else None
             )
 
-        goal = self._analyze_goal(question, conversation_context, continue_mode, existing_goal)
+        goal = self._analyze_goal(
+            question=question,
+            query_for_intent=query_for_intent,
+            conversation_context=conversation_context,
+            continue_mode=continue_mode,
+            existing_goal=existing_goal,
+        )
 
         state["goal_analysis"] = goal
-        # Backward compat: set category from goal_type
         state["category"] = goal.get("goal_type", "other")
         state["router"] = {
             "goal_type": goal.get("goal_type", "other"),
@@ -113,36 +121,89 @@ class GoalAnalyzer(AgentProtocol):
             "confidence": goal.get("confidence", 0.0),
         }
 
-        # When GoalAnalyzer falls back to the default goal (LLM unavailable),
-        # signal downstream agents so they can use degraded-mode messages
-        # instead of calling the LLM again and getting a raw fallback string.
         if goal.get("fallback"):
             state["_degraded"] = True
             state["_llm_error"] = "GoalAnalyzer: LLM 不可用，使用默认目标分析"
 
         logger.info(
-            "Goal: type=%s knowledge=%s priority=%s confidence=%.2f goal='%s'%s",
+            "Goal: type=%s knowledge=%s confidence=%.2f goal='%s'%s%s",
             goal.get("goal_type", "?"),
             goal.get("knowledge_source", "?"),
-            goal.get("priority", "normal"),
             goal.get("confidence", 0.0),
             goal.get("goal", "")[:60],
             " (fallback)" if goal.get("fallback") else "",
+            " (embedding)" if goal.get("_embedding_match") else "",
         )
         return state
 
     def _analyze_goal(
         self,
         question: str,
+        query_for_intent: str,
         conversation_context: Any = None,
         continue_mode: bool = False,
         existing_goal: str | None = None,
     ) -> dict[str, Any]:
-        """Call LLM to analyze the user's goal."""
+        """Analyze user goal — embedding first, LLM as fallback."""
         if not question:
             return self._default_goal()
 
-        # Build context
+        # ── Path 1: Embedding match (fast, free, handles ~80 % of queries) ─
+        if not continue_mode:
+            result = _get_intent_index().match(query_for_intent)
+            if result is not None:
+                label, goal_type, confidence = result
+                return self._build_goal_from_match(
+                    question=question,
+                    label=label,
+                    goal_type=goal_type,
+                    confidence=confidence,
+                )
+
+        # ── Path 2: Continue mode with existing goal ──
+        if continue_mode and existing_goal:
+            # Re-use the existing goal type — the user is still on the same task.
+            # But we still need to understand the new sub-intent, so let the LLM
+            # decide (it has the full conversation context).
+            pass
+
+        # ── Path 3: LLM fallback (ambiguous / mixed / continue-mode queries) ─
+        return self._llm_analyze(question, conversation_context, continue_mode, existing_goal)
+
+    # ------------------------------------------------------------------
+    # Embedding match → goal dict
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_goal_from_match(
+        question: str,
+        label: str,
+        goal_type: str,
+        confidence: float,
+    ) -> dict[str, Any]:
+        """Build a ``goal_analysis`` dict from an embedding match."""
+        return {
+            "goal": question,
+            "goal_type": goal_type,
+            "knowledge_source": _LABEL_KNOWLEDGE_SOURCE.get(label, "general"),
+            "expected_outputs": _LABEL_EXPECTED_OUTPUTS.get(label, ["answer"]),
+            "priority": _LABEL_PRIORITY.get(label, "normal"),
+            "confidence": round(confidence, 2),
+            "_embedding_match": True,
+        }
+
+    # ------------------------------------------------------------------
+    # LLM fallback
+    # ------------------------------------------------------------------
+
+    def _llm_analyze(
+        self,
+        question: str,
+        conversation_context: Any = None,
+        continue_mode: bool = False,
+        existing_goal: str | None = None,
+    ) -> dict[str, Any]:
+        """Call LLM to analyze the user's goal (original behavior)."""
         ctx_parts = [f"用户输入：{question}"]
 
         if continue_mode and existing_goal:
@@ -187,13 +248,11 @@ class GoalAnalyzer(AgentProtocol):
     def _parse_goal_json(self, raw: str) -> dict[str, Any] | None:
         """Extract JSON from LLM output."""
         text = raw.strip()
-        # Try direct parse
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
 
-        # Try code blocks
         for marker in ("```json", "```JSON", "```"):
             start = text.find(marker)
             if start == -1:

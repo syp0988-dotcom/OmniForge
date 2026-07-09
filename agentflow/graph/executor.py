@@ -20,6 +20,7 @@ Architecture::
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from agentflow.graph.context import WorkflowContext
@@ -258,6 +259,50 @@ class Executor:
                 logger.warning("Batch stopped at task %d due to failure", len(results))
                 break
         return results
+
+    def execute_batch_parallel(
+        self,
+        task_dicts: list[dict[str, Any]],
+        max_workers: int = 6,
+    ) -> list[ToolResult]:
+        """Execute independent task dicts concurrently.
+
+        This is intended for safe, side-effect-isolated tool calls selected by
+        the workflow layer, such as writing different files.
+        """
+        if not task_dicts:
+            return []
+
+        worker_count = max(1, min(max_workers, len(task_dicts)))
+        indexed_results: list[ToolResult | None] = [None] * len(task_dicts)
+
+        def _run(index: int, task_dict: dict[str, Any]) -> tuple[int, ToolResult]:
+            try:
+                return index, self.execute_task_dict(task_dict, ctx=None)
+            except Exception as exc:
+                logger.error(
+                    "Parallel task %s crashed: %s",
+                    task_dict.get("task_id", index),
+                    exc,
+                )
+                return index, ToolResult(
+                    success=False,
+                    tool=str(task_dict.get("tool", "?")),
+                    action=str(task_dict.get("action", task_dict.get("goal", ""))),
+                    error=str(exc),
+                    message=f"Executor crashed: {exc}",
+                )
+
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            futures = [
+                pool.submit(_run, index, task_dict)
+                for index, task_dict in enumerate(task_dicts)
+            ]
+            for future in as_completed(futures):
+                index, result = future.result()
+                indexed_results[index] = result
+
+        return [r for r in indexed_results if r is not None]
 
     # ------------------------------------------------------------------
     # Plan execution (batch from a Plan object)

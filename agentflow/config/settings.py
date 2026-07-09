@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     max_tokens: int = Field(default=1000, alias="MAX_TOKENS")
 
     # -- Knowledge base settings --
-    knowledge_embedder: str = Field(default="semantic", alias="KNOWLEDGE_EMBEDDER")
+    knowledge_embedder: str = Field(default="tfidf", alias="KNOWLEDGE_EMBEDDER")
     knowledge_embedding_model: str = Field(
         default="paraphrase-multilingual-MiniLM-L12-v2",
         alias="KNOWLEDGE_EMBEDDING_MODEL",

@@ -34,27 +34,58 @@ class BrowserTool(BaseTool):
     def __init__(self, headless: bool = True) -> None:
         self.headless = headless
 
-    def capabilities(self) -> list[str]:
-        return [
-            "browser.open",
-            "browser.extract",
-            "browser.screenshot",
-            "browser.interact",
-        ]
+    def actions(self) -> dict[str, dict]:
+        return {
+            "open_url": {
+                "description": "[接口预留] 在浏览器中打开 URL",
+                "parameters": {"url": {"type": "string", "description": "要打开的 URL"}},
+                "required": ["url"],
+            },
+            "extract_text": {
+                "description": "[接口预留] 提取当前页面的可见文本",
+                "parameters": {},
+                "required": [],
+            },
+            "screenshot": {
+                "description": "[接口预留] 截取页面视口截图",
+                "parameters": {},
+                "required": [],
+            },
+            "click": {
+                "description": "[接口预留] 点击指定 CSS 选择器的元素",
+                "parameters": {"selector": {"type": "string", "description": "CSS 选择器"}},
+                "required": ["selector"],
+            },
+            "input_text": {
+                "description": "[接口预留] 在输入框中输入文本",
+                "parameters": {
+                    "selector": {"type": "string", "description": "CSS 选择器"},
+                    "text": {"type": "string", "description": "要输入的文本"},
+                },
+                "required": ["selector"],
+            },
+            "scroll": {
+                "description": "[接口预留] 滚动页面",
+                "parameters": {
+                    "direction": {"type": "string", "description": "滚动方向（up/down）", "default": "down"},
+                    "amount": {"type": "integer", "description": "滚动像素数", "default": 300},
+                },
+                "required": [],
+            },
+        }
 
     def metadata(self) -> dict[str, Any]:
         base = super().metadata()
         base["headless"] = self.headless
-        base["actions"] = [
-            "open_url", "extract_text", "screenshot",
-            "click", "input_text", "scroll",
-        ]
         base["status"] = "interface_only"
         base["message"] = (
             "This is an interface placeholder. "
             "Implement with Playwright / Selenium to enable browser automation."
         )
         return base
+
+    def capabilities(self) -> list[str]:
+        return ["browser.open", *super().capabilities()]
 
     def execute(self, action: str = "", **kwargs: Any) -> ToolResult:
         handler = _ACTION_MAP.get(action)

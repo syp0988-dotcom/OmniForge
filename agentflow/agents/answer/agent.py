@@ -91,6 +91,13 @@ class AnswerAgent(AgentProtocol):
         user_prompt = builder.format_answer_prompt()
         messages.append({"role": "user", "content": user_prompt})
 
+        if state.get("_stream_answer"):
+            state["_answer_stream_messages"] = messages
+            state["_answer_stream_mode"] = True
+            state["answer"] = ""
+            logger.info("Answer: prepared stream messages, skipping blocking LLM call")
+            return state
+
         answer = llm_service.complete(messages=messages)
         logger.info("Answer: LLM returned %d chars: %s", len(answer), answer[:100])
         state["answer"] = self.clean_answer(answer)

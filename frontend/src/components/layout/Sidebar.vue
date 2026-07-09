@@ -35,7 +35,7 @@
 
 <script setup lang="ts">
 import { computed, inject } from 'vue'
-import { Plus, Folder, BookOpen, Settings } from 'lucide-vue-next'
+import { Plus, MessageCircle, Folder, BookOpen, Settings } from 'lucide-vue-next'
 import SegmentedControl from '@/components/sidebar/SegmentedControl.vue'
 import NavItem from '@/components/sidebar/NavItem.vue'
 import ChatHistory from '@/components/sidebar/ChatHistory.vue'
@@ -44,7 +44,8 @@ import type { ChatState } from '@/composables/useChatState'
 const chatState = inject<ChatState>('chatState')!
 
 const navItems = computed(() => [
-  { icon: Plus, label: '新对话', active: chatState.activeSection.value === 'chat', action: () => { chatState.newChat(); chatState.activeSection.value = 'chat' } },
+  { icon: MessageCircle, label: '对话', active: chatState.activeSection.value === 'chat', action: () => { chatState.activeSection.value = 'chat' } },
+  { icon: Plus, label: '新对话', active: false, action: () => { chatState.newChat(); chatState.activeSection.value = 'chat' } },
   { icon: Folder, label: '项目', active: chatState.activeSection.value === 'projects', action: () => { chatState.activeSection.value = 'projects' } },
   { icon: BookOpen, label: '知识库', active: chatState.activeSection.value === 'knowledge', action: () => { chatState.activeSection.value = 'knowledge' } },
   { icon: Settings, label: '设置', active: chatState.activeSection.value === 'settings', action: () => { chatState.activeSection.value = 'settings' } },

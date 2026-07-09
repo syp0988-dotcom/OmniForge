@@ -48,8 +48,22 @@ class SearchTool(BaseTool):
     # Introspection
     # ------------------------------------------------------------------
 
+    def actions(self) -> dict[str, dict]:
+        return {
+            "search": {
+                "description": "从互联网搜索实时信息（新闻、天气、价格等）",
+                "parameters": {
+                    "query": {"type": "string", "description": "简洁具体的搜索关键词"},
+                },
+                "required": ["query"],
+            },
+        }
+
+    def routing_node(self) -> str:
+        return "query_rewriter"
+
     def capabilities(self) -> list[str]:
-        return ["web.search", "web.news", "web.general"]
+        return ["web.search", "search.search"]
 
     def metadata(self) -> dict[str, Any]:
         base = super().metadata()

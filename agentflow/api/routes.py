@@ -257,6 +257,7 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
             "question": body.message,
             "workflow": [],
             "history": history_dicts,
+            "_stream_answer": True,
         }
         if history_dicts:
             initial_state["memory"] = {"history": list(history_dicts)}
@@ -269,6 +270,8 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
         # -- Stream workflow execution --
         final_state: dict | None = None
         answer_text: str | None = None  # captured from answer node for chunked delivery
+        streamed_answer = ""
+        did_stream_answer = False
         cancelled: bool = False
         try:
             async for event in workflow.astream(initial_state):
@@ -300,8 +303,26 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
                     elif node_name == "answer":
                         answer_text = state_update.get("answer", "")
                         yield _sse_event("generating", {"phase": "生成回答"})
+                        stream_messages = state_update.get("_answer_stream_messages")
+                        if stream_messages and isinstance(stream_messages, list):
+                            from agentflow.services.llm_service import get_llm_service
+
+                            did_stream_answer = True
+                            for token in get_llm_service().complete_stream(messages=stream_messages):
+                                if await _is_disconnected():
+                                    cancelled = True
+                                    logger.info("Client disconnected during LLM streaming")
+                                    break
+                                if token:
+                                    streamed_answer += token
+                                    yield _sse_event("text", {"text": token})
+                            answer_text = streamed_answer.strip()
+                            if cancelled:
+                                break
                     elif node_name == "memory":
                         final_state = dict(state_update)
+                if cancelled:
+                    break
         except Exception as exc:
             logger.exception("Streaming workflow failed")
             yield _sse_event("error", {"error": str(exc)})
@@ -314,9 +335,13 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
 
         # -- Deliver answer text in chunks for true streaming feel --
         answer = answer_text or (final_state.get("answer", "") if final_state else "")
+        if did_stream_answer:
+            answer = answer.strip()
+            if final_state is not None:
+                final_state["answer"] = answer
 
         # Stream answer text incrementally
-        if answer:
+        if answer and not did_stream_answer:
             chunk_size = 15  # characters per chunk
             for i in range(0, len(answer), chunk_size):
                 # Re-check disconnect during chunk delivery

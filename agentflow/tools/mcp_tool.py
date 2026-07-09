@@ -43,16 +43,31 @@ class MCPTool(BaseTool):
         # and a list of discovered tools from the server.
         self._discovered_tools: list[dict[str, Any]] = []
 
-    def capabilities(self) -> list[str]:
-        return [
-            "mcp.discover",   # list available MCP tools
-            "mcp.execute",    # execute an MCP tool
-        ]
+    def actions(self) -> dict[str, dict]:
+        return {
+            "discover": {
+                "description": "[接口预留] 发现 MCP 服务器的可用工具",
+                "parameters": {},
+                "required": [],
+            },
+            "call": {
+                "description": "[接口预留] 调用 MCP 服务器的指定工具",
+                "parameters": {
+                    "tool_name": {"type": "string", "description": "MCP 工具名称"},
+                    "arguments": {"type": "object", "description": "工具参数字典"},
+                },
+                "required": ["tool_name"],
+            },
+            "list_tools": {
+                "description": "[接口预留] 列出所有已发现的 MCP 工具",
+                "parameters": {},
+                "required": [],
+            },
+        }
 
     def metadata(self) -> dict[str, Any]:
         base = super().metadata()
         base["server_url"] = self.server_url
-        base["actions"] = ["call", "discover", "list_tools"]
         base["status"] = "interface_only"
         base["message"] = (
             "This is an interface placeholder. "

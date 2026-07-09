@@ -11,8 +11,7 @@ The uniform protocol means:
 
 Extending ``BaseTool``
 ----------------------
-Subclasses should set ``name``, ``description`` and may optionally override
-``validate()``, ``capabilities()`` and ``metadata()``.
+Subclasses should set ``name``, ``description`` and implement ``actions()``.
 
 Example::
 
@@ -20,8 +19,22 @@ Example::
         name = "my_tool"
         description = "Does something useful"
 
-        def execute(self, **kwargs: Any) -> ToolResult:
+        def actions(self) -> dict[str, dict]:
+            return {
+                "do_thing": {
+                    "description": "Perform the thing",
+                    "parameters": {
+                        "input_file": {"type": "string", "description": "File to process"},
+                    },
+                    "required": ["input_file"],
+                },
+            }
+
+        def execute(self, action="", **kwargs: Any) -> ToolResult:
             ...
+
+The ToolRegistry derives all Planner schemas, capabilities, and prompts
+dynamically from ``actions()`` — no more hardcoded lists in 7 files.
 """
 
 from __future__ import annotations
@@ -37,11 +50,13 @@ class BaseTool(ABC):
 
     Required overrides:
         ``name`` (class-level string)
+        ``actions()``
         ``execute()``
 
     Optional overrides:
         ``validate()``
-        ``capabilities()``
+        ``tool_schemas()``
+        ``routing_node()``
         ``metadata()``
     """
 
@@ -73,6 +88,105 @@ class BaseTool(ABC):
         ...
 
     # ------------------------------------------------------------------
+    # Actions (single source of truth for schemas & capabilities)
+    # ------------------------------------------------------------------
+
+    def actions(self) -> dict[str, dict]:
+        """Return action_name → {description, parameters, required}.
+
+        This is the **single source of truth** for:
+          - LLM function schemas (via ``tool_schemas()``)
+          - Capabilities (``{tool}.{action}``)
+          - Planner prompts (action allowlists)
+
+        Each action dict has:
+          ``description``  — human-readable (Chinese OK) description
+          ``parameters``   — {param: {type, description}} dict
+          ``required``     — list of required parameter names
+
+        Subclasses **must** override this.  The old ``capabilities()``
+        override is no longer necessary — it derives from ``actions()``
+        automatically.
+        """
+        return {}
+
+    # ------------------------------------------------------------------
+    # LLM function schemas (derived from actions)
+    # ------------------------------------------------------------------
+
+    def tool_schemas(self) -> list[dict]:
+        """Return OpenAI-compatible function definitions for all actions.
+
+        Derived from ``actions()`` automatically.  Override only when a
+        tool needs custom schema generation (e.g. additionalProperties).
+        """
+        schemas: list[dict] = []
+        for action_name, action_def in self.actions().items():
+            function_name = f"{self.name}__{action_name}"
+            desc = action_def.get("description", "")
+            params_raw = action_def.get("parameters", {})
+            required = action_def.get("required", [])
+
+            properties: dict[str, dict] = {}
+            for param_name, param_def in params_raw.items():
+                prop: dict = {"type": param_def.get("type", "string")}
+                if "description" in param_def:
+                    prop["description"] = param_def["description"]
+                if "default" in param_def:
+                    prop["default"] = param_def["default"]
+                if "enum" in param_def:
+                    prop["enum"] = param_def["enum"]
+                properties[param_name] = prop
+
+            schema: dict = {
+                "type": "function",
+                "function": {
+                    "name": function_name,
+                    "description": desc,
+                    "parameters": {
+                        "type": "object",
+                        "properties": properties,
+                    },
+                },
+            }
+            if required:
+                schema["function"]["parameters"]["required"] = required
+
+            # Allow tools to pass extra parameter fields (e.g. additionalProperties)
+            extra_params = action_def.get("_extra_params")
+            if extra_params:
+                schema["function"]["parameters"].update(extra_params)
+
+            schemas.append(schema)
+
+        return schemas
+
+    # ------------------------------------------------------------------
+    # Routing
+    # ------------------------------------------------------------------
+
+    def routing_node(self) -> str:
+        """LangGraph node that executes this tool.
+
+        Default ``"tool_executor"`` covers filesystem, git, browser, etc.
+        Override for:
+          - ``"query_rewriter"`` for search tools
+          - ``"python"`` for Python execution
+        """
+        return "tool_executor"
+
+    # ------------------------------------------------------------------
+    # Capabilities (derived from actions)
+    # ------------------------------------------------------------------
+
+    def capabilities(self) -> list[str]:
+        """Return semantic capabilities: ``{tool}.{action}`` for each action.
+
+        Derived automatically from ``actions()``.  No need to override.
+        """
+        return [f"{self.name}.{a}" for a in self.actions()]
+
+    # ------------------------------------------------------------------
     # Optional — safety & introspection
     # ------------------------------------------------------------------
 
@@ -88,24 +202,13 @@ class BaseTool(ABC):
         _ = kwargs
         return True, ""
 
-    def capabilities(self) -> list[str]:
-        """Return the semantic capabilities this tool provides.
-
-        These strings are matched against ``task.capability`` in the Planner.
-        Example: ``["web.search", "web.news"]``
-        """
-        return []
-
     def metadata(self) -> dict[str, Any]:
-        """Rich metadata for introspection, documentation, and UI.
-
-        The default build includes ``name``, ``description``, ``version``,
-        ``capabilities``, and ``actions`` (derived from public methods that
-        start with ``cmd_`` or from the class docstring).
-        """
+        """Rich metadata for introspection, documentation, and UI."""
         return {
             "name": self.name,
             "description": self.description or self.__doc__ or "",
             "version": self.version,
             "capabilities": self.capabilities(),
+            "actions": list(self.actions().keys()),
+            "routing_node": self.routing_node(),
         }

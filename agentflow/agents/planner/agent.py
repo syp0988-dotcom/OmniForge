@@ -51,8 +51,9 @@ logger = build_logger("planner")
 class PlannerAgent(AgentProtocol):
     """Dynamic Task Queue planner: generates 3-5 tasks per invocation."""
 
-    def __init__(self) -> None:
+    def __init__(self, registry=None) -> None:
         self._llm = get_llm_service()
+        self.registry = registry  # ToolRegistry — dynamic source of truth
 
     @safe_run
     def run(self, state: dict) -> dict:
@@ -84,7 +85,7 @@ class PlannerAgent(AgentProtocol):
             state["plan"] = plan
             state["category"] = goal_type
             state["task_queue"] = []
-            state["workflow"] = _plan_to_workflow(plan, goal_type)
+            state["workflow"] = _plan_to_workflow(plan, goal_type, self.registry)
             return state
 
         # -- Degraded mode: skip LLM-dependent planning -------------------
@@ -97,7 +98,7 @@ class PlannerAgent(AgentProtocol):
             )
             state["plan"] = plan
             state["category"] = goal_type
-            state["workflow"] = _plan_to_workflow(plan, goal_type)
+            state["workflow"] = _plan_to_workflow(plan, goal_type, self.registry)
             return state
 
         # -- Non-project: use direct_answer flow (backward compat) --------
@@ -141,7 +142,16 @@ class PlannerAgent(AgentProtocol):
         state["plan"] = plan
         state["task_queue"] = merged.to_dict_list()
         state["category"] = goal_type
-        state["workflow"] = _plan_to_workflow(plan, goal_type)
+        state["workflow"] = _plan_to_workflow(plan, goal_type, self.registry)
+
+        # Detect degraded fallback — LLM was unavailable
+        if plan.direct_answer and not plan.goal_completed and not plan.tasks:
+            state["_degraded"] = True
+            state["_llm_error"] = (
+                "LLM planner unavailable — both function-calling and JSON "
+                "planning failed (timeout or network error)"
+            )
+            logger.warning("Plan: degraded fallback (LLM unavailable)")
 
         if plan.goal_completed:
             logger.info("Plan: goal_completed")
@@ -400,7 +410,7 @@ class PlannerAgent(AgentProtocol):
 
         state["plan"] = plan
         state["category"] = goal_type
-        state["workflow"] = _plan_to_workflow(plan, goal_type)
+        state["workflow"] = _plan_to_workflow(plan, goal_type, self.registry)
 
         # Serialize plan tasks into the task queue so the executor can run them
         state["task_queue"] = [t.to_dict() for t in plan.tasks] if plan.tasks else []
@@ -439,11 +449,16 @@ class PlannerAgent(AgentProtocol):
         if plan is not None and (plan.tasks or plan.goal_completed):
             return plan
 
-        # 3) Final fallback: direct answer
+        # 3) Final fallback: direct answer, but mark as NOT goal_completed
+        # so the answer agent knows this is a degraded response.
+        logger.warning(
+            "Planner: both FC and JSON planning failed for goal_type=%s — "
+            "falling back to degraded answer path", goal_type,
+        )
         return Plan(
             goal=goal, category=goal_type,
-            tasks=[], direct_answer=True, goal_completed=True,
-            reasoning=f"无可用模板（goal_type={goal_type}），直接回答",
+            tasks=[], direct_answer=True, goal_completed=False,
+            reasoning=f"LLM 规划不可用（goal_type={goal_type}），使用降级回答模式",
         )
 
     # ------------------------------------------------------------------
@@ -465,12 +480,13 @@ class PlannerAgent(AgentProtocol):
             messages = build_fc_planner_prompt(
                 goal=goal, goal_type=goal_type,
                 context_str=context_str, replan_context=replan_context,
+                registry=self.registry,
             )
         except Exception as exc:
             logger.warning("FC planner prompt build failed: %s", exc)
             return None
 
-        tools = get_tool_schemas()
+        tools = get_tool_schemas(self.registry) if self.registry else []
 
         try:
             resp: LLMResponse = self._llm.complete_with_tools(
@@ -486,17 +502,17 @@ class PlannerAgent(AgentProtocol):
                 logger.info("  Tool: %s args: %s", tc.name, tc.arguments[:200])
             return self._build_plan_from_tool_calls(resp.tool_calls, resp.content, goal, goal_type)
 
+        # LLM returned a degraded fallback (e.g. timeout, network error)
+        if resp.degraded:
+            logger.warning("FC planner returned degraded response — falling back to JSON planner")
+            return None
+
         content = resp.content.strip()
         if content:
             parsed = self._parse_json(content)
             if parsed:
                 return self._build_plan_from_json(parsed, goal, goal_type)
-            return Plan(
-                goal=goal, category=goal_type,
-                tasks=[], direct_answer=True,
-                goal_completed=True,
-                reasoning=content[:500],
-            )
+            logger.warning("FC planner returned non-JSON content, not goal_completed: %s", content[:200])
         return None
 
     # ------------------------------------------------------------------
@@ -518,6 +534,7 @@ class PlannerAgent(AgentProtocol):
             messages = build_planner_prompt(
                 goal=goal, goal_type=goal_type,
                 context_str=context_str, replan_context=replan_context,
+                registry=self.registry,
             )
             raw = self._llm.complete(messages=messages)
         except Exception as exc:
@@ -813,19 +830,29 @@ def _fix_json_newlines(raw: str) -> str:
 # ------------------------------------------------------------------
 
 
-def _plan_to_workflow(plan: Plan, goal_type: str) -> list[str]:
-    """Derive a LangGraph node-name list from a Plan (backward compat)."""
+def _plan_to_workflow(plan: Plan, goal_type: str, registry=None) -> list[str]:
+    """Derive a LangGraph node-name list from a Plan (backward compat).
+
+    Tool→node mappings are resolved dynamically from the ToolRegistry.
+    """
     nodes = ["goal_analyzer"]
 
     if goal_type not in ("identity", "search"):
         nodes.append("knowledge")
 
-    if plan.goal_completed or plan.direct_answer:
-        pass
-    else:
+    if not plan.goal_completed and not plan.direct_answer:
         for t in plan.tasks:
-            node = _TOOL_TO_NODE.get(t.tool or "")
-            if node and node not in nodes:
+            tool_name = t.tool or ""
+            if not tool_name:
+                continue
+            # Resolve dynamically from registry, with fallback
+            if registry is not None:
+                node = registry.get_node_for_tool(tool_name)
+            else:
+                node = None
+            if not node:
+                node = "tool_executor"  # safe default
+            if node not in nodes:
                 nodes.append(node)
 
     if "answer" not in nodes:
@@ -833,16 +860,3 @@ def _plan_to_workflow(plan: Plan, goal_type: str) -> list[str]:
     if "memory" not in nodes:
         nodes.append("memory")
     return nodes
-
-
-# Map tool names -> LangGraph node names
-_TOOL_TO_NODE: dict[str, str] = {
-    "search": "search",
-    "python": "python",
-    "filesystem": "tool_executor",
-    "git": "tool_executor",
-    "browser": "tool_executor",
-    "database": "tool_executor",
-    "mcp": "tool_executor",
-    "composio": "tool_executor",
-}

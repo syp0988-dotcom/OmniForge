@@ -26,10 +26,20 @@ class KnowledgeAgent(AgentProtocol):
 
     Provides reference material only — does not generate answers.
     The retrieved references inform the Planner's task tree generation.
+
+    The KnowledgeStore (and its embedding model) is lazily initialised
+    on first use to avoid loading the 470 MB sentence-transformers model
+    on every request.
     """
 
     def __init__(self) -> None:
-        self.store = KnowledgeStore()
+        self._store: KnowledgeStore | None = None
+
+    @property
+    def store(self) -> KnowledgeStore:
+        if self._store is None:
+            self._store = KnowledgeStore()
+        return self._store
 
     @safe_run
     def run(self, state: dict[str, object]) -> dict[str, object]:
