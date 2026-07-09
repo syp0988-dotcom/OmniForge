@@ -245,6 +245,16 @@ def _route_after_goal_analyzer(state: WorkflowState) -> str:
     goal = state.get("goal_analysis", {})
     goal_type = goal.get("goal_type", "") if isinstance(goal, dict) else ""
     knowledge_source = goal.get("knowledge_source", "") if isinstance(goal, dict) else ""
+    source_mode = str(state.get("source_mode", "") or "")
+    if not source_mode and isinstance(goal, dict):
+        source_mode = str(goal.get("source_mode", "") or "")
+
+    # Manual source selection is an explicit user command. When the user
+    # chooses Knowledge Base, always retrieve local references first; "auto"
+    # is the only mode where intent routing may skip retrieval.
+    if source_mode == "knowledge":
+        logger.info("Source mode 'knowledge': forcing KnowledgeAgent retrieval")
+        return "knowledge"
 
     # Goal types that never need planning — conversational, informational
     _DIRECT_ANSWER_TYPES = frozenset({"other", "translation", "editing"})

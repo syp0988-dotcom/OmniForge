@@ -19,7 +19,7 @@
     <div>
       <div class="flex gap-2">
         <div
-          class="flex-1 flex items-center gap-2 px-4 py-2 rounded-xl border border-border bg-white transition-all duration-150 focus-within:border-primary focus-within:shadow-[0_0_0_1px_#E86A33]"
+          class="flex-1 flex items-center gap-2 px-4 py-2 rounded-xl border border-border bg-white transition-all duration-150 focus-within:border-primary focus-within:shadow-[0_0_0_1px_rgb(var(--color-primary))]"
         >
           <Search class="w-4 h-4 text-secondary flex-shrink-0" />
           <input

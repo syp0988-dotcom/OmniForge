@@ -92,10 +92,6 @@ class RewriteEngine:
         if any(p.match(q) for p in _CONFIRM_PATTERNS):
             return False
 
-        # Very short questions almost always need context
-        if len(q) < 4:
-            return True
-
         # Ordinal references
         if any(p.match(q) for p in _ORDINAL_PATTERNS):
             return True
@@ -110,6 +106,14 @@ class RewriteEngine:
 
         # Deictic references
         if any(p.match(q) for p in _DEICTIC_PATTERNS):
+            return True
+
+        if _looks_like_standalone_short_topic(q):
+            return False
+
+        # Very short inputs are ambiguous unless they look like a standalone
+        # entity/topic and were handled above.
+        if len(q) < 4:
             return True
 
         # General short input (< 15 chars without context markers)
@@ -240,7 +244,25 @@ class RewriteEngine:
 
         # --- General short input ---
         if len(q) < 15 and context:
+            if _looks_like_standalone_short_topic(q):
+                return question
             logger.info("Rewrote short input '%s' with context: %s", q, context)
             return f"关于{context}，用户问：{q}"
 
         return question
+
+
+def _looks_like_standalone_short_topic(text: str) -> bool:
+    """Detect short standalone entities/topics that should not inherit context."""
+    q = text.strip()
+    if not q:
+        return False
+    if re.search(r"[？?！!，,。；;：:\s]", q):
+        return False
+    if re.search(r"[一-\u9fff].*[a-zA-Z0-9]|[a-zA-Z0-9].*[一-\u9fff]", q):
+        return True
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{1,14}", q):
+        return True
+    if re.fullmatch(r"[一-\u9fff]{3,8}", q):
+        return True
+    return False

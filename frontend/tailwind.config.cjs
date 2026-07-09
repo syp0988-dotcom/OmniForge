@@ -4,15 +4,15 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        bg: '#FFFFFF',
-        'sidebar-bg': '#FCFCFC',
-        border: '#ECECEC',
-        primary: '#E86A33',
-        'primary-hover': '#D55C2A',
-        text: '#1A1A1A',
-        secondary: '#6E6E73',
-        hover: '#F7F7F7',
-        'code-bg': '#F8F9FA',
+        bg: 'rgb(var(--color-bg) / <alpha-value>)',
+        'sidebar-bg': 'rgb(var(--color-sidebar-bg) / <alpha-value>)',
+        border: 'rgb(var(--color-border) / <alpha-value>)',
+        primary: 'rgb(var(--color-primary) / <alpha-value>)',
+        'primary-hover': 'rgb(var(--color-primary-hover) / <alpha-value>)',
+        text: 'rgb(var(--color-text) / <alpha-value>)',
+        secondary: 'rgb(var(--color-secondary) / <alpha-value>)',
+        hover: 'rgb(var(--color-hover) / <alpha-value>)',
+        'code-bg': 'rgb(var(--color-code-bg) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],

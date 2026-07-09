@@ -3,11 +3,11 @@ import vue from '@vitejs/plugin-vue'
 import path from 'path'
 
 export default defineConfig({
-  root: process.cwd(),
+  root: __dirname,
   plugins: [vue()],
   resolve: {
     alias: {
-      '@': path.resolve(process.cwd(), 'src')
+      '@': path.resolve(__dirname, 'src')
     }
   },
   server: {

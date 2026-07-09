@@ -47,6 +47,7 @@ class ChromaIndex:
     ) -> None:
         self._collection_name = collection_name or chroma_collection()
         self._persist_path = Path(persist_path) if persist_path else chroma_path()
+        self._client = None
         self._collection = None  # lazy-init
 
     @classmethod
@@ -129,6 +130,28 @@ class ChromaIndex:
             return 0
         return self._collection.count()
 
+    @property
+    def collection_name(self) -> str:
+        return self._collection_name
+
+    def reset(self) -> None:
+        """Drop and recreate the backing collection.
+
+        This is used when TF-IDF's vocabulary dimension changes. ChromaDB
+        collections have a fixed embedding dimension, so old vectors must be
+        discarded and rebuilt with the new dimension.
+        """
+        collection = self._get_collection()
+        client = self._client
+        if client is None:
+            return
+        try:
+            client.delete_collection(name=self._collection_name)
+        except Exception as exc:
+            logger.debug("ChromaDB collection reset ignored delete error: %s", exc)
+        self._collection = None
+        self._get_collection()
+
     # -- Internal -----------------------------------------------------------
 
     def _get_collection(self):
@@ -139,6 +162,7 @@ class ChromaIndex:
         client = self._client_override or chromadb.PersistentClient(
             path=str(self._persist_path)
         )
+        self._client = client
         if self._client_override is None:
             self._persist_path.mkdir(parents=True, exist_ok=True)
         self._collection = client.get_or_create_collection(

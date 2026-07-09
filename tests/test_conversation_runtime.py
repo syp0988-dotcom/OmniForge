@@ -781,6 +781,7 @@ class TestRewriteEngine:
         assert not RewriteEngine.needs_rewrite("请介绍 IDA 的完整使用流程")
         assert not RewriteEngine.needs_rewrite("写一个 Python 登录程序")
         assert not RewriteEngine.needs_rewrite("今天天气怎么样")
+        assert not RewriteEngine.needs_rewrite("孙严培")
 
     def test_needs_rewrite_confirmations(self):
         from agentflow.conversation.rewrite import RewriteEngine
@@ -831,6 +832,22 @@ class TestRewriteEngine:
         from agentflow.conversation.rewrite import RewriteEngine
         result = RewriteEngine.rewrite("优化一下")
         assert result == "优化一下"
+
+    def test_short_standalone_name_does_not_inherit_previous_goal(self):
+        from agentflow.conversation.manager import ConversationManager
+        from agentflow.conversation.state import ConversationState
+        from agentflow.conversation.session_state import SessionState
+
+        ss = SessionState(current_goal="omniforge有哪些亮点")
+        ss.tracking = ConversationState()
+        ss.tracking.topic = "有哪些亮点"
+
+        cm = ConversationManager()
+        resolved = cm.resolve_question("孙严培", ss)
+        rewritten = cm.rewrite_question(resolved, ss)
+
+        assert resolved == "孙严培"
+        assert rewritten == "孙严培"
 
     def test_rewrite_follow_up_with_context(self):
         from agentflow.conversation.rewrite import RewriteEngine

@@ -102,7 +102,7 @@ function toolBadgeClass(tool: string): string {
   const map: Record<string, string> = {
     filesystem: 'border-blue-200 text-blue-600 bg-blue-50',
     search: 'border-purple-200 text-purple-600 bg-purple-50',
-    python: 'border-orange-200 text-orange-600 bg-orange-50',
+    python: 'border-indigo-200 text-indigo-600 bg-indigo-50',
     git: 'border-gray-300 text-gray-600 bg-gray-50',
     browser: 'border-teal-200 text-teal-600 bg-teal-50',
     database: 'border-cyan-200 text-cyan-600 bg-cyan-50',

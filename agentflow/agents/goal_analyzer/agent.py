@@ -112,6 +112,7 @@ class GoalAnalyzer(AgentProtocol):
             continue_mode=continue_mode,
             existing_goal=existing_goal,
         )
+        goal = _apply_source_mode(goal, str(state.get("source_mode", "auto") or "auto"))
 
         state["goal_analysis"] = goal
         state["category"] = goal.get("goal_type", "other")
@@ -281,3 +282,33 @@ class GoalAnalyzer(AgentProtocol):
             "confidence": 0.1,
             "fallback": True,
         }
+
+
+def _apply_source_mode(goal: dict[str, Any], source_mode: str) -> dict[str, Any]:
+    """Apply the user's explicit answer-source preference conservatively."""
+    mode = source_mode if source_mode in {"auto", "web", "knowledge"} else "auto"
+    if mode == "auto":
+        goal["source_mode"] = "auto"
+        return goal
+
+    current_type = str(goal.get("goal_type", "other") or "other")
+    informational_types = {"other", "question", "analysis", "document", "search"}
+    if mode == "knowledge":
+        if current_type in informational_types:
+            goal["goal_type"] = "question" if current_type == "other" else current_type
+            goal["knowledge_source"] = "local"
+        goal["source_mode"] = "knowledge"
+        return goal
+
+    if mode == "web":
+        if current_type in informational_types:
+            goal["goal_type"] = "search"
+            goal["knowledge_source"] = "general"
+            expected = goal.get("expected_outputs")
+            if not isinstance(expected, list) or "answer" not in expected:
+                goal["expected_outputs"] = ["answer"]
+        goal["source_mode"] = "web"
+        return goal
+
+    goal["source_mode"] = mode
+    return goal

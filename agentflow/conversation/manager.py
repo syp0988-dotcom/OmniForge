@@ -28,6 +28,7 @@ from agentflow.conversation.context import (
     ConversationContext,
 )
 from agentflow.conversation.rewrite import RewriteEngine
+from agentflow.conversation.rewrite import _looks_like_standalone_short_topic
 from agentflow.conversation.session_state import SessionState
 from agentflow.conversation.state import ConversationState
 from agentflow.utils.logging import build_logger
@@ -483,6 +484,8 @@ class ConversationManager:
         """
         # Questions with specific entities are self-contained
         if len(question) > 15:
+            return True
+        if _looks_like_standalone_short_topic(question):
             return True
         # Questions that look like new topics
         self_contained_patterns = [

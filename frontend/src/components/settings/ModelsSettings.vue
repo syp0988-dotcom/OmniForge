@@ -1,5 +1,104 @@
 <template>
   <div class="max-w-content mx-auto px-6 py-8 space-y-6">
+    <div>
+      <h2 class="text-lg font-semibold text-text">设置</h2>
+      <p class="text-sm text-secondary mt-1">调整界面显示、默认回答来源和模型配置。</p>
+    </div>
+
+    <div class="grid gap-4 md:grid-cols-2">
+      <section class="rounded-xl border border-border bg-white p-5 space-y-4">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
+            <Palette class="w-4 h-4 text-primary" />
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-text">外观</h3>
+            <p class="text-xs text-secondary mt-0.5">主题、密度和动效会立即生效。</p>
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-medium text-secondary mb-2">主题</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                v-for="theme in themes"
+                :key="theme.value"
+                class="rounded-lg border px-3 py-2 text-left transition-colors"
+                :class="chatState.themeMode.value === theme.value ? 'border-primary bg-primary/5' : 'border-border hover:bg-hover'"
+                @click="chatState.themeMode.value = theme.value"
+              >
+                <span class="block text-xs font-medium text-text">{{ theme.label }}</span>
+                <span class="mt-2 flex gap-1">
+                  <span
+                    v-for="swatch in theme.swatches"
+                    :key="swatch"
+                    class="h-3 w-3 rounded-full border border-border"
+                    :style="{ backgroundColor: swatch }"
+                  />
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-secondary mb-1.5">显示密度</label>
+              <select v-model="chatState.densityMode.value" class="settings-select">
+                <option value="comfortable">舒适</option>
+                <option value="compact">紧凑</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-secondary mb-1.5">动效</label>
+              <select v-model="chatState.motionMode.value" class="settings-select">
+                <option value="full">完整动效</option>
+                <option value="reduced">减少动效</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="rounded-xl border border-border bg-white p-5 space-y-4">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
+            <Languages class="w-4 h-4 text-primary" />
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-text">语言与回答</h3>
+            <p class="text-xs text-secondary mt-0.5">设置界面语言和默认回答来源。</p>
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-medium text-secondary mb-1.5">界面语言</label>
+            <select v-model="chatState.languageMode.value" class="settings-select">
+              <option value="zh-CN">简体中文</option>
+              <option value="en-US">English</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-secondary mb-2">默认回答来源</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                v-for="mode in sourceModes"
+                :key="mode.value"
+                class="rounded-lg border px-3 py-2 text-left transition-colors"
+                :class="chatState.sourceMode.value === mode.value ? 'border-primary bg-primary/5 text-primary' : 'border-border text-text hover:bg-hover'"
+                @click="chatState.sourceMode.value = mode.value"
+              >
+                <component :is="mode.icon" class="w-4 h-4 mb-2" />
+                <span class="block text-xs font-medium">{{ mode.label }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
@@ -192,8 +291,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { Edit, Trash2, Brain, X } from 'lucide-vue-next'
+import { ref, onMounted, inject } from 'vue'
+import { Edit, Trash2, Brain, X, Palette, Languages, Sparkles, Search, BookOpen } from 'lucide-vue-next'
 import {
   getModels,
   createModel,
@@ -201,11 +300,29 @@ import {
   deleteModel,
   activateModel,
 } from '@/api/client'
-import type { ModelConfig } from '@/types'
+import type { ModelConfig, SourceMode } from '@/types'
+import type { ChatState } from '@/composables/useChatState'
 
+const chatState = inject<ChatState>('chatState')!
 const models = ref<ModelConfig[]>([])
 const showForm = ref(false)
 const editingId = ref<number | null>(null)
+
+const themes = [
+  { value: 'light', label: '浅色', swatches: ['#FFFFFF', '#2563EB', '#1A1A1A'] },
+  { value: 'dark', label: '深色', swatches: ['#121418', '#60A5FA', '#F1F5F9'] },
+  { value: 'ocean', label: '海雾', swatches: ['#FAFDFF', '#0F768C', '#13262D'] },
+] as const
+
+const sourceModes: Array<{
+  value: SourceMode
+  label: string
+  icon: typeof Sparkles
+}> = [
+  { value: 'auto', label: '自动', icon: Sparkles },
+  { value: 'web', label: '联网', icon: Search },
+  { value: 'knowledge', label: '知识库', icon: BookOpen },
+]
 
 const form = ref({
   name: '',
@@ -320,6 +437,10 @@ function providerInitials(provider: string): string {
 </script>
 
 <style scoped>
+.settings-select {
+  @apply w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-text outline-none transition-colors focus:border-primary;
+}
+
 .modal-enter-active,
 .modal-leave-active {
   transition: opacity 200ms ease-out;

@@ -14,7 +14,6 @@ The references are used by the Planner and Executor for context.
 from __future__ import annotations
 
 from agentflow.agents.base import AgentProtocol
-from agentflow.knowledge.store import KnowledgeStore
 from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
 
@@ -32,22 +31,13 @@ class KnowledgeAgent(AgentProtocol):
     on every request.
     """
 
-    def __init__(self) -> None:
-        self._store: KnowledgeStore | None = None
-
-    @property
-    def store(self) -> KnowledgeStore:
-        if self._store is None:
-            self._store = KnowledgeStore()
-        return self._store
-
     @safe_run
     def run(self, state: dict[str, object]) -> dict[str, object]:
         """Retrieve knowledge references for the current question."""
-        question = str(state.get("question", ""))
-        logger.info("KnowledgeAgent retrieving references for: %s", question[:80])
+        query = _knowledge_query(state)
+        logger.info("KnowledgeAgent retrieving references for: %s", query[:80])
 
-        results = self.store.search(question, top_k=5, min_score=0.05)
+        results = _shared_knowledge_store().search(query, top_k=5, min_score=0.05)
 
         if results:
             context_parts = []
@@ -67,3 +57,21 @@ class KnowledgeAgent(AgentProtocol):
         state["knowledge_results"] = results
         state["knowledge_context"] = knowledge_text
         return state
+
+
+def _knowledge_query(state: dict[str, object]) -> str:
+    """Prefer the context-enriched rewritten question for retrieval."""
+    rewritten = str(state.get("rewritten_question", "") or "").strip()
+    if rewritten:
+        return rewritten
+    return str(state.get("question", "") or "")
+
+
+def _shared_knowledge_store():
+    """Use the same KnowledgeStore as the upload/search API.
+
+    Imported lazily to avoid an import cycle during app startup.
+    """
+    from agentflow.api.routes import get_knowledge_store
+
+    return get_knowledge_store()

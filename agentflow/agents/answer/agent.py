@@ -53,10 +53,16 @@ class AnswerAgent(AgentProtocol):
             goal_type = goal_analysis.get("goal_type", "other")
             goal = goal_analysis.get("goal", state.get("question", ""))
             knowledge_source = goal_analysis.get("knowledge_source", "hybrid")
+            source_mode = goal_analysis.get("source_mode", state.get("source_mode", "auto"))
         else:
             goal_type = "other"
             goal = state.get("question", "")
             knowledge_source = "hybrid"
+            source_mode = state.get("source_mode", "auto")
+
+        source_mode = str(source_mode or "auto")
+        if source_mode == "knowledge":
+            knowledge_source = "local"
 
         # ── Degraded mode: LLM unavailable, produce fallback message ──
         if degraded:
@@ -65,6 +71,14 @@ class AnswerAgent(AgentProtocol):
             fallback = get_fallback_message(error_type, goal_type)
             state["answer"] = self._degraded_answer(goal, error_type, fallback, goal_type)
             logger.warning("Answer: degraded mode (error_type=%s)", error_type)
+            return state
+
+        if source_mode == "knowledge" and state.get("knowledge_results") == []:
+            state["answer"] = (
+                "我已按“知识库”模式检索，但没有找到与这个问题相关的知识库内容。"
+                "请先确认相关文档已经上传并完成索引，或者换一个更接近文档原文的问法。"
+            )
+            logger.info("Answer: knowledge mode had no matching references")
             return state
 
         # ── Summary mode: project / coding / refactor / workflow / debug ──
@@ -89,6 +103,8 @@ class AnswerAgent(AgentProtocol):
 
         builder = ContextBuilder(state)
         user_prompt = builder.format_answer_prompt()
+        if source_mode == "knowledge":
+            user_prompt = self._append_knowledge_sources(user_prompt, state)
         messages.append({"role": "user", "content": user_prompt})
 
         if state.get("_stream_answer"):
@@ -102,6 +118,45 @@ class AnswerAgent(AgentProtocol):
         logger.info("Answer: LLM returned %d chars: %s", len(answer), answer[:100])
         state["answer"] = self.clean_answer(answer)
         return state
+
+    @staticmethod
+    def _append_knowledge_sources(prompt: str, state: dict[str, object]) -> str:
+        sources = AnswerAgent._format_knowledge_sources(state.get("knowledge_results"))
+        if not sources:
+            return prompt
+        return (
+            f"{prompt}\n\n"
+            "## 知识库来源文件\n"
+            f"{sources}\n\n"
+            "请在回答末尾添加“来源：”，列出上面的文件名；不要列出未出现在上方的来源。"
+        )
+
+    @staticmethod
+    def _format_knowledge_sources(results: object) -> str:
+        if not isinstance(results, list):
+            return ""
+
+        lines: list[str] = []
+        seen: set[str] = set()
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            filename = str(item.get("filename", "") or "").strip()
+            if not filename or filename in seen:
+                continue
+            seen.add(filename)
+
+            score = item.get("score")
+            method = str(item.get("method", "") or "").strip()
+            details: list[str] = []
+            if isinstance(score, (int, float)):
+                details.append(f"相似度 {float(score):.2f}")
+            if method:
+                details.append(f"检索方式 {method}")
+            suffix = f"（{'，'.join(details)}）" if details else ""
+            lines.append(f"- {filename}{suffix}")
+
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # Summary mode

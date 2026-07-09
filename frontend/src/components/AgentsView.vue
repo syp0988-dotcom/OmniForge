@@ -73,10 +73,10 @@ const chatState = inject<ChatState>('chatState')!
 
 const AGENT_COLORS: Record<string, string> = {
   router: '#7C5CFC',
-  planner: '#E86A33',
+  planner: '#2563EB',
   knowledge: '#34C759',
   search: '#5AC8FA',
-  answer: '#FF9500',
+  answer: '#0F766E',
   memory: '#FF2D55',
   python: '#007AFF',
   report: '#8E8E93',

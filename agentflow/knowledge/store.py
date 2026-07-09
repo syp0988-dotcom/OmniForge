@@ -107,26 +107,37 @@ class KnowledgeStore:
             return doc_id
 
         # 3. Ensure embedder is ready (TF-IDF needs fitting)
+        old_dimension = self.embedder.dimension if isinstance(self.embedder, TfidfEmbedder) else None
         self._ensure_embedder_ready(chunks)
-
-        # 4. Batch embed all chunks (with size limit to prevent OOM)
-        try:
-            embed_batch_size = 128
-            vectors = self.embedder.embed(chunks, batch_size=embed_batch_size)
-        except Exception as exc:
-            logger.error("Embedding failed for %s: %s", filename, exc)
-            self.db.delete_document_cascade(doc_id)
-            raise
+        new_dimension = self.embedder.dimension if isinstance(self.embedder, TfidfEmbedder) else None
+        should_rebuild_index = (
+            isinstance(self.embedder, TfidfEmbedder)
+            and old_dimension != new_dimension
+            and bool(new_dimension)
+        )
 
         try:
-            # 5. Persist chunks to SQLite
+            # 4. Persist chunks to SQLite
             chunk_ids: list[int] = []
             for i, chunk_text in enumerate(chunks):
                 chunk_id = self.db.add_chunk(document_id=doc_id, content=chunk_text, chunk_index=i)
                 chunk_ids.append(chunk_id)
 
-            # 6. Store vectors in ChromaDB
+            if should_rebuild_index:
+                logger.info(
+                    "TF-IDF dimension changed (%s -> %s); rebuilding vector index",
+                    old_dimension,
+                    new_dimension,
+                )
+                self._rebuild_tfidf_index()
+                self.retriever = None
+                logger.info("  鈫?Document #%d indexed successfully (%d chunks)", doc_id, len(chunks))
+                return doc_id
+
+            # 5. Batch embed all chunks (with size limit to prevent OOM)
             if chunk_ids:
+                embed_batch_size = 128
+                vectors = self.embedder.embed(chunks, batch_size=embed_batch_size)
                 metadatas = [
                     {"document_id": doc_id, "chunk_index": i}
                     for i in range(len(chunk_ids))
@@ -134,6 +145,7 @@ class KnowledgeStore:
                 vectors_array = np.array([v for v in vectors], dtype=np.float32)
                 self._ensure_index(dimension=vectors_array.shape[1])
                 self.chroma_index.add(chunk_ids, vectors_array, metadatas)
+                self.retriever = None
         except Exception:
             self.db.delete_document_cascade(doc_id)
             raise
@@ -261,13 +273,50 @@ class KnowledgeStore:
             logger.debug("Failed to save TF-IDF cache (non-critical): %s", exc)
 
     def _ensure_index(self, dimension: int | None = None) -> None:
+        collection_name = self._desired_collection_name(dimension)
         if self.chroma_index is None:
-            collection_name = None
-            if isinstance(self.embedder, TfidfEmbedder):
-                dim = dimension or self.embedder.dimension
-                if dim > 0:
-                    collection_name = f"{chroma_collection()}_tfidf_{dim}"
             self.chroma_index = ChromaIndex(collection_name=collection_name)
+            return
+        if collection_name and self.chroma_index.collection_name != collection_name:
+            client_override = getattr(self.chroma_index, "_client_override", None)
+            self.chroma_index = ChromaIndex(collection_name=collection_name)
+            if client_override is not None:
+                self.chroma_index._client_override = client_override
+
+    def _desired_collection_name(self, dimension: int | None = None) -> str | None:
+        if isinstance(self.embedder, TfidfEmbedder):
+            dim = dimension or self.embedder.dimension
+            if dim > 0:
+                return f"{chroma_collection()}_tfidf_{dim}"
+        return None
+
+    def _rebuild_tfidf_index(self) -> None:
+        """Re-embed all SQLite chunks into a fresh TF-IDF Chroma collection."""
+        if not isinstance(self.embedder, TfidfEmbedder):
+            return
+
+        all_chunks: list[tuple[int, int, int, str]] = []
+        for doc in self.db.get_all_documents():
+            for chunk in self.db.get_chunks_by_document(doc["id"]):
+                all_chunks.append((chunk["id"], doc["id"], chunk["chunk_index"], chunk["content"]))
+
+        self._ensure_index(dimension=self.embedder.dimension)
+        if self.chroma_index is None:
+            return
+        self.chroma_index.reset()
+
+        if not all_chunks:
+            return
+
+        chunk_ids = [cid for cid, _, _, _ in all_chunks]
+        texts = [content for _, _, _, content in all_chunks]
+        vectors = self.embedder.embed(texts, batch_size=128)
+        vectors_array = np.array([v for v in vectors], dtype=np.float32)
+        metadatas = [
+            {"document_id": doc_id, "chunk_index": chunk_index}
+            for _, doc_id, chunk_index, _ in all_chunks
+        ]
+        self.chroma_index.add(chunk_ids, vectors_array, metadatas)
 
     def _ensure_retriever(self) -> None:
         if self.retriever is not None:

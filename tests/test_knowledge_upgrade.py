@@ -254,6 +254,36 @@ class TestKnowledgeStore:
         finally:
             os.unlink(path)
 
+    def test_tfidf_dimension_change_rebuilds_index(self):
+        first = self._create_tmp_file(
+            "alpha beta gamma shared knowledge baseline.\n\n"
+            "delta epsilon zeta internal notes."
+        )
+        second = self._create_tmp_file(
+            "kiwi mango papaya dragonfruit deployment guide.\n\n"
+            "lychee rambutan guava release checklist."
+        )
+        try:
+            first_id = self.store.add_document(first, "first.txt")
+            first_dim = self.store.embedder.dimension
+
+            second_id = self.store.add_document(second, "second.txt")
+            second_dim = self.store.embedder.dimension
+
+            assert first_id > 0
+            assert second_id > 0
+            assert second_dim > first_dim
+
+            docs = self.store.list_documents()
+            assert any(d["filename"] == "first.txt" for d in docs)
+            assert any(d["filename"] == "second.txt" for d in docs)
+
+            results = self.store.search("dragonfruit deployment", top_k=3)
+            assert any(r["filename"] == "second.txt" for r in results)
+        finally:
+            os.unlink(first)
+            os.unlink(second)
+
     def test_add_and_delete(self):
         path = self._create_tmp_file("Delete me.\n\nPlease delete.")
         try:
@@ -461,4 +491,3 @@ class TestFtsQuery:
         assert '"hello"' in result
         assert '"world"' in result
         assert '"test"' in result
-

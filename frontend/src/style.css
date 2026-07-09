@@ -2,6 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-bg: 255 255 255;
+  --color-sidebar-bg: 252 252 252;
+  --color-border: 236 236 236;
+  --color-primary: 37 99 235;
+  --color-primary-hover: 29 78 216;
+  --color-text: 26 26 26;
+  --color-secondary: 110 110 115;
+  --color-hover: 247 247 247;
+  --color-code-bg: 248 249 250;
+}
+
+:root[data-theme='dark'] {
+  --color-bg: 18 20 24;
+  --color-sidebar-bg: 13 15 18;
+  --color-border: 45 49 57;
+  --color-primary: 96 165 250;
+  --color-primary-hover: 147 197 253;
+  --color-text: 241 245 249;
+  --color-secondary: 148 163 184;
+  --color-hover: 31 35 42;
+  --color-code-bg: 25 29 36;
+}
+
+:root[data-theme='ocean'] {
+  --color-bg: 250 253 255;
+  --color-sidebar-bg: 242 248 250;
+  --color-border: 214 229 234;
+  --color-primary: 15 118 140;
+  --color-primary-hover: 12 101 120;
+  --color-text: 19 38 45;
+  --color-secondary: 83 111 120;
+  --color-hover: 233 244 247;
+  --color-code-bg: 239 247 249;
+}
+
+:root[data-density='compact'] {
+  font-size: 14px;
+}
+
+:root[data-motion='reduced'] *,
+:root[data-motion='reduced'] *::before,
+:root[data-motion='reduced'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.001ms !important;
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;

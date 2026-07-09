@@ -6,7 +6,7 @@
         dragOver
           ? 'border-dashed border-primary bg-primary/5'
           : focused
-            ? 'border-primary shadow-[0_0_0_1px_#E86A33]'
+            ? 'border-primary shadow-[0_0_0_1px_rgb(var(--color-primary))]'
             : 'border-[#EAEAEA] hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)]',
       ]"
       @dragover.prevent="onDragOver"
@@ -29,6 +29,24 @@
         <div class="flex items-center gap-1">
           <!-- Upload button -->
           <UploadButton @upload="handleUpload" />
+          <div class="ml-1 flex h-8 items-center rounded-full border border-[#EAEAEA] bg-[#FAFAFA] p-0.5">
+            <button
+              v-for="mode in sourceModes"
+              :key="mode.value"
+              type="button"
+              class="h-7 px-2.5 rounded-full flex items-center gap-1.5 text-xs transition-all duration-150"
+              :class="
+                chatState.sourceMode.value === mode.value
+                  ? 'bg-primary/10 text-primary shadow-[0_1px_4px_rgba(0,0,0,0.08)]'
+                  : 'text-secondary hover:text-text'
+              "
+              :title="mode.title"
+              @click="chatState.sourceMode.value = mode.value"
+            >
+              <component :is="mode.icon" class="w-3.5 h-3.5" />
+              <span class="hidden sm:inline whitespace-nowrap">{{ mode.label }}</span>
+            </button>
+          </div>
         </div>
 
         <div class="flex items-center gap-2">
@@ -85,10 +103,11 @@
 
 <script setup lang="ts">
 import { ref, inject, onMounted, onUnmounted } from 'vue'
-import { Mic, ArrowUp, Square } from 'lucide-vue-next'
+import { Mic, ArrowUp, Square, Sparkles, Search, BookOpen } from 'lucide-vue-next'
 import UploadButton from './UploadButton.vue'
 import ModelSelector from './ModelSelector.vue'
 import type { ChatState } from '@/composables/useChatState'
+import type { SourceMode } from '@/types'
 
 const emit = defineEmits<{
   send: [text: string]
@@ -100,6 +119,17 @@ const text = ref('')
 const focused = ref(false)
 const dragOver = ref(false)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
+
+const sourceModes: Array<{
+  value: SourceMode
+  label: string
+  title: string
+  icon: typeof Sparkles
+}> = [
+  { value: 'auto', label: '自动', title: '自动判断使用普通回答、联网搜索或知识库', icon: Sparkles },
+  { value: 'web', label: '联网', title: '优先联网搜索后回答', icon: Search },
+  { value: 'knowledge', label: '知识库', title: '优先根据本地知识库回答', icon: BookOpen },
+]
 
 /* ---- Keybindings ---- */
 function handleKeydown(e: KeyboardEvent) {

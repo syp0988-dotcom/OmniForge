@@ -7,8 +7,8 @@
     >
       <div class="w-[440px] bg-white rounded-2xl shadow-xl p-6 animate-fade-in">
         <!-- Icon -->
-        <div class="mx-auto w-12 h-12 rounded-full bg-orange-50 flex items-center justify-center mb-4">
-          <FolderOpen class="w-6 h-6 text-orange-500" />
+        <div class="mx-auto w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+          <FolderOpen class="w-6 h-6 text-primary" />
         </div>
 
         <h3 class="text-lg font-semibold text-text text-center mb-2">未设置工作文件夹</h3>

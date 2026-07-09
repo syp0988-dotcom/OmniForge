@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-import type { AgentInfo, CreatedFile, Session, ToolInfo, ToolCapability, ToolExecutorSummary } from '@/types'
+import type { AgentInfo, CreatedFile, Session, ToolInfo, ToolCapability, ToolExecutorSummary, SourceMode } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
@@ -52,6 +52,7 @@ export async function postChatStream(
   message: string,
   history: Array<{ role: string; content: string }>,
   sessionId: number | undefined,
+  sourceMode: SourceMode,
   onEvent: (event: string, data: Record<string, unknown>) => void,
   signal?: AbortSignal,
 ): Promise<{ answer: string; session_id?: number; degraded?: boolean; degraded_reason?: string }> {
@@ -60,7 +61,7 @@ export async function postChatStream(
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history, session_id: sessionId }),
+      body: JSON.stringify({ message, history, session_id: sessionId, source_mode: sourceMode }),
       signal,
     },
     2,

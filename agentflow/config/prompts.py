@@ -112,6 +112,9 @@ You are answering a {mode}. Be direct and useful.
         return base + (
             "\n\n当前是本地知识模式。严格基于提供的本地资料和检索结果回答；"
             "资料不足时如实说明，不要编造。"
+            "\n\nStrict local knowledge mode: answer only from the provided knowledge references. "
+            "If the references do not support the answer, say the knowledge base did not contain enough information. "
+            "End the answer with a short '来源：' section listing the source filenames provided in the prompt."
         )
     return base + (
         "\n\n当前是混合知识模式。优先使用提供的项目资料和检索结果，"

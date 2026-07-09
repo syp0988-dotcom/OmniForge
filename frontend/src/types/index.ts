@@ -14,6 +14,12 @@ export interface Msg {
 
 export type Section = 'chat' | 'knowledge' | 'artifacts' | 'projects' | 'settings'
 
+export type SourceMode = 'auto' | 'web' | 'knowledge'
+export type ThemeMode = 'light' | 'dark' | 'ocean'
+export type LanguageMode = 'zh-CN' | 'en-US'
+export type DensityMode = 'comfortable' | 'compact'
+export type MotionMode = 'full' | 'reduced'
+
 export interface DebugData {
   category?: string
   workflow?: string[]

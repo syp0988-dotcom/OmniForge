@@ -140,6 +140,7 @@ async def chat(request: ChatRequest):
         "question": request.message,
         "workflow": [],
         "history": history_dicts,
+        "source_mode": request.source_mode,
     }
     if history_dicts:
         initial_state["memory"] = {"history": list(history_dicts)}
@@ -258,6 +259,7 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
             "workflow": [],
             "history": history_dicts,
             "_stream_answer": True,
+            "source_mode": body.source_mode,
         }
         if history_dicts:
             initial_state["memory"] = {"history": list(history_dicts)}
@@ -291,10 +293,15 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
                         yield _emit_task_update(state_update)
                     elif node_name == "knowledge":
                         yield _sse_event("searching", {"phase": "检索知识库"})
+                    elif node_name == "query_rewriter":
+                        yield _sse_event("searching", {"phase": "优化搜索查询"})
+                        yield _emit_task_update(state_update)
                     elif node_name == "search":
                         yield _sse_event("searching", {"phase": "搜索网络信息"})
+                        yield _emit_task_update(state_update)
                     elif node_name == "python":
                         yield _sse_event("executing", {"phase": "执行代码"})
+                        yield _emit_task_update(state_update)
                     elif node_name == "tool_executor":
                         yield _emit_task_update(state_update)
                     elif node_name == "reflector":
@@ -303,6 +310,7 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
                     elif node_name == "answer":
                         answer_text = state_update.get("answer", "")
                         yield _sse_event("generating", {"phase": "生成回答"})
+                        yield _emit_task_update(state_update)
                         stream_messages = state_update.get("_answer_stream_messages")
                         if stream_messages and isinstance(stream_messages, list):
                             from agentflow.services.llm_service import get_llm_service
@@ -378,6 +386,11 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
         if final_state and final_state.get("_degraded"):
             done_data["degraded"] = True
             done_data["degraded_reason"] = str(final_state.get("_llm_error", "unknown"))
+        # Final task queue sync — ensure frontend shows correct final state
+        if final_state:
+            final_tasks = _emit_task_update(final_state)
+            if final_tasks:
+                yield final_tasks
         yield _sse_event("done", done_data)
 
     return StreamingResponse(_event_generator(), media_type="text/event-stream")

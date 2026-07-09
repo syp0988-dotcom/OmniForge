@@ -20,7 +20,7 @@ import {
   createServerFolder,
   browseDirectory,
 } from '@/api/client'
-import type { Msg, Section, DebugData, KnowledgeDoc, SearchResult, AgentInfo, FileProposal, CreatedFile, Session, ToolInfo, ToolCapability, ToolExecutorSummary, ExecutionTask } from '@/types'
+import type { Msg, Section, DebugData, KnowledgeDoc, SearchResult, AgentInfo, FileProposal, CreatedFile, Session, ToolInfo, ToolCapability, ToolExecutorSummary, ExecutionTask, SourceMode, ThemeMode, LanguageMode, DensityMode, MotionMode } from '@/types'
 
 /* ------------------------------------------------------------------ */
 /*  Singleton reactive state shared across all components              */
@@ -57,6 +57,33 @@ watch(activeSection, (val) => {
   localStorage.setItem('active_section', val)
 })
 const debugData = ref<DebugData | null>(null)
+const sourceMode = ref<SourceMode>((localStorage.getItem('source_mode') as SourceMode | null) || 'auto')
+const themeMode = ref<ThemeMode>((localStorage.getItem('theme_mode') as ThemeMode | null) || 'light')
+const languageMode = ref<LanguageMode>((localStorage.getItem('language_mode') as LanguageMode | null) || 'zh-CN')
+const densityMode = ref<DensityMode>((localStorage.getItem('density_mode') as DensityMode | null) || 'comfortable')
+const motionMode = ref<MotionMode>((localStorage.getItem('motion_mode') as MotionMode | null) || 'full')
+
+function applyAppearance() {
+  const root = document.documentElement
+  root.dataset.theme = themeMode.value
+  root.dataset.density = densityMode.value
+  root.dataset.motion = motionMode.value
+  root.lang = languageMode.value
+}
+
+applyAppearance()
+
+watch(sourceMode, (val) => {
+  localStorage.setItem('source_mode', val)
+})
+
+watch([themeMode, languageMode, densityMode, motionMode], () => {
+  localStorage.setItem('theme_mode', themeMode.value)
+  localStorage.setItem('language_mode', languageMode.value)
+  localStorage.setItem('density_mode', densityMode.value)
+  localStorage.setItem('motion_mode', motionMode.value)
+  applyAppearance()
+})
 
 /* Streaming abort — created per request, null when idle */
 const abortController = ref<AbortController | null>(null)
@@ -219,6 +246,7 @@ export function useChatState() {
         text,
         history,
         currentSessionId.value ?? undefined,
+        sourceMode.value,
         (event, data) => {
           if (event === 'start') {
             streamingPhase.value = (data.phase as string) || '正在处理...'
@@ -248,6 +276,14 @@ export function useChatState() {
             }
           } else if (event === 'task_update') {
             tasks.value = (data.tasks as ExecutionTask[]) || []
+          } else if (event === 'done') {
+            // Final sync: any remaining running/todo tasks → mark done
+            // Prevents UI from showing stuck state when answer already delivered
+            tasks.value = tasks.value.map((t) =>
+              t.status === 'running' || t.status === 'todo'
+                ? { ...t, status: 'done' as const }
+                : t,
+            )
           } else if (event === 'tools') {
             streamingPhase.value = '加载工具列表...'
           } else if (event === 'cancelled') {
@@ -279,6 +315,19 @@ export function useChatState() {
       if (result.degraded) {
         streamingPhase.value = '受限模式'
         streamingCategory.value = '系统部分功能不可用'
+      }
+
+      // Defensive: auto-finalize any remaining running/todo tasks.
+      // If the backend didn't send a final task_update (edge case), this
+      // prevents the UI from showing a stuck "待执行" state after the
+      // answer has already been delivered.
+      const lingering = tasks.value.some((t) => t.status === 'running' || t.status === 'todo')
+      if (lingering) {
+        tasks.value = tasks.value.map((t) =>
+          t.status === 'running' || t.status === 'todo'
+            ? { ...t, status: 'done' as const }
+            : t,
+        )
       }
 
       // Track the session id from streaming response
@@ -538,7 +587,7 @@ export function useChatState() {
       '.pdf', '.docx', '.doc', '.txt', '.md', '.markdown',
       '.html', '.htm', '.xlsx', '.xls', '.pptx', '.csv', '.epub',
       '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.go', '.rs',
-      '.c', '.cpp', '.h', '.hpp',
+      '.c', '.cpp', '.h', '.hpp', '.zip',
     ]
     const filtered = files.filter((f) => {
       const ext = '.' + f.name.split('.').pop()?.toLowerCase()
@@ -551,6 +600,7 @@ export function useChatState() {
     uploading.value = true
     let successCount = 0
     let failCount = 0
+    const failedMessages: string[] = []
     for (let i = 0; i < filtered.length; i++) {
       const file = filtered[i]
       uploadStatus.value = `正在上传 ${i + 1}/${filtered.length}: ${file.name}...`
@@ -560,13 +610,28 @@ export function useChatState() {
       } catch (e) {
         console.warn('Failed to upload document:', file.name, e)
         failCount++
+        failedMessages.push(`${file.name}: ${getUploadErrorMessage(e)}`)
       }
     }
     uploadStatus.value = `上传完成：${successCount} 个成功${
       failCount > 0 ? `，${failCount} 个失败` : ''
     }`
+    if (failedMessages.length > 0) {
+      uploadStatus.value += `。${failedMessages.slice(0, 2).join('；')}`
+    }
     uploading.value = false
     await loadDocs()
+  }
+
+  const getUploadErrorMessage = (error: unknown): string => {
+    if (typeof error === 'object' && error !== null && 'response' in error) {
+      const response = (error as { response?: { data?: { detail?: unknown }; status?: number } }).response
+      const detail = response?.data?.detail
+      if (typeof detail === 'string' && detail.trim()) return detail
+      if (response?.status) return `HTTP ${response.status}`
+    }
+    if (error instanceof Error && error.message) return error.message
+    return '未知错误'
   }
 
   const handleDelete = async (docId: number, filename: string) => {
@@ -617,6 +682,11 @@ export function useChatState() {
     sessions,
     currentSessionId,
     thinking,
+    sourceMode,
+    themeMode,
+    languageMode,
+    densityMode,
+    motionMode,
     switchingSession,
     streamingPhase,
     streamingCategory,
