@@ -74,6 +74,15 @@ class PlannerAgent(AgentProtocol):
             goal_type = "other"
 
         # Goal types that never need task planning — conversational or simple
+        if _is_snake_game_files_goal(str(goal)):
+            plan = _build_snake_game_files_plan(str(goal))
+            state["plan"] = plan
+            state["category"] = "project"
+            state["task_queue"] = [t.to_dict() for t in plan.tasks]
+            state["workflow"] = _plan_to_workflow(plan, "project", self.registry)
+            logger.info("Snake game files template: initialized %d task(s)", len(plan.tasks))
+            return state
+
         if _is_docx_report_goal(str(goal)):
             plan = _build_docx_report_plan(str(goal), state)
             state["plan"] = plan
@@ -835,6 +844,129 @@ def _fix_json_newlines(raw: str) -> str:
 
 
 # ------------------------------------------------------------------
+# Deterministic file-generation templates
+# ------------------------------------------------------------------
+
+
+def _is_snake_game_files_goal(goal: str) -> bool:
+    text = goal.lower()
+    return (
+        "文件" in goal
+        and "贪吃蛇" in goal
+        and "python" in text
+        and "java" in text
+        and any(token in goal for token in ("创建", "生成", "新建", "写"))
+    )
+
+
+def _build_snake_game_files_plan(goal: str) -> Plan:
+    tasks = [
+        Task(
+            task_id="create_python_snake",
+            title="创建 Python 贪吃蛇文件",
+            priority=100,
+            goal="write_file",
+            capability="filesystem.write_file",
+            tool="filesystem",
+            input={
+                "action": "write_file",
+                "path": "snake_game/python_snake.py",
+                "content": _python_snake_content(),
+            },
+            agent="planner",
+        ),
+        Task(
+            task_id="create_java_snake",
+            title="创建 Java 贪吃蛇文件",
+            priority=95,
+            goal="write_file",
+            capability="filesystem.write_file",
+            tool="filesystem",
+            input={
+                "action": "write_file",
+                "path": "snake_game/JavaSnake.java",
+                "content": _java_snake_content(),
+            },
+            agent="planner",
+        ),
+    ]
+    return Plan(
+        goal=goal,
+        category="project",
+        tasks=tasks,
+        goal_completed=False,
+        reasoning="Matched deterministic Python/Java snake file template",
+    )
+
+
+def _python_snake_content() -> str:
+    return '''"""A tiny terminal snake demo in Python."""
+
+import random
+
+
+WIDTH = 20
+HEIGHT = 10
+
+
+def draw(snake, food):
+    for y in range(HEIGHT):
+        row = []
+        for x in range(WIDTH):
+            if (x, y) == food:
+                row.append("*")
+            elif (x, y) in snake:
+                row.append("O")
+            else:
+                row.append(".")
+        print("".join(row))
+
+
+def main():
+    snake = [(WIDTH // 2, HEIGHT // 2)]
+    food = (random.randrange(WIDTH), random.randrange(HEIGHT))
+    print("Python Snake demo")
+    draw(snake, food)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def _java_snake_content() -> str:
+    return """import java.util.Random;
+
+public class JavaSnake {
+    static final int WIDTH = 20;
+    static final int HEIGHT = 10;
+
+    public static void main(String[] args) {
+        Random random = new Random();
+        int snakeX = WIDTH / 2;
+        int snakeY = HEIGHT / 2;
+        int foodX = random.nextInt(WIDTH);
+        int foodY = random.nextInt(HEIGHT);
+
+        System.out.println("Java Snake demo");
+        for (int y = 0; y < HEIGHT; y++) {
+            StringBuilder row = new StringBuilder();
+            for (int x = 0; x < WIDTH; x++) {
+                if (x == foodX && y == foodY) {
+                    row.append('*');
+                } else if (x == snakeX && y == snakeY) {
+                    row.append('O');
+                } else {
+                    row.append('.');
+                }
+            }
+            System.out.println(row);
+        }
+    }
+}
+"""
+
+
 # Docx report template helpers
 # ------------------------------------------------------------------
 

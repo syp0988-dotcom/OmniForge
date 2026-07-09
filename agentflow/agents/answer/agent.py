@@ -195,6 +195,12 @@ class AnswerAgent(AgentProtocol):
         for t in (task_queue or []):
             if t.get("status") in ("done", "completed"):
                 inp = t.get("input", {}) or {}
+                action = str(inp.get("action") or t.get("goal") or "")
+                tool = str(t.get("tool") or "")
+                if tool == "filesystem" and action not in {"write_file", "create_file", "append_file"}:
+                    continue
+                if tool == "docx" and action != "create":
+                    continue
                 path = inp.get("path", "")
                 if path and path not in created:
                     created.append(path)

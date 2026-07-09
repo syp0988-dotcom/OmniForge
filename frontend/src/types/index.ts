@@ -92,6 +92,14 @@ export interface CreatedFile {
   path: string
 }
 
+export interface FilePreview {
+  filename: string
+  path: string
+  content: string
+  truncated: boolean
+  size: number
+}
+
 export interface Session {
   id: number
   title: string

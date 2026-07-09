@@ -159,10 +159,12 @@
       </div>
 
       <div v-if="sortedFiles.length > 0" class="grid gap-2">
-        <div
+        <button
           v-for="(item, idx) in sortedFiles"
           :key="idx"
-          class="flex items-center justify-between p-4 rounded-xl border border-border bg-white transition-colors hover:bg-hover"
+          type="button"
+          class="flex items-center justify-between p-4 rounded-xl border border-border bg-white text-left transition-colors hover:bg-hover focus:outline-none focus:border-primary"
+          @click="openFilePreview(item)"
         >
           <div class="flex items-center gap-3 min-w-0">
             <FileIcon class="w-5 h-5 text-secondary shrink-0" />
@@ -173,8 +175,11 @@
               </div>
             </div>
           </div>
-          <span class="text-xs text-secondary font-mono ml-4 truncate max-w-[200px]">{{ item.path }}</span>
-        </div>
+          <span class="flex items-center gap-2 text-xs text-secondary font-mono ml-4 truncate max-w-[240px]">
+            <Eye class="w-3.5 h-3.5 shrink-0" />
+            <span class="truncate">{{ item.path }}</span>
+          </span>
+        </button>
       </div>
 
       <!-- Empty state -->
@@ -185,14 +190,61 @@
         <p class="mt-1 text-xs">会话中的文件提案可一键保存到工作文件夹</p>
       </div>
     </div>
+
+    <!-- File preview modal -->
+    <Teleport to="body">
+      <div
+        v-if="previewOpen"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm px-4"
+        @click.self="closeFilePreview"
+      >
+        <div class="w-full max-w-4xl max-h-[84vh] rounded-xl border border-border bg-white shadow-xl flex flex-col">
+          <div class="flex items-center justify-between gap-4 px-5 py-4 border-b border-border">
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-text truncate">{{ selectedPreview?.filename || '文件预览' }}</div>
+              <div class="text-xs text-secondary font-mono truncate mt-0.5">{{ selectedPreview?.path }}</div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <button
+                v-if="selectedPreview"
+                class="px-3 py-1.5 rounded-lg border border-border text-xs text-secondary hover:bg-hover transition-colors"
+                @click="copyPreviewContent"
+              >
+                复制内容
+              </button>
+              <button class="p-2 rounded-lg text-secondary hover:bg-hover hover:text-text transition-colors" @click="closeFilePreview">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div v-if="previewLoading" class="p-8 text-center text-sm text-secondary">
+            正在读取文件...
+          </div>
+          <div v-else-if="previewError" class="p-5 text-sm text-red-600">
+            {{ previewError }}
+          </div>
+          <div v-else-if="selectedPreview" class="min-h-0 flex-1 overflow-auto">
+            <div
+              v-if="selectedPreview.truncated"
+              class="px-5 py-2 border-b border-border bg-primary/5 text-xs text-primary"
+            >
+              文件较大，仅显示前 {{ formatSize(selectedPreview.content.length) }} 内容。
+            </div>
+            <pre class="p-5 text-sm leading-relaxed font-mono whitespace-pre-wrap text-text">{{ selectedPreview.content }}</pre>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, inject, onMounted, watch } from 'vue'
-import { Folder, FolderInput, FolderPlus, File as FileIcon, CheckCircle, AlertCircle, X } from 'lucide-vue-next'
+import { Folder, FolderInput, FolderPlus, File as FileIcon, CheckCircle, AlertCircle, X, Eye } from 'lucide-vue-next'
+import { readOutputFile } from '@/api/client'
 import type { ChatState } from '@/composables/useChatState'
-import type { CreatedFile } from '@/types'
+import type { CreatedFile, FilePreview } from '@/types'
 
 const chatState = inject<ChatState>('chatState')!
 
@@ -202,6 +254,10 @@ const parentPathInputRef = ref<HTMLInputElement | null>(null)
 const showCreateDialog = ref(false)
 const parentPath = ref('')
 const newFolderName = ref('')
+const previewOpen = ref(false)
+const previewLoading = ref(false)
+const previewError = ref('')
+const selectedPreview = ref<FilePreview | null>(null)
 
 onMounted(() => {
   chatState.loadOutputFiles()
@@ -314,5 +370,42 @@ async function doCreateFolder() {
 function clearWorkspace() {
   chatState.clearWorkspace()
   chatState.loadOutputFiles()
+}
+
+async function openFilePreview(item: CreatedFile) {
+  previewOpen.value = true
+  previewLoading.value = true
+  previewError.value = ''
+  selectedPreview.value = null
+  try {
+    selectedPreview.value = await readOutputFile(item.path, chatState.workspacePath.value ?? undefined)
+  } catch (error) {
+    previewError.value = getPreviewError(error)
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+function closeFilePreview() {
+  previewOpen.value = false
+  previewLoading.value = false
+  previewError.value = ''
+  selectedPreview.value = null
+}
+
+async function copyPreviewContent() {
+  if (!selectedPreview.value) return
+  await navigator.clipboard.writeText(selectedPreview.value.content)
+}
+
+function getPreviewError(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const response = (error as { response?: { data?: { detail?: unknown }; status?: number } }).response
+    const detail = response?.data?.detail
+    if (typeof detail === 'string' && detail.trim()) return detail
+    if (response?.status) return `读取失败：HTTP ${response.status}`
+  }
+  if (error instanceof Error && error.message) return error.message
+  return '读取文件失败'
 }
 </script>

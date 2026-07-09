@@ -566,20 +566,47 @@ class CreateFileRequest(BaseModel):
     workspace_path: str | None = None
 
 
+class ReadFileRequest(BaseModel):
+    path: str
+    workspace_path: str | None = None
+
+
+def _safe_relative_file_path(raw_path: str) -> Path:
+    """Return a safe relative file path, preserving subdirectories."""
+    rel = Path(raw_path.replace("\\", "/"))
+    if rel.is_absolute() or any(part in {"", ".", ".."} for part in rel.parts):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    return rel
+
+
+def _resolve_generated_file(path: str, workspace_path: str | None = None) -> Path:
+    """Resolve a generated file path under outputs/ or the active workspace."""
+    base = _resolve_workspace_child(workspace_path) if workspace_path else OUTPUT_DIR.resolve()
+    raw = Path(path)
+    target = raw.resolve() if raw.is_absolute() else (base / _safe_relative_file_path(path)).resolve()
+    if not _is_relative_to(target, base):
+        raise HTTPException(status_code=400, detail="File path is outside the workspace")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+    return target
+
+
 @router.post("/files/create")
 def create_file(req: CreateFileRequest) -> JSONResponse:
     """Write a proposed file to the outputs/ or workspace directory."""
-    safe_name = Path(req.filename).name
-    if not safe_name or safe_name in {".", ".."}:
-        raise HTTPException(status_code=400, detail="Invalid filename")
+    rel_path = _safe_relative_file_path(req.filename)
 
     if req.workspace_path:
         base = _resolve_workspace_child(req.workspace_path)
         if not base.exists() or not base.is_dir():
             raise HTTPException(status_code=400, detail="Invalid workspace path")
-        target = base / safe_name
+        target = (base / rel_path).resolve()
     else:
-        target = OUTPUT_DIR / safe_name
+        base = OUTPUT_DIR.resolve()
+        target = (base / rel_path).resolve()
+
+    if not _is_relative_to(target, base):
+        raise HTTPException(status_code=400, detail="File path is outside the workspace")
 
     if target.exists():
         raise HTTPException(status_code=409, detail="File already exists")
@@ -588,8 +615,27 @@ def create_file(req: CreateFileRequest) -> JSONResponse:
     return JSONResponse(
         content={
             "status": "created",
-            "filename": safe_name,
+            "filename": rel_path.as_posix(),
             "path": str(target),
+        }
+    )
+
+
+@router.post("/files/read")
+def read_generated_file(req: ReadFileRequest) -> JSONResponse:
+    """Read a generated text file for in-app preview."""
+    target = _resolve_generated_file(req.path, req.workspace_path)
+    max_bytes = 1024 * 1024
+    data = target.read_bytes()
+    truncated = len(data) > max_bytes
+    text = data[:max_bytes].decode("utf-8", errors="replace")
+    return JSONResponse(
+        content={
+            "filename": target.name,
+            "path": str(target),
+            "content": text,
+            "truncated": truncated,
+            "size": len(data),
         }
     )
 

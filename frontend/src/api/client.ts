@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-import type { AgentInfo, CreatedFile, Session, ToolInfo, ToolCapability, ToolExecutorSummary, SourceMode } from '@/types'
+import type { AgentInfo, CreatedFile, FilePreview, Session, ToolInfo, ToolCapability, ToolExecutorSummary, SourceMode } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
@@ -249,6 +249,11 @@ export async function getOutputFiles(workspacePath?: string) {
   const params = workspacePath ? { workspace_path: workspacePath } : {}
   const resp = await axios.get(`${API_BASE}/files`, { params })
   return resp.data as CreatedFile[]
+}
+
+export async function readOutputFile(path: string, workspacePath?: string) {
+  const resp = await axios.post(`${API_BASE}/files/read`, { path, workspace_path: workspacePath })
+  return resp.data as FilePreview
 }
 
 /* ---- Workspace operations ----------------------------------------------- */
