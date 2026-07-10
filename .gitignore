@@ -20,6 +20,8 @@ frontend/dist/
 
 # OS temp
 outputs/
+uploads/
+knowledge_files/
 omniforge/
 
 # Generated / lock files

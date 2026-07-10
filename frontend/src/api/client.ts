@@ -180,6 +180,17 @@ export async function searchKnowledge(query: string, topK = 5) {
   }>
 }
 
+export async function readKnowledgeDocument(docId: number) {
+  const resp = await axios.get(`${API_BASE}/knowledge/documents/${docId}/read`)
+  return resp.data as {
+    filename: string
+    path: string
+    content: string
+    truncated: boolean
+    size: number
+  }
+}
+
 /* ---- Agents introspection ------------------------------------------- */
 
 export async function getAgents() {

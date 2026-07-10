@@ -68,6 +68,10 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+# Permanent storage for knowledge base original files (for click-to-preview)
+KNOWLEDGE_FILES_DIR = Path(__file__).resolve().parents[2] / "knowledge_files"
+KNOWLEDGE_FILES_DIR.mkdir(exist_ok=True)
+
 
 def _is_relative_to(path: Path, parent: Path) -> bool:
     """Return True when ``path`` is inside ``parent`` after resolution."""
@@ -449,7 +453,7 @@ async def upload_file(file: UploadFile = File(...)) -> JSONResponse:
     if ext == ".zip":
         return await _handle_zip_upload(file)
 
-    # Save uploaded file temporarily
+    # Save uploaded file to permanent knowledge storage
     safe_filename = Path(file.filename).name
     temp_path = UPLOAD_DIR / safe_filename
     try:
@@ -459,6 +463,15 @@ async def upload_file(file: UploadFile = File(...)) -> JSONResponse:
 
         # Ingest into knowledge base
         doc_id = get_knowledge_store().add_document(temp_path, safe_filename)
+
+        # Move from temp to permanent storage (keyed by doc_id)
+        perm_path = KNOWLEDGE_FILES_DIR / f"{doc_id}_{safe_filename}"
+        shutil.move(str(temp_path), str(perm_path))
+        # Update document metadata with permanent path
+        get_knowledge_store().db.update_document_metadata(
+            doc_id, {"permanent_path": str(perm_path)}
+        )
+
         return JSONResponse(
             content={
                 "status": "ok",
@@ -471,7 +484,7 @@ async def upload_file(file: UploadFile = File(...)) -> JSONResponse:
         logger.exception("Upload ingestion failed for %s", safe_filename)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
-        # Clean up temp file after indexing
+        # Clean up temp file if it still exists
         if temp_path.exists():
             temp_path.unlink(missing_ok=True)
 
@@ -510,7 +523,13 @@ async def _handle_zip_upload(file: UploadFile) -> JSONResponse:
                 temp_path = UPLOAD_DIR / fname.name
                 temp_path.write_bytes(raw)
                 try:
-                    get_knowledge_store().add_document(temp_path, fname.name)
+                    doc_id = get_knowledge_store().add_document(temp_path, fname.name)
+                    # Move to permanent storage
+                    perm_path = KNOWLEDGE_FILES_DIR / f"{doc_id}_{fname.name}"
+                    shutil.move(str(temp_path), str(perm_path))
+                    get_knowledge_store().db.update_document_metadata(
+                        doc_id, {"permanent_path": str(perm_path)}
+                    )
                     success += 1
                 finally:
                     if temp_path.exists():
@@ -538,6 +557,18 @@ def list_documents() -> list[dict[str, object]]:
 @router.delete("/knowledge/documents/{doc_id}")
 def delete_document(doc_id: int) -> JSONResponse:
     """Delete a document and its chunks/embeddings from the knowledge base."""
+    # Clean up permanent file if it exists
+    import json as _json
+    docs = get_knowledge_store().db.get_all_documents()
+    for d in docs:
+        if d.get("id") == doc_id:
+            meta = _json.loads(d.get("doc_metadata", "{}") or "{}")
+            perm_path = meta.get("permanent_path", "")
+            if perm_path:
+                p = Path(perm_path)
+                if p.exists():
+                    p.unlink(missing_ok=True)
+            break
     get_knowledge_store().delete_document(doc_id)
     return JSONResponse(content={"status": "deleted", "document_id": doc_id})
 
@@ -546,6 +577,59 @@ def delete_document(doc_id: int) -> JSONResponse:
 def search_knowledge(query: str, top_k: int = 5) -> list[dict[str, object]]:
     """Search the knowledge base for relevant chunks."""
     return get_knowledge_store().search(query, top_k=top_k)
+
+
+@router.get("/knowledge/documents/{doc_id}/read")
+def read_knowledge_document(doc_id: int) -> JSONResponse:
+    """Read an uploaded knowledge base document for in-app preview."""
+    docs = get_knowledge_store().db.get_all_documents()
+    target_doc = None
+    for d in docs:
+        if d.get("id") == doc_id:
+            target_doc = d
+            break
+    if target_doc is None:
+        raise HTTPException(status_code=404, detail=f"Document not found: {doc_id}")
+
+    import json as _json
+    meta = _json.loads(target_doc.get("doc_metadata", "{}") or "{}")
+    perm_path = meta.get("permanent_path", "")
+    if not perm_path:
+        raise HTTPException(status_code=404, detail="Original file not available for this document")
+
+    target = Path(perm_path)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Original file no longer exists on disk")
+
+    max_bytes = 1024 * 1024  # 1 MB
+    data = target.read_bytes()
+    truncated = len(data) > max_bytes
+
+    ext = target.suffix.lower()
+    if ext == ".docx":
+        text = _read_docx_preview(target)
+        truncated = False
+    elif ext in (".xlsx", ".xls"):
+        text = _read_xlsx_preview(target)
+        truncated = False
+    elif ext == ".pptx":
+        text = _read_pptx_preview(target)
+        truncated = False
+    elif ext == ".pdf":
+        text = _read_pdf_preview(target)
+        truncated = False
+    else:
+        text = data[:max_bytes].decode("utf-8", errors="replace")
+
+    return JSONResponse(
+        content={
+            "filename": target.name,
+            "path": str(target),
+            "content": text,
+            "truncated": truncated and ext not in (".docx", ".xlsx", ".xls", ".pptx", ".pdf"),
+            "size": len(data),
+        }
+    )
 
 
 # -- Chat history ----------------------------------------------------------
@@ -672,6 +756,98 @@ def _read_docx_preview(path: Path) -> str:
             parts.extend(rows)
 
     return "\n\n".join(parts) if parts else "（该 Word 文档没有可预览的文本内容）"
+
+
+def _read_xlsx_preview(path: Path) -> str:
+    """Extract readable text from a .xlsx/.xls file for preview."""
+    try:
+        import openpyxl
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail="openpyxl is not installed") from exc
+
+    try:
+        wb = openpyxl.load_workbook(path, data_only=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to read xlsx file: {exc}") from exc
+
+    parts: list[str] = []
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows: list[str] = [f"[工作表: {sheet_name}]"]
+        row_count = 0
+        for row in ws.iter_rows(values_only=True):
+            cells = [str(c) if c is not None else "" for c in row]
+            if any(cells):
+                rows.append(" | ".join(cells))
+                row_count += 1
+                if row_count >= 200:
+                    rows.append("...（表格行数过多，仅显示前 200 行）")
+                    break
+        if len(rows) > 1:
+            parts.append("\n".join(rows))
+    return "\n\n".join(parts) if parts else "（该 Excel 文件没有可预览的内容）"
+
+
+def _read_pptx_preview(path: Path) -> str:
+    """Extract readable text from a .pptx file for preview."""
+    try:
+        from pptx import Presentation
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail="python-pptx is not installed") from exc
+
+    try:
+        prs = Presentation(str(path))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to read pptx file: {exc}") from exc
+
+    parts: list[str] = []
+    for i, slide in enumerate(prs.slides, start=1):
+        texts: list[str] = []
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for paragraph in shape.text_frame.paragraphs:
+                    t = paragraph.text.strip()
+                    if t:
+                        texts.append(t)
+        if texts:
+            parts.append(f"[幻灯片 {i}]\n" + "\n".join(texts))
+    return "\n\n".join(parts) if parts else "（该 PPT 没有可预览的文本内容）"
+
+
+def _read_pdf_preview(path: Path) -> str:
+    """Extract readable text from a .pdf file for preview."""
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        try:
+            import pdfplumber
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=500, detail="PyMuPDF or pdfplumber is not installed"
+            ) from exc
+
+        try:
+            with pdfplumber.open(path) as pdf:
+                parts: list[str] = []
+                for i, page in enumerate(pdf.pages, start=1):
+                    text = page.extract_text()
+                    if text:
+                        parts.append(f"[第 {i} 页]\n{text}")
+                return "\n\n".join(parts) if parts else "（该 PDF 没有可预览的文本内容）"
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Failed to read pdf file: {exc}") from exc
+
+    try:
+        doc = fitz.open(str(path))
+        parts: list[str] = []
+        for i, page in enumerate(doc, start=1):
+            text = page.get_text()
+            if text.strip():
+                parts.append(f"[第 {i} 页]\n{text.strip()}")
+        doc.close()
+        return "\n\n".join(parts) if parts else "（该 PDF 没有可预览的文本内容）"
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to read pdf file: {exc}") from exc
 
 
 @router.get("/files")

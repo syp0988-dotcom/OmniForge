@@ -170,7 +170,25 @@ class ReflectionAgent(AgentProtocol):
         # generated write_file tasks without content, which got skipped
         # by the guard above), generate tasks WITH content to break the
         # infinite loop.  This is a safety net.
-        if not reflection.get("goal_completed") and not current_queue.has_todo:
+        #
+        # Also triggers when the LLM incorrectly reports goal_completed=True
+        # but the queue only has infrastructure tasks (mkdir) without any
+        # file-creation work — the goal cannot be "complete" with no files.
+        _WRITE_ACTIONS = frozenset({"write_file", "create_file", "append_file", "edit_file"})
+        _queue_has_file_creation = any(
+            t.input.get("action", "") in _WRITE_ACTIONS
+            for t in current_queue.all
+        )
+        _stuck = (
+            not reflection.get("goal_completed") and not current_queue.has_todo
+        ) or (
+            reflection.get("goal_completed") and not _queue_has_file_creation
+        )
+        if _stuck:
+            # If the LLM incorrectly said "done" but we're stuck, reset it
+            if reflection.get("goal_completed"):
+                reflection["goal_completed"] = False
+                logger.info("Reflection: overriding false goal_completed (queue has no file-creation tasks)")
             generated = _generate_stuck_tasks(goal, project_name, tool_results)
             if generated:
                 for cfg in generated:
@@ -688,8 +706,9 @@ def _deterministic_file_fallback_tasks(
     text = (goal or "").lower()
     wants_python = "python" in text or re.search(r"\bpy\b", text) is not None
     wants_java = "java" in text
+    wants_go = "go" in text or "golang" in text or "go语言" in goal
     wants_snake = "snake" in text or "贪吃蛇" in goal
-    wants_files = any(token in goal for token in ("文件", "创建", "新建", "生成", "写"))
+    wants_files = any(token in goal for token in ("文件", "创建", "新建", "生成", "写", "完成"))
 
     if not wants_files:
         return []
@@ -702,12 +721,16 @@ def _deterministic_file_fallback_tasks(
         specs.append(("python_snake.py", _PYTHON_SNAKE_TEMPLATE))
     if wants_snake and wants_java:
         specs.append(("SnakeGame.java", _JAVA_SNAKE_TEMPLATE))
+    if wants_snake and wants_go:
+        specs.append(("snake.go", _GO_SNAKE_TEMPLATE))
 
     if not specs:
         if wants_python:
             specs.append(("main.py", _BASIC_MAIN_PY.format(project_name=project_name or "project")))
         if wants_java:
             specs.append(("Main.java", _BASIC_MAIN_JAVA))
+        if wants_go:
+            specs.append(("main.go", _BASIC_MAIN_GO.format(project_name=project_name or "project")))
 
     tasks: list[dict[str, Any]] = []
     for filename, content in specs:
@@ -784,6 +807,196 @@ _BASIC_MAIN_JAVA = '''public class Main {
     public static void main(String[] args) {
         System.out.println("Hello from generated Java project!");
     }
+}
+'''
+
+_BASIC_MAIN_GO = '''package main
+
+import "fmt"
+
+func main() {{
+    fmt.Println("Hello from {project_name}!")
+}}
+'''
+
+_GO_SNAKE_TEMPLATE = r'''package main
+
+import (
+	"fmt"
+	"math/rand"
+	"os"
+	"time"
+
+	"github.com/gdamore/tcell/v2"
+)
+
+const (
+	cell  = 20
+	width = 30
+	height = 20
+	tickMs = 120
+)
+
+type Point struct{ X, Y int }
+
+var (
+	screen   tcell.Screen
+	snake    []Point
+	food     Point
+	dir      = Point{1, 0}
+	nextDir  = Point{1, 0}
+	score    int
+	gameOver bool
+)
+
+func main() {
+	var err error
+	screen, err = tcell.NewScreen()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+	if err := screen.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+	defer screen.Fini()
+
+	screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite))
+	screen.EnableMouse()
+	rand.Seed(time.Now().UnixNano())
+
+	reset()
+	go inputLoop()
+	gameLoop()
+}
+
+func reset() {
+	snake = []Point{{width / 2, height / 2}, {width/2 - 1, height / 2}}
+	food = newFood()
+	dir = Point{1, 0}
+	nextDir = Point{1, 0}
+	score = 0
+	gameOver = false
+}
+
+func newFood() Point {
+	for {
+		p := Point{rand.Intn(width), rand.Intn(height)}
+		hit := false
+		for _, s := range snake {
+			if s == p {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return p
+		}
+	}
+}
+
+func inputLoop() {
+	for {
+		ev := screen.PollEvent()
+		switch ev := ev.(type) {
+		case *tcell.EventKey:
+			if gameOver && ev.Key() == tcell.KeyRune && ev.Rune() == ' ' {
+				reset()
+				continue
+			}
+			switch ev.Key() {
+			case tcell.KeyUp, tcell.KeyRune:
+				if ev.Rune() == 'w' || ev.Rune() == 'W' {
+					if dir.Y != 1 { nextDir = Point{0, -1} }
+				}
+			case tcell.KeyDown:
+				if dir.Y != -1 { nextDir = Point{0, 1} }
+			case tcell.KeyLeft:
+				if dir.X != 1 { nextDir = Point{-1, 0} }
+			case tcell.KeyRight:
+				if dir.X != -1 { nextDir = Point{1, 0} }
+			case tcell.KeyRune:
+				switch ev.Rune() {
+				case 'w', 'W':
+					if dir.Y != 1 { nextDir = Point{0, -1} }
+				case 's', 'S':
+					if dir.Y != -1 { nextDir = Point{0, 1} }
+				case 'a', 'A':
+					if dir.X != 1 { nextDir = Point{-1, 0} }
+				case 'd', 'D':
+					if dir.X != -1 { nextDir = Point{1, 0} }
+				}
+			}
+		}
+	}
+}
+
+func gameLoop() {
+	ticker := time.NewTicker(time.Duration(tickMs) * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		if !gameOver {
+			dir = nextDir
+			head := snake[0]
+			newHead := Point{head.X + dir.X, head.Y + dir.Y}
+			if newHead.X < 0 || newHead.X >= width || newHead.Y < 0 || newHead.Y >= height {
+				gameOver = true
+			} else {
+				for _, s := range snake {
+					if s == newHead {
+						gameOver = true
+						break
+					}
+				}
+			}
+			if !gameOver {
+				snake = append([]Point{newHead}, snake...)
+				if newHead == food {
+					score++
+					food = newFood()
+				} else {
+					snake = snake[:len(snake)-1]
+				}
+			}
+		}
+		draw()
+		if gameOver {
+			time.Sleep(3 * time.Second)
+			return
+		}
+	}
+}
+
+func draw() {
+	screen.Clear()
+	// Draw food
+	foodStyle := tcell.StyleDefault.Foreground(tcell.ColorRed)
+	screen.SetContent(food.X*2, food.Y, '█', nil, foodStyle)
+
+	// Draw snake
+	for i, s := range snake {
+		var style tcell.Style
+		if i == 0 {
+			style = tcell.StyleDefault.Foreground(tcell.ColorGreen)
+		} else {
+			style = tcell.StyleDefault.Foreground(tcell.ColorLightGreen)
+		}
+		screen.SetContent(s.X*2, s.Y, '█', nil, style)
+	}
+
+	// Score
+	scoreStr := fmt.Sprintf("Score: %d", score)
+	for i, r := range scoreStr {
+		screen.SetContent(i, height, r, nil, tcell.StyleDefault.Foreground(tcell.ColorWhite))
+	}
+	if gameOver {
+		msg := "Game Over - press Space"
+		for i, r := range msg {
+			screen.SetContent(width - len(msg)/2 + i, height/2, r, nil, tcell.StyleDefault.Foreground(tcell.ColorYellow))
+		}
+	}
+	screen.Show()
 }
 '''
 

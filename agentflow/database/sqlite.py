@@ -350,6 +350,23 @@ class SQLiteStore:
             connection.commit()
             return cursor.lastrowid  # type: ignore[return-value]
 
+    def update_document_metadata(self, doc_id: int, updates: dict[str, object]) -> None:
+        """Merge *updates* into the JSON metadata of an existing document."""
+        import json
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT doc_metadata FROM documents WHERE id = ?", (doc_id,)
+            ).fetchone()
+            if row is None:
+                return
+            meta = json.loads(row[0]) if row[0] else {}
+            meta.update(updates)
+            connection.execute(
+                "UPDATE documents SET doc_metadata = ? WHERE id = ?",
+                (json.dumps(meta, ensure_ascii=False), doc_id),
+            )
+            connection.commit()
+
     def get_all_documents(self) -> list[dict[str, Any]]:
         with self._connect() as connection:
             cursor = connection.execute(
