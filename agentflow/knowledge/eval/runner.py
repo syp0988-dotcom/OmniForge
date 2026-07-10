@@ -69,7 +69,9 @@ class EvalRunner:
             relevant = set(sample["relevant_chunk_ids"])
 
             try:
-                results = self.store.search(question, top_k=top_k, min_score=min_score)
+                results = self.store.search(
+                    question, top_k=top_k, min_score=min_score or 0.0
+                )
             except Exception as exc:
                 logger.warning(
                     "Search failed for sample %s: %s. Treating as empty results.",

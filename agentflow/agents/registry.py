@@ -127,16 +127,6 @@ register(AgentInfo(
 ))
 
 register(AgentInfo(
-    key="report",
-    name="Report Generator",
-    description="Alternative answer generator that produces concise reports from workflow results",
-    category="generation",
-    status="inactive",
-    capabilities=["report generation", "LLM summarization"],
-    module_path="agentflow.agents.report.agent",
-))
-
-register(AgentInfo(
     key="project_structure",
     name="Project Structure Planner",
     description="Generates complete project directory trees from user requirements",

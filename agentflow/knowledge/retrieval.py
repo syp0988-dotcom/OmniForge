@@ -1,8 +1,7 @@
-"""Hybrid retrieval pipeline: vector similarity (ChromaDB) + lexical (FTS5) search.
+"""Hybrid retrieval pipeline: vector similarity (Qdrant) + lexical (FTS5) search.
 
 The ``HybridRetriever`` runs both retrievers in parallel and fuses results
-via Reciprocal Rank Fusion (RRF).  ChromaDB handles all vector search
-internally — no brute-force fallback needed.
+via Reciprocal Rank Fusion (RRF).
 """
 
 from __future__ import annotations
@@ -14,10 +13,20 @@ import numpy as np
 
 from agentflow.database.sqlite import SQLiteStore
 from agentflow.knowledge.embedder import BaseEmbedder
-from agentflow.knowledge.index import ChromaIndex
+from agentflow.knowledge.index import QdrantIndex
 from agentflow.knowledge.settings import hybrid_weights, search_defaults
 
 logger = logging.getLogger("knowledge.retrieval")
+
+
+def _is_punct(s: str) -> bool:
+    """Return True if *s* is a pure-punctuation / whitespace token."""
+    import unicodedata
+    for ch in s:
+        cat = unicodedata.category(ch)
+        if cat[0] not in ("P", "Z", "C"):
+            return False
+    return True
 
 
 class HybridRetriever:
@@ -29,8 +38,8 @@ class HybridRetriever:
         The embedding model used for vector search.
     db : SQLiteStore
         Database handle for FTS5 and chunk-metadata lookups.
-    chroma_index : ChromaIndex | None
-        ChromaDB index for fast vector search.
+    qdrant_index : QdrantIndex | None
+        Qdrant index for fast vector search.
     alpha : float
         Weight for vector similarity score (default 0.7).
     beta : float
@@ -41,13 +50,13 @@ class HybridRetriever:
         self,
         embedder: BaseEmbedder,
         db: SQLiteStore,
-        chroma_index: ChromaIndex | None = None,
+        qdrant_index: QdrantIndex | None = None,
         alpha: float | None = None,
         beta: float | None = None,
     ) -> None:
         self.embedder = embedder
         self.db = db
-        self.chroma_index = chroma_index
+        self.qdrant_index = qdrant_index
         if alpha is not None and beta is not None:
             self.alpha = alpha
             self.beta = beta
@@ -113,15 +122,15 @@ class HybridRetriever:
 
         return results[:top_k]
 
-    # -- Vector search (ChromaDB) -------------------------------------------
+    # -- Vector search (Qdrant) ----------------------------------------------
 
     def _vector_search(
         self, query_vec: np.ndarray, top_k: int
     ) -> list[tuple[int, float]]:
-        """Vector (dense) retrieval via ChromaDB."""
-        if self.chroma_index is None or self.chroma_index.size == 0:
+        """Vector (dense) retrieval via Qdrant."""
+        if self.qdrant_index is None or self.qdrant_index.size == 0:
             return []
-        return self.chroma_index.search(query_vec, top_k)
+        return self.qdrant_index.search(query_vec, top_k)
 
     # -- Lexical search (FTS5) ---------------------------------------------
 
@@ -154,15 +163,32 @@ class HybridRetriever:
     def _to_fts_query(query: str) -> str:
         """Convert a user query to an FTS5 query string.
 
-        Splits on whitespace and joins with OR. Each term is quoted to
-        prevent FTS5 reserved keywords (OR, NOT, AND) from being
+        Whitespace-split for Latin text; jieba cut for CJK text.
+        Each term is quoted to prevent FTS5 reserved keywords from being
         interpreted as operators.
         """
-        terms = []
+        import re
+
+        terms: list[str] = []
+        _cjk_pattern = re.compile(r"[一-鿿㐀-䶿]")
+
         for part in query.split():
             part = part.strip().strip('"\'(),.!?:;')
-            if part:
+            if not part:
+                continue
+            if _cjk_pattern.search(part):
+                try:
+                    import jieba
+                except ImportError:
+                    terms.append(part)
+                    continue
+                for word in jieba.cut(part):
+                    word = word.strip()
+                    if word and not _is_punct(word):
+                        terms.append(word)
+            else:
                 terms.append(part)
+
         if not terms:
             return ""
         return " OR ".join(f'"{t}"' for t in terms)

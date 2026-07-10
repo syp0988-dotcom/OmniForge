@@ -118,12 +118,9 @@ class IntentIndex:
         if self._ready:
             return
         try:
-            from agentflow.knowledge.embedder import SemanticEmbedder, TfidfEmbedder
+            from agentflow.knowledge.embedder import QwenEmbedder
 
-            if os.getenv("AGENTFLOW_INTENT_EMBEDDER", "tfidf").lower() == "semantic":
-                embedder = SemanticEmbedder()
-            else:
-                embedder = TfidfEmbedder().fit(list(INTENT_DESCRIPTIONS.values()))
+            embedder = QwenEmbedder()
 
             vectors = embedder.embed(list(INTENT_DESCRIPTIONS.values()))
             self._anchors = {

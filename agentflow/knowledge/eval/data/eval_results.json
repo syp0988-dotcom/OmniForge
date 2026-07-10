@@ -1,0 +1,3452 @@
+{
+  "summary": {
+    "recall@1": 0.28888888888888886,
+    "precision@1": 0.28888888888888886,
+    "ndcg@1": 0.28888888888888886,
+    "hit@1": 0.28888888888888886,
+    "recall@3": 0.5666666666666667,
+    "precision@3": 0.18888888888888888,
+    "ndcg@3": 0.44814462833333785,
+    "hit@3": 0.5666666666666667,
+    "recall@5": 0.6444444444444445,
+    "precision@5": 0.12888888888888891,
+    "ndcg@5": 0.4811547633963923,
+    "hit@5": 0.6444444444444445,
+    "recall@10": 0.8222222222222222,
+    "precision@10": 0.08222222222222222,
+    "ndcg@10": 0.5388126514761277,
+    "hit@10": 0.8222222222222222,
+    "mrr": 0.45018959435626105
+  },
+  "per_sample": [
+    {
+      "sample_id": "q3be3abd4",
+      "question": "京东对哪三类钱明确说不赚？",
+      "relevant_chunk_ids": [
+        1553
+      ],
+      "retrieved_chunk_ids": [
+        1566,
+        1605,
+        1553,
+        1629,
+        1550,
+        1545,
+        1558,
+        1526,
+        1549,
+        1633
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.5,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.5,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.5,
+        "hit@10": 1.0,
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "sample_id": "qb546d9bc",
+      "question": "京东公司从创办以来一直坚守的信念是什么？",
+      "relevant_chunk_ids": [
+        1553
+      ],
+      "retrieved_chunk_ids": [
+        1552,
+        1549,
+        1541,
+        1540,
+        1613,
+        1633,
+        1553,
+        1658,
+        1546,
+        1664
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3333333333333333,
+        "hit@10": 1.0,
+        "mrr": 0.14285714285714285
+      }
+    },
+    {
+      "sample_id": "qf0943056",
+      "question": "京东过去12年为国家和社会创造的最大贡献是什么？",
+      "relevant_chunk_ids": [
+        1553
+      ],
+      "retrieved_chunk_ids": [
+        1551,
+        1544,
+        1539,
+        1556,
+        1645,
+        1549,
+        1545,
+        1547,
+        1540,
+        1605
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "qf7f3a59b",
+      "question": "这个文档的第四节是关于什么内容？",
+      "relevant_chunk_ids": [
+        1531
+      ],
+      "retrieved_chunk_ids": [
+        1529,
+        1531,
+        1527,
+        1538,
+        1658,
+        1532,
+        1635,
+        1534,
+        1556,
+        1533
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "qdc365b52",
+      "question": "离职相关内容在哪一节？",
+      "relevant_chunk_ids": [
+        1531
+      ],
+      "retrieved_chunk_ids": [
+        1531,
+        1579,
+        1581,
+        1606,
+        1530,
+        1583,
+        1532,
+        1540,
+        1580,
+        1635
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q465c9cd3",
+      "question": "退休章节对应的页码是多少？",
+      "relevant_chunk_ids": [
+        1531
+      ],
+      "retrieved_chunk_ids": [
+        1531,
+        1582,
+        1658,
+        1532,
+        1657,
+        1533,
+        1593,
+        1537,
+        1546,
+        1655
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q519b8358",
+      "question": "工作满12年的员工，请病假累计多少个月就不能享受当年的年休假了？",
+      "relevant_chunk_ids": [
+        1596
+      ],
+      "retrieved_chunk_ids": [
+        1594,
+        1593,
+        1596,
+        1541,
+        1551,
+        1602,
+        1590,
+        1544,
+        1595,
+        1547
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.5,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.5,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.5,
+        "hit@10": 1.0,
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "sample_id": "qf0399542",
+      "question": "年休假的休假计算周期是啥？按自然年还是别的？",
+      "relevant_chunk_ids": [
+        1596
+      ],
+      "retrieved_chunk_ids": [
+        1588,
+        1532,
+        1594,
+        1596,
+        1595,
+        1551,
+        1589,
+        1541,
+        1593,
+        1544
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.43067655807339306,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.43067655807339306,
+        "hit@10": 1.0,
+        "mrr": 0.25
+      }
+    },
+    {
+      "sample_id": "q8f0391c8",
+      "question": "员工离职的时候，当年的年假天数怎么算？",
+      "relevant_chunk_ids": [
+        1596
+      ],
+      "retrieved_chunk_ids": [
+        1590,
+        1596,
+        1541,
+        1592,
+        1589,
+        1658,
+        1551,
+        1595,
+        1531,
+        1594
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "q93bfab8b",
+      "question": "哪些情况是不算加班的？比如公司组织的聚餐或者自愿参加的培训算吗？",
+      "relevant_chunk_ids": [
+        1588
+      ],
+      "retrieved_chunk_ids": [
+        1586,
+        1658,
+        1587,
+        1592,
+        1541,
+        1657,
+        1584,
+        1590,
+        1546,
+        1588
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.2890648263178879,
+        "hit@10": 1.0,
+        "mrr": 0.1
+      }
+    },
+    {
+      "sample_id": "qe085f27d",
+      "question": "什么情况下可以享受公司提供的福利晚餐或者加班打车费报销？",
+      "relevant_chunk_ids": [
+        1588
+      ],
+      "retrieved_chunk_ids": [
+        1617,
+        1586,
+        1590,
+        1612,
+        1615,
+        1550,
+        1541,
+        1592,
+        1613,
+        1616
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "qbffcdcab",
+      "question": "除了法定节假日，哪些休假只有正式员工才能享受？",
+      "relevant_chunk_ids": [
+        1588
+      ],
+      "retrieved_chunk_ids": [
+        1588,
+        1594,
+        1532,
+        1612,
+        1589,
+        1610,
+        1595,
+        1596,
+        1573,
+        1637
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "qa30a30fc",
+      "question": "如果我到了法定退休年龄，公司会怎么处理？",
+      "relevant_chunk_ids": [
+        1583
+      ],
+      "retrieved_chunk_ids": [
+        1582,
+        1613,
+        1583,
+        1540,
+        1581,
+        1562,
+        1632,
+        1541,
+        1661,
+        1579
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.5,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.5,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.5,
+        "hit@10": 1.0,
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "sample_id": "q18ee6426",
+      "question": "公司上班时间是怎么安排的？中午休息算工作时间吗？",
+      "relevant_chunk_ids": [
+        1583
+      ],
+      "retrieved_chunk_ids": [
+        1588,
+        1590,
+        1541,
+        1589,
+        1602,
+        1613,
+        1571,
+        1593,
+        1596,
+        1587
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "q3575f41b",
+      "question": "可以找人代打卡吗？",
+      "relevant_chunk_ids": [
+        1583
+      ],
+      "retrieved_chunk_ids": [
+        1665,
+        1583,
+        1668,
+        1630,
+        1667,
+        1570,
+        1617,
+        1584,
+        1572,
+        1666
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "q5026aae9",
+      "question": "哪些岗位的员工需要承担监管理责？",
+      "relevant_chunk_ids": [
+        1560
+      ],
+      "retrieved_chunk_ids": [
+        1562,
+        1573,
+        1541,
+        1560,
+        1648,
+        1652,
+        1608,
+        1578,
+        1572,
+        1658
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.43067655807339306,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.43067655807339306,
+        "hit@10": 1.0,
+        "mrr": 0.25
+      }
+    },
+    {
+      "sample_id": "q028dfa2e",
+      "question": "如果管理者疏于管理会有什么后果？",
+      "relevant_chunk_ids": [
+        1560
+      ],
+      "retrieved_chunk_ids": [
+        1641,
+        1560,
+        1609,
+        1648,
+        1632,
+        1652,
+        1635,
+        1646,
+        1649,
+        1653
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "qb4728ec9",
+      "question": "错误的管理行为算不算未尽管理职责？",
+      "relevant_chunk_ids": [
+        1560
+      ],
+      "retrieved_chunk_ids": [
+        1648,
+        1560,
+        1635,
+        1658,
+        1657,
+        1652,
+        1546,
+        1646,
+        1655,
+        1649
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "qb73722dc",
+      "question": "京东是哪一年成立的？",
+      "relevant_chunk_ids": [
+        1551
+      ],
+      "retrieved_chunk_ids": [
+        1546,
+        1633,
+        1526,
+        1549,
+        1545,
+        1658,
+        1552,
+        1664,
+        1544,
+        1556
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "qda74e9a4",
+      "question": "京东是什么时候开始自建物流的？",
+      "relevant_chunk_ids": [
+        1551
+      ],
+      "retrieved_chunk_ids": [
+        1546,
+        1549,
+        1552,
+        1548,
+        1633,
+        1664,
+        1658,
+        1545,
+        1526,
+        1663
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "q7036af93",
+      "question": "京东集团在哪一年在美国纳斯达克上市？",
+      "relevant_chunk_ids": [
+        1551
+      ],
+      "retrieved_chunk_ids": [
+        1540,
+        1545,
+        1632,
+        1544,
+        1547,
+        1539,
+        1551,
+        1637,
+        1635,
+        1633
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3333333333333333,
+        "hit@10": 1.0,
+        "mrr": 0.14285714285714285
+      }
+    },
+    {
+      "sample_id": "q622e5d65",
+      "question": "OA系统的访问地址是什么？",
+      "relevant_chunk_ids": [
+        1666
+      ],
+      "retrieved_chunk_ids": [
+        1669,
+        1663,
+        1543,
+        1665,
+        1664,
+        1671,
+        1666,
+        1538,
+        1673,
+        1658
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3333333333333333,
+        "hit@10": 1.0,
+        "mrr": 0.14285714285714285
+      }
+    },
+    {
+      "sample_id": "q2123013d",
+      "question": "人事中心可以查看下属的哪些信息？",
+      "relevant_chunk_ids": [
+        1666
+      ],
+      "retrieved_chunk_ids": [
+        1665,
+        1567,
+        1667,
+        1663,
+        1543,
+        1658,
+        1666,
+        1657,
+        1604,
+        1546
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3333333333333333,
+        "hit@10": 1.0,
+        "mrr": 0.14285714285714285
+      }
+    },
+    {
+      "sample_id": "qdaf8c654",
+      "question": "在OA系统里，如果我想快速找到某个申请流程，应该用什么功能？",
+      "relevant_chunk_ids": [
+        1666
+      ],
+      "retrieved_chunk_ids": [
+        1665,
+        1666,
+        1543,
+        1664,
+        1663,
+        1540,
+        1589,
+        1667,
+        1636,
+        1538
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "q04a61f87",
+      "question": "京东金融是哪一年开始独立运营的？",
+      "relevant_chunk_ids": [
+        1547
+      ],
+      "retrieved_chunk_ids": [
+        1549,
+        1547,
+        1633,
+        1526,
+        1546,
+        1545,
+        1658,
+        1664,
+        1544,
+        1552
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "qb4d42730",
+      "question": "京东物流子集团具体是哪一天成立的？",
+      "relevant_chunk_ids": [
+        1547
+      ],
+      "retrieved_chunk_ids": [
+        1547,
+        1637,
+        1548,
+        1633,
+        1526,
+        1658,
+        1549,
+        1664,
+        1544,
+        1551
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q4c6e28b3",
+      "question": "京东金融APP给用户提供了什么样的平台？",
+      "relevant_chunk_ids": [
+        1547
+      ],
+      "retrieved_chunk_ids": [
+        1549,
+        1546,
+        1547,
+        1552,
+        1635,
+        1545,
+        1629,
+        1664,
+        1668,
+        1544
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.5,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.5,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.5,
+        "hit@10": 1.0,
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "sample_id": "qbac8ef25",
+      "question": "京东有哪些帮助员工提升学历的项目？",
+      "relevant_chunk_ids": [
+        1634
+      ],
+      "retrieved_chunk_ids": [
+        1633,
+        1611,
+        1541,
+        1634,
+        1627,
+        1609,
+        1632,
+        1626,
+        1658,
+        1610
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.43067655807339306,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.43067655807339306,
+        "hit@10": 1.0,
+        "mrr": 0.25
+      }
+    },
+    {
+      "sample_id": "qcf0150d9",
+      "question": "电商共建课程能抵扣学分吗？",
+      "relevant_chunk_ids": [
+        1634
+      ],
+      "retrieved_chunk_ids": [
+        1635,
+        1665,
+        1634,
+        1571,
+        1565,
+        1633,
+        1639,
+        1631,
+        1545,
+        1661
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.5,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.5,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.5,
+        "hit@10": 1.0,
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "sample_id": "q122d028f",
+      "question": "京东的英语培训提供哪些学习方式？",
+      "relevant_chunk_ids": [
+        1634
+      ],
+      "retrieved_chunk_ids": [
+        1634,
+        1633,
+        1635,
+        1632,
+        1658,
+        1664,
+        1552,
+        1574,
+        1623,
+        1663
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q9e3a2049",
+      "question": "第五章的标题是什么？",
+      "relevant_chunk_ids": [
+        1533
+      ],
+      "retrieved_chunk_ids": [
+        1533,
+        1604,
+        1658,
+        1529,
+        1531,
+        1657,
+        1532,
+        1546,
+        1526,
+        1655
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q489bfeca",
+      "question": "薪酬管理属于第五章的哪一节？",
+      "relevant_chunk_ids": [
+        1533
+      ],
+      "retrieved_chunk_ids": [
+        1533,
+        1604,
+        1667,
+        1529,
+        1658,
+        1635,
+        1531,
+        1532,
+        1657,
+        1534
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q2f08e7b0",
+      "question": "第五章的绩效管理在哪一节？",
+      "relevant_chunk_ids": [
+        1533
+      ],
+      "retrieved_chunk_ids": [
+        1533,
+        1604,
+        1609,
+        1627,
+        1540,
+        1529,
+        1658,
+        1608,
+        1635,
+        1545
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "qaf879104",
+      "question": "第四章讲的是考勤和休假吗？",
+      "relevant_chunk_ids": [
+        1532
+      ],
+      "retrieved_chunk_ids": [
+        1532,
+        1583,
+        1588,
+        1592,
+        1608,
+        1589,
+        1645,
+        1531,
+        1658,
+        1657
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "qb3653d18",
+      "question": "考勤的具体内容在第四章的第几节？",
+      "relevant_chunk_ids": [
+        1532
+      ],
+      "retrieved_chunk_ids": [
+        1532,
+        1583,
+        1658,
+        1529,
+        1657,
+        1531,
+        1546,
+        1533,
+        1655,
+        1534
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q9f30b524",
+      "question": "休假这一节是在第四章的第二节吗？",
+      "relevant_chunk_ids": [
+        1532
+      ],
+      "retrieved_chunk_ids": [
+        1532,
+        1588,
+        1632,
+        1531,
+        1589,
+        1540,
+        1529,
+        1658,
+        1583,
+        1596
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "qc0852f4c",
+      "question": "京东物流拥有哪六大物流网络？",
+      "relevant_chunk_ids": [
+        1548
+      ],
+      "retrieved_chunk_ids": [
+        1674,
+        1635,
+        1548,
+        1669,
+        1547,
+        1633,
+        1664,
+        1545,
+        1549,
+        1552
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.5,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.5,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.5,
+        "hit@10": 1.0,
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "sample_id": "q90200003",
+      "question": "京东物流在全国有多少个大型仓库？",
+      "relevant_chunk_ids": [
+        1548
+      ],
+      "retrieved_chunk_ids": [
+        1545,
+        1540,
+        1548,
+        1609,
+        1547,
+        1635,
+        1663,
+        1546,
+        1633,
+        1664
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.5,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.5,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.5,
+        "hit@10": 1.0,
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "sample_id": "qda08b817",
+      "question": "京东物流通过什么方式降低了商品流通成本？",
+      "relevant_chunk_ids": [
+        1548
+      ],
+      "retrieved_chunk_ids": [
+        1635,
+        1548,
+        1545,
+        1633,
+        1664,
+        1546,
+        1549,
+        1552,
+        1547,
+        1663
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "q2d87bbde",
+      "question": "离职的时候我需要归还哪些东西？",
+      "relevant_chunk_ids": [
+        1581
+      ],
+      "retrieved_chunk_ids": [
+        1579,
+        1531,
+        1581,
+        1540,
+        1562,
+        1661,
+        1606,
+        1658,
+        1580,
+        1657
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.5,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.5,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.5,
+        "hit@10": 1.0,
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "sample_id": "q96f6e064",
+      "question": "什么情况下离职需要经过内控合规部门的离任审计？",
+      "relevant_chunk_ids": [
+        1581
+      ],
+      "retrieved_chunk_ids": [
+        1579,
+        1562,
+        1581,
+        1531,
+        1606,
+        1665,
+        1574,
+        1544,
+        1560,
+        1580
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.5,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.5,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.5,
+        "hit@10": 1.0,
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "sample_id": "q4de00d93",
+      "question": "离职后的工资什么时候能拿到？",
+      "relevant_chunk_ids": [
+        1581
+      ],
+      "retrieved_chunk_ids": [
+        1531,
+        1579,
+        1582,
+        1661,
+        1606,
+        1581,
+        1665,
+        1596,
+        1586,
+        1658
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3562071871080222,
+        "hit@10": 1.0,
+        "mrr": 0.16666666666666666
+      }
+    },
+    {
+      "sample_id": "q385d2098",
+      "question": "如果没请假直接不去上班，算不算旷工？",
+      "relevant_chunk_ids": [
+        1585
+      ],
+      "retrieved_chunk_ids": [
+        1584,
+        1587,
+        1615,
+        1585,
+        1586,
+        1589,
+        1596,
+        1590,
+        1602,
+        1592
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.43067655807339306,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.43067655807339306,
+        "hit@10": 1.0,
+        "mrr": 0.25
+      }
+    },
+    {
+      "sample_id": "qea8c2de0",
+      "question": "连续旷工几天公司可以直接开除且不给补偿？",
+      "relevant_chunk_ids": [
+        1585
+      ],
+      "retrieved_chunk_ids": [
+        1587,
+        1584,
+        1649,
+        1645,
+        1613,
+        1585,
+        1586,
+        1566,
+        1653,
+        1629
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3562071871080222,
+        "hit@10": 1.0,
+        "mrr": 0.16666666666666666
+      }
+    },
+    {
+      "sample_id": "qcef37539",
+      "question": "旷工时间最小按多少小时计算？",
+      "relevant_chunk_ids": [
+        1585
+      ],
+      "retrieved_chunk_ids": [
+        1587,
+        1584,
+        1586,
+        1585,
+        1601,
+        1583,
+        1594,
+        1600,
+        1551,
+        1593
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.43067655807339306,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.43067655807339306,
+        "hit@10": 1.0,
+        "mrr": 0.25
+      }
+    },
+    {
+      "sample_id": "qd36997a5",
+      "question": "工作时间打瞌睡或者玩手机会被处罚吗？",
+      "relevant_chunk_ids": [
+        1655
+      ],
+      "retrieved_chunk_ids": [
+        1571,
+        1655,
+        1632,
+        1651,
+        1572,
+        1649,
+        1551,
+        1654,
+        1646,
+        1645
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "qd68adb61",
+      "question": "在公司电脑上下载游戏软件会有什么后果？",
+      "relevant_chunk_ids": [
+        1655
+      ],
+      "retrieved_chunk_ids": [
+        1632,
+        1655,
+        1613,
+        1651,
+        1641,
+        1646,
+        1670,
+        1581,
+        1609,
+        1643
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "q0055f709",
+      "question": "如果对客户态度不好被投诉了，公司会怎么处理？",
+      "relevant_chunk_ids": [
+        1655
+      ],
+      "retrieved_chunk_ids": [
+        1621,
+        1613,
+        1622,
+        1654,
+        1632,
+        1645,
+        1649,
+        1558,
+        1655,
+        1541
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3010299956639812,
+        "hit@10": 1.0,
+        "mrr": 0.1111111111111111
+      }
+    },
+    {
+      "sample_id": "q4f020962",
+      "question": "公司电脑上可以自己安装第三方杀毒软件吗？",
+      "relevant_chunk_ids": [
+        1674
+      ],
+      "retrieved_chunk_ids": [
+        1670,
+        1613,
+        1669,
+        1581,
+        1541,
+        1663,
+        1673,
+        1639,
+        1672,
+        1538
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "q7336ed37",
+      "question": "如果发现电脑中了病毒，第一时间应该怎么做？",
+      "relevant_chunk_ids": [
+        1674
+      ],
+      "retrieved_chunk_ids": [
+        1581,
+        1538,
+        1672,
+        1551,
+        1673,
+        1670,
+        1669,
+        1537,
+        1663,
+        1671
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "q528ef4cf",
+      "question": "这个员工手册的附件里包括出差管理的规定吗？",
+      "relevant_chunk_ids": [
+        1674
+      ],
+      "retrieved_chunk_ids": [
+        1541,
+        1674,
+        1675,
+        1542,
+        1616,
+        1562,
+        1658,
+        1589,
+        1635,
+        1543
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "q0197bead",
+      "question": "试用期内出勤率低于多少算不合格？",
+      "relevant_chunk_ids": [
+        1576
+      ],
+      "retrieved_chunk_ids": [
+        1576,
+        1590,
+        1566,
+        1575,
+        1573,
+        1649,
+        1645,
+        1646,
+        1648,
+        1583
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "qc4f0b57f",
+      "question": "如果试用期期间被记过处分会有什么后果？",
+      "relevant_chunk_ids": [
+        1576
+      ],
+      "retrieved_chunk_ids": [
+        1641,
+        1649,
+        1573,
+        1645,
+        1609,
+        1576,
+        1632,
+        1648,
+        1644,
+        1642
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3562071871080222,
+        "hit@10": 1.0,
+        "mrr": 0.16666666666666666
+      }
+    },
+    {
+      "sample_id": "q30a0eed4",
+      "question": "伪造学历属于哪种违规行为？",
+      "relevant_chunk_ids": [
+        1576
+      ],
+      "retrieved_chunk_ids": [
+        1646,
+        1648,
+        1649,
+        1651,
+        1559,
+        1652,
+        1576,
+        1641,
+        1563,
+        1659
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3333333333333333,
+        "hit@10": 1.0,
+        "mrr": 0.14285714285714285
+      }
+    },
+    {
+      "sample_id": "q5af054a3",
+      "question": "京东大学演播室下面有哪三个栏目？",
+      "relevant_chunk_ids": [
+        1633
+      ],
+      "retrieved_chunk_ids": [
+        1633,
+        1635,
+        1664,
+        1609,
+        1526,
+        1552,
+        1632,
+        1626,
+        1663,
+        1665
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "qbef5560c",
+      "question": "不同管理层级的员工有什么专门的培训项目？",
+      "relevant_chunk_ids": [
+        1633
+      ],
+      "retrieved_chunk_ids": [
+        1658,
+        1535,
+        1541,
+        1574,
+        1633,
+        1657,
+        1571,
+        1632,
+        1573,
+        1546
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.38685280723454163,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.38685280723454163,
+        "hit@10": 1.0,
+        "mrr": 0.2
+      }
+    },
+    {
+      "sample_id": "q4e997d8c",
+      "question": "京东员工可以通过什么方式提升学历？",
+      "relevant_chunk_ids": [
+        1633
+      ],
+      "retrieved_chunk_ids": [
+        1633,
+        1635,
+        1632,
+        1610,
+        1627,
+        1664,
+        1634,
+        1626,
+        1573,
+        1552
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "qca069d41",
+      "question": "员工的离职工资什么时候发？",
+      "relevant_chunk_ids": [
+        1582
+      ],
+      "retrieved_chunk_ids": [
+        1579,
+        1581,
+        1531,
+        1541,
+        1661,
+        1582,
+        1573,
+        1586,
+        1606,
+        1589
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3562071871080222,
+        "hit@10": 1.0,
+        "mrr": 0.16666666666666666
+      }
+    },
+    {
+      "sample_id": "qc4605843",
+      "question": "如果员工接受了公司培训并签了协议，离职时要不要付违约金？",
+      "relevant_chunk_ids": [
+        1582
+      ],
+      "retrieved_chunk_ids": [
+        1579,
+        1607,
+        1581,
+        1541,
+        1661,
+        1613,
+        1562,
+        1573,
+        1645,
+        1531
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "q2b3d09b7",
+      "question": "女员工的退休年龄是多少？",
+      "relevant_chunk_ids": [
+        1582
+      ],
+      "retrieved_chunk_ids": [
+        1582,
+        1612,
+        1594,
+        1541,
+        1595,
+        1598,
+        1658,
+        1593,
+        1610,
+        1613
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q2f30e1a7",
+      "question": "公司什么情况下会给员工记功？",
+      "relevant_chunk_ids": [
+        1640
+      ],
+      "retrieved_chunk_ids": [
+        1640,
+        1637,
+        1541,
+        1613,
+        1649,
+        1629,
+        1648,
+        1610,
+        1646,
+        1661
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q221fe787",
+      "question": "公司对违纪员工主要是惩罚还是帮助改正？",
+      "relevant_chunk_ids": [
+        1640
+      ],
+      "retrieved_chunk_ids": [
+        1541,
+        1649,
+        1613,
+        1645,
+        1637,
+        1558,
+        1648,
+        1610,
+        1640,
+        1629
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3010299956639812,
+        "hit@10": 1.0,
+        "mrr": 0.1111111111111111
+      }
+    },
+    {
+      "sample_id": "qf1ac8bdd",
+      "question": "员工之前的违纪记录会影响后续处分吗？",
+      "relevant_chunk_ids": [
+        1640
+      ],
+      "retrieved_chunk_ids": [
+        1641,
+        1660,
+        1643,
+        1649,
+        1648,
+        1645,
+        1541,
+        1632,
+        1640,
+        1644
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3010299956639812,
+        "hit@10": 1.0,
+        "mrr": 0.1111111111111111
+      }
+    },
+    {
+      "sample_id": "q6ae6a282",
+      "question": "年休假如果当年没休完，最晚可以安排到什么时候？",
+      "relevant_chunk_ids": [
+        1597
+      ],
+      "retrieved_chunk_ids": [
+        1602,
+        1594,
+        1588,
+        1596,
+        1615,
+        1589,
+        1595,
+        1593,
+        1590,
+        1601
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "qe669becb",
+      "question": "婚假需要在领证后多长时间内休完？",
+      "relevant_chunk_ids": [
+        1597
+      ],
+      "retrieved_chunk_ids": [
+        1597,
+        1588,
+        1540,
+        1598,
+        1602,
+        1545,
+        1601,
+        1632,
+        1589,
+        1596
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q9cef474e",
+      "question": "直系亲属去世，公司给几天丧假？",
+      "relevant_chunk_ids": [
+        1597
+      ],
+      "retrieved_chunk_ids": [
+        1597,
+        1588,
+        1613,
+        1598,
+        1629,
+        1592,
+        1541,
+        1596,
+        1589,
+        1590
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "qbe75e7c7",
+      "question": "怎么制定自己的个人发展计划（IDP）？",
+      "relevant_chunk_ids": [
+        1629
+      ],
+      "retrieved_chunk_ids": [
+        1628,
+        1629,
+        1627,
+        1658,
+        1657,
+        1630,
+        1546,
+        1535,
+        1631,
+        1655
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "q2efe2590",
+      "question": "公司有哪些针对员工的个性化培养方式？",
+      "relevant_chunk_ids": [
+        1629
+      ],
+      "retrieved_chunk_ids": [
+        1609,
+        1573,
+        1541,
+        1630,
+        1613,
+        1627,
+        1527,
+        1628,
+        1658,
+        1610
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "q252c23f3",
+      "question": "咱们公司的高潜人才（HIPO）培养项目具体包括哪些内容？",
+      "relevant_chunk_ids": [
+        1629
+      ],
+      "retrieved_chunk_ids": [
+        1629,
+        1630,
+        1627,
+        1634,
+        1635,
+        1535,
+        1541,
+        1631,
+        1613,
+        1628
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q5ac531db",
+      "question": "如果我发现同事有违规行为，应该找谁举报？",
+      "relevant_chunk_ids": [
+        1637
+      ],
+      "retrieved_chunk_ids": [
+        1540,
+        1649,
+        1609,
+        1648,
+        1626,
+        1645,
+        1560,
+        1656,
+        1622,
+        1640
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "qeeba4805",
+      "question": "员工对处罚结果有异议的话，怎么申诉？",
+      "relevant_chunk_ids": [
+        1637
+      ],
+      "retrieved_chunk_ids": [
+        1610,
+        1609,
+        1621,
+        1622,
+        1558,
+        1645,
+        1629,
+        1637,
+        1573,
+        1649
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.31546487678572877,
+        "hit@10": 1.0,
+        "mrr": 0.125
+      }
+    },
+    {
+      "sample_id": "q917f9ccc",
+      "question": "京东的奖惩决定是由哪个部门来发布的？",
+      "relevant_chunk_ids": [
+        1637
+      ],
+      "retrieved_chunk_ids": [
+        1549,
+        1637,
+        1636,
+        1607,
+        1658,
+        1606,
+        1550,
+        1657,
+        1546,
+        1662
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "q095ddd87",
+      "question": "这个员工手册是哪个公司的？",
+      "relevant_chunk_ids": [
+        1525
+      ],
+      "retrieved_chunk_ids": [
+        1541,
+        1542,
+        1613,
+        1543,
+        1658,
+        1610,
+        1524,
+        1632,
+        1639,
+        1558
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "qfdf03b9e",
+      "question": "手册目录里第一篇是什么内容？",
+      "relevant_chunk_ids": [
+        1525
+      ],
+      "retrieved_chunk_ids": [
+        1525,
+        1541,
+        1542,
+        1639,
+        1674,
+        1635,
+        1538,
+        1650,
+        1551,
+        1524
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q624f99e1",
+      "question": "CEO致辞在第几页？",
+      "relevant_chunk_ids": [
+        1525
+      ],
+      "retrieved_chunk_ids": [
+        1525,
+        1539,
+        1571,
+        1540,
+        1534,
+        1572,
+        1543,
+        1545,
+        1524,
+        1632
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q14a05d92",
+      "question": "大耳朵热线和邮箱是什么？",
+      "relevant_chunk_ids": [
+        1623
+      ],
+      "retrieved_chunk_ids": [
+        1608,
+        1622,
+        1671,
+        1645,
+        1672,
+        1583,
+        1668,
+        1673,
+        1619,
+        1543
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "qb0035bc0",
+      "question": "京东集团的4S人才价值观核心理念是什么？",
+      "relevant_chunk_ids": [
+        1623
+      ],
+      "retrieved_chunk_ids": [
+        1623,
+        1624,
+        1552,
+        1633,
+        1637,
+        1627,
+        1554,
+        1658,
+        1664,
+        1626
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "qa884d9e7",
+      "question": "如果员工遇到严重违纪处理，可以通过哪些途径申诉？",
+      "relevant_chunk_ids": [
+        1623
+      ],
+      "retrieved_chunk_ids": [
+        1610,
+        1621,
+        1622,
+        1635,
+        1573,
+        1645,
+        1612,
+        1649,
+        1637,
+        1648
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "q0443833f",
+      "question": "哪些行为属于失职渎职但没有达到严重违纪的程度？",
+      "relevant_chunk_ids": [
+        1652
+      ],
+      "retrieved_chunk_ids": [
+        1648,
+        1660,
+        1652,
+        1658,
+        1657,
+        1649,
+        1546,
+        1560,
+        1646,
+        1655
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.5,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.5,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.5,
+        "hit@10": 1.0,
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "sample_id": "q0802dd61",
+      "question": "如果管理流程存在较大疏漏，指出后仍不改正会怎么处理？",
+      "relevant_chunk_ids": [
+        1652
+      ],
+      "retrieved_chunk_ids": [
+        1560,
+        1566,
+        1632,
+        1648,
+        1636,
+        1649,
+        1622,
+        1635,
+        1645,
+        1652
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.2890648263178879,
+        "hit@10": 1.0,
+        "mrr": 0.1
+      }
+    },
+    {
+      "sample_id": "q1bc0d20a",
+      "question": "导致安全事故但不算严重违纪的情况算失职吗？",
+      "relevant_chunk_ids": [
+        1652
+      ],
+      "retrieved_chunk_ids": [
+        1648,
+        1652,
+        1590,
+        1658,
+        1657,
+        1645,
+        1546,
+        1649,
+        1655,
+        1642
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.6309297535714575,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.6309297535714575,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.6309297535714575,
+        "hit@10": 1.0,
+        "mrr": 0.5
+      }
+    },
+    {
+      "sample_id": "q2112e43a",
+      "question": "京东精准扶贫中，农产品销售额达到了多少？",
+      "relevant_chunk_ids": [
+        1545
+      ],
+      "retrieved_chunk_ids": [
+        1545,
+        1660,
+        1546,
+        1633,
+        1664,
+        1544,
+        1550,
+        1552,
+        1549,
+        1663
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "q70327dca",
+      "question": "京东集团主要业务包括哪几个板块？",
+      "relevant_chunk_ids": [
+        1545
+      ],
+      "retrieved_chunk_ids": [
+        1635,
+        1547,
+        1544,
+        1634,
+        1637,
+        1526,
+        1551,
+        1570,
+        1545,
+        1633
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.3010299956639812,
+        "hit@10": 1.0,
+        "mrr": 0.1111111111111111
+      }
+    },
+    {
+      "sample_id": "q4599530f",
+      "question": "京东商城计划在什么时候成为中国最大的B2C电商平台？",
+      "relevant_chunk_ids": [
+        1545
+      ],
+      "retrieved_chunk_ids": [
+        1545,
+        1540,
+        1546,
+        1552,
+        1548,
+        1633,
+        1549,
+        1632,
+        1544,
+        1658
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "qc61cf2b4",
+      "question": "餐费补贴每天多少钱？",
+      "relevant_chunk_ids": [
+        1615
+      ],
+      "retrieved_chunk_ids": [
+        1615,
+        1617,
+        1590,
+        1598,
+        1614,
+        1592,
+        1565,
+        1613,
+        1586,
+        1591
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "qc9eda62e",
+      "question": "全勤补贴需要满足什么条件？",
+      "relevant_chunk_ids": [
+        1615
+      ],
+      "retrieved_chunk_ids": [
+        1615,
+        1595,
+        1590,
+        1594,
+        1592,
+        1589,
+        1583,
+        1612,
+        1598,
+        1614
+      ],
+      "metrics": {
+        "recall@1": 1.0,
+        "precision@1": 1.0,
+        "ndcg@1": 1.0,
+        "hit@1": 1.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 1.0,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 1.0,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 1.0,
+        "hit@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    {
+      "sample_id": "qa8e0930e",
+      "question": "哪些员工可以享受补充医疗保险？",
+      "relevant_chunk_ids": [
+        1615
+      ],
+      "retrieved_chunk_ids": [
+        1612,
+        1610,
+        1616,
+        1615,
+        1573,
+        1592,
+        1562,
+        1637,
+        1604,
+        1541
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.43067655807339306,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.43067655807339306,
+        "hit@10": 1.0,
+        "mrr": 0.25
+      }
+    },
+    {
+      "sample_id": "q2768f466",
+      "question": "试用期员工辞职需要提前多久提出书面申请？",
+      "relevant_chunk_ids": [
+        1580
+      ],
+      "retrieved_chunk_ids": [
+        1573,
+        1579,
+        1580,
+        1589,
+        1574,
+        1610,
+        1575,
+        1612,
+        1622,
+        1637
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 1.0,
+        "precision@3": 0.3333333333333333,
+        "ndcg@3": 0.5,
+        "hit@3": 1.0,
+        "recall@5": 1.0,
+        "precision@5": 0.2,
+        "ndcg@5": 0.5,
+        "hit@5": 1.0,
+        "recall@10": 1.0,
+        "precision@10": 0.1,
+        "ndcg@10": 0.5,
+        "hit@10": 1.0,
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "sample_id": "qb0007de7",
+      "question": "转正后员工离职要提前多少天通知公司？",
+      "relevant_chunk_ids": [
+        1580
+      ],
+      "retrieved_chunk_ids": [
+        1573,
+        1541,
+        1581,
+        1598,
+        1579,
+        1612,
+        1622,
+        1589,
+        1530,
+        1596
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    },
+    {
+      "sample_id": "q1c8096e0",
+      "question": "离职的时候，哪些物品需要归还给公司？",
+      "relevant_chunk_ids": [
+        1580
+      ],
+      "retrieved_chunk_ids": [
+        1579,
+        1541,
+        1581,
+        1613,
+        1562,
+        1531,
+        1661,
+        1660,
+        1567,
+        1606
+      ],
+      "metrics": {
+        "recall@1": 0.0,
+        "precision@1": 0.0,
+        "ndcg@1": 0.0,
+        "hit@1": 0.0,
+        "recall@3": 0.0,
+        "precision@3": 0.0,
+        "ndcg@3": 0.0,
+        "hit@3": 0.0,
+        "recall@5": 0.0,
+        "precision@5": 0.0,
+        "ndcg@5": 0.0,
+        "hit@5": 0.0,
+        "recall@10": 0.0,
+        "precision@10": 0.0,
+        "ndcg@10": 0.0,
+        "hit@10": 0.0,
+        "mrr": 0.0
+      }
+    }
+  ],
+  "config": {
+    "k_values": [
+      1,
+      3,
+      5,
+      10
+    ],
+    "total_samples": 90
+  }
+}

@@ -7,9 +7,9 @@ parser
 chunking
     Structure-aware chunking strategies (heading-based, code-boundary, paragraph).
 embedder
-    Embedding interface (``BaseEmbedder``) with TF-IDF and semantic implementations.
+    Embedding interface (``BaseEmbedder``) with Qwen (DashScope API) implementation.
 index
-    ChromaDB vector index for efficient ANN search.
+    Qdrant vector index for efficient ANN search.
 retrieval
     Hybrid retrieval pipeline (vector + lexical search).
 store

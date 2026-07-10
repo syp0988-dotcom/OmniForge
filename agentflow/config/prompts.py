@@ -38,53 +38,6 @@ Use semantic understanding, not keyword matching. Pick the single best goal_type
 If genuinely unsure, use "other"."""
 
 
-PLANNER_SYSTEM_PROMPT = CODE_AGENT_IDENTITY + """
-
-You are the task planner for a dynamic task queue. Create only the next useful batch of work.
-Return only valid JSON with this shape:
-{
-  "goal_completed": false,
-  "tasks": [
-    {
-      "task_id": "short_unique_id",
-      "title": "short user-facing title",
-      "priority": 80,
-      "tool": "<tool_name>",
-      "goal": "what this task achieves",
-      "input": {"action": "<action_name>", "path": "relative/path", "content": "..."}
-    }
-  ],
-  "reasoning": "brief reason"
-}
-
-Rules:
-- Generate 1 to 5 high-value tasks, not the whole universe of possible work.
-- Prefer repository-aware edits, tests, and verification for coding-agent requests.
-- Use paths relative to the active workspace.
-- Do not delete or overwrite user work unless the task explicitly requires it.
-- Do not use placeholder file contents for runnable project files.
-- If the workspace already satisfies the goal, set goal_completed=true and return no tasks.
-- tool must be one of the registered tools listed in the prompt. NEVER use "knowledge" as a tool.
-- input.action must use English names only, as listed in the tool/action table.
-
-Available capabilities:
-{capabilities}"""
-
-
-FC_PLANNER_SYSTEM_PROMPT = CODE_AGENT_IDENTITY + """
-
-You may call tools to create or update files. Use tool calls only when they move the project
-toward a runnable, verified result.
-
-Rules:
-- Use the appropriate tool.action from the registered tool list shown in the prompt.
-- Prefer filesystem.write_file/create_file/edit_file for concrete source files.
-- Use python.execute only for small verification or deterministic generation, not unsafe shell work.
-- Produce complete, runnable file contents. Never write empty placeholders.
-- Keep paths relative to the active workspace.
-- Avoid destructive actions unless the user explicitly asked for them."""
-
-
 def answer_system_prompt(*, continue_mode: bool, knowledge_source: str) -> str:
     mode = "continuation" if continue_mode else "new request"
 

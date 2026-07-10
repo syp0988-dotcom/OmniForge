@@ -169,6 +169,8 @@ def generate_from_knowledge_store(
     sample_chunks: int | None = None,
     seed: int | None = 42,
     min_chunk_length: int = 50,
+    skip_file_types: tuple[str, ...] = ("xlsx", "csv"),
+    max_pipe_ratio: float = 0.15,
 ) -> EvalDataset:
     """Convenience: generate from all (or a sample of) chunks in a KnowledgeStore.
 
@@ -180,16 +182,25 @@ def generate_from_knowledge_store(
         sample_chunks: If set, randomly sample this many chunks instead of using all.
         seed: Random seed for sampling.
         min_chunk_length: Skip chunks shorter than this (not informative enough).
+        skip_file_types: Document file types to skip (default: xlsx, csv).
+        max_pipe_ratio: Skip chunks where ``|`` characters exceed this fraction
+            of total characters (filters out table data).
 
     Returns:
         ``EvalDataset``.
     """
     chunk_texts: list[tuple[int, str]] = []
     for doc in store.db.get_all_documents():
+        if doc["file_type"] in skip_file_types:
+            continue
         for chunk in store.db.get_chunks_by_document(doc["id"]):
             content = chunk["content"].strip()
-            if len(content) >= min_chunk_length:
-                chunk_texts.append((chunk["id"], content))
+            if len(content) < min_chunk_length:
+                continue
+            pipe_ratio = content.count("|") / len(content)
+            if pipe_ratio > max_pipe_ratio:
+                continue
+            chunk_texts.append((chunk["id"], content))
 
     if not chunk_texts:
         raise ValueError("No chunks found in the knowledge store.")

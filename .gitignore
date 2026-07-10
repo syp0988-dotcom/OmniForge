@@ -1,6 +1,8 @@
 __pycache__/
 *.py[cod]
 *.db
+*.db-shm
+*.db-wal
 *.log
 .env
 .venv/
@@ -16,6 +18,7 @@ frontend/dist/
 .vite/
 
 # IDE / tools
+.vs/
 .understand-anything/
 
 # OS temp

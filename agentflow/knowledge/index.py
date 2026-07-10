@@ -1,14 +1,13 @@
-"""ChromaDB vector index — drop-in replacement for the old FAISS ANNIndex.
+"""Qdrant vector index for ANN search.
 
-``ChromaIndex`` wraps a persistent ChromaDB collection for vector storage
-and ANN search.  ChromaDB handles persistence, indexing, and CRUD
-internally — no manual load/save/rebuild needed.
+``QdrantIndex`` wraps a Qdrant collection for vector storage and search.
+Supports both local (on-disk / in-memory) and remote (server) modes.
 
 Usage::
 
-    from agentflow.knowledge.index import ChromaIndex
+    from agentflow.knowledge.index import QdrantIndex
 
-    index = ChromaIndex()
+    index = QdrantIndex()
     index.add([1, 2, 3], vectors, metadatas)
     results = index.search(query_vec, 10)  # [(chunk_id, score), ...]
     index.remove([2])                      # remove by chunk_id
@@ -22,41 +21,67 @@ from typing import Any
 
 import numpy as np
 
-from agentflow.knowledge.settings import chroma_collection, chroma_path
+from agentflow.knowledge.settings import (
+    qdrant_api_key,
+    qdrant_collection,
+    qdrant_storage_path,
+    qdrant_url,
+)
 
 logger = logging.getLogger("knowledge.index")
 
 
-class ChromaIndex:
-    """Flag used internally when ``in_memory`` is set."""
-    _client_override: Any = None
-    """ChromaDB-backed vector index with persistent storage.
+class QdrantIndex:
+    """Qdrant-backed vector index with local persistent storage.
 
     Parameters
     ----------
+    path : str | Path | None
+        Local storage path.  ``:memory:`` for in-memory (testing).
+        ``None`` = default path under ``data/qdrant``.
+    url : str | None
+        Remote Qdrant server URL.  Takes precedence over *path*.
+    api_key : str | None
+        API key for remote Qdrant Cloud.
     collection_name : str | None
-        ChromaDB collection name.  ``None`` = default from settings.
-    persist_path : str | Path | None
-        On-disk path for ChromaDB data.  ``None`` = default from settings.
+        Collection name.  ``None`` = default from settings.
+    dimension : int | None
+        Vector dimension.  Set on first ``add()`` if unknown.
     """
 
     def __init__(
         self,
+        path: str | Path | None = None,
+        url: str | None = None,
+        api_key: str | None = None,
         collection_name: str | None = None,
-        persist_path: str | Path | None = None,
+        dimension: int | None = None,
     ) -> None:
-        self._collection_name = collection_name or chroma_collection()
-        self._persist_path = Path(persist_path) if persist_path else chroma_path()
-        self._client = None
-        self._collection = None  # lazy-init
+        from qdrant_client import QdrantClient
+
+        self._collection_name = collection_name or qdrant_collection()
+        self._url = url or qdrant_url()
+        self._api_key = api_key or qdrant_api_key()
+        self._dimension = dimension
+        self._client: Any = None
+
+        if self._api_key and self._url:
+            self._client = QdrantClient(
+                url=self._url, api_key=self._api_key, timeout=30.0,
+            )
+        elif path == ":memory:":
+            self._client = QdrantClient(location=":memory:")
+        else:
+            _path = Path(path) if path else qdrant_storage_path()
+            _path.mkdir(parents=True, exist_ok=True)
+            self._client = QdrantClient(path=str(_path))
 
     @classmethod
-    def in_memory(cls, collection_name: str = "test") -> ChromaIndex:
-        """Create an in-memory ChromaIndex for testing."""
-        import chromadb
-        idx = cls(collection_name=collection_name)
-        idx._client_override = chromadb.EphemeralClient()
-        return idx
+    def in_memory(
+        cls, collection_name: str = "test", dimension: int | None = None,
+    ) -> QdrantIndex:
+        """Create an in-memory QdrantIndex for testing."""
+        return cls(path=":memory:", collection_name=collection_name, dimension=dimension)
 
     # -- Public API ---------------------------------------------------------
 
@@ -66,37 +91,62 @@ class ChromaIndex:
         vectors: np.ndarray,
         metadatas: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Add vectors indexed by *chunk_ids*.
-
-        Parameters
-        ----------
-        chunk_ids : list[int]
-            Unique chunk IDs (must be convertible to strings).
-        vectors : np.ndarray
-            2-D array of shape ``(n, dimension)``.
-        metadatas : list[dict] | None
-            Optional per-vector metadata (e.g. ``{"document_id": ...}``).
-        """
+        """Add vectors indexed by *chunk_ids*."""
         if len(chunk_ids) == 0:
             return
-        collection = self._get_collection()
-        collection.add(
-            ids=[str(cid) for cid in chunk_ids],
-            embeddings=vectors.tolist(),
-            metadatas=metadatas,
+
+        from qdrant_client.models import Distance, PointStruct, VectorParams
+
+        # Lazy-init collection on first add
+        if self._dimension is None:
+            self._dimension = vectors.shape[1]
+            try:
+                self._client.create_collection(
+                    collection_name=self._collection_name,
+                    vectors_config=VectorParams(
+                        size=self._dimension, distance=Distance.COSINE,
+                    ),
+                )
+            except ValueError:
+                pass  # collection already exists from previous session
+
+        points = [
+            PointStruct(
+                id=cid,
+                vector=vec.tolist(),
+                payload=meta or {},
+            )
+            for cid, vec, meta in zip(
+                chunk_ids, vectors,
+                metadatas or [{} for _ in chunk_ids],
+            )
+        ]
+        self._client.upsert(
+            collection_name=self._collection_name, points=points,
         )
-        logger.debug("Added %d vectors to ChromaDB collection '%s'", len(chunk_ids), self._collection_name)
+        logger.debug(
+            "Added %d vectors to Qdrant collection '%s'",
+            len(chunk_ids), self._collection_name,
+        )
 
     def remove(self, chunk_ids: list[int]) -> None:
         """Remove vectors by their chunk IDs."""
         if not chunk_ids:
             return
-        collection = self._get_collection()
-        collection.delete(ids=[str(cid) for cid in chunk_ids])
-        logger.debug("Removed %d vectors from ChromaDB collection '%s'", len(chunk_ids), self._collection_name)
+        try:
+            self._client.delete(
+                collection_name=self._collection_name,
+                points_selector=chunk_ids,
+            )
+        except ValueError:
+            return  # collection not created yet (nothing to remove)
+        logger.debug(
+            "Removed %d vectors from Qdrant collection '%s'",
+            len(chunk_ids), self._collection_name,
+        )
 
     def search(
-        self, query_vec: np.ndarray, top_k: int = 10
+        self, query_vec: np.ndarray, top_k: int = 10,
     ) -> list[tuple[int, float]]:
         """Search the vector index.
 
@@ -105,73 +155,36 @@ class ChromaIndex:
         list[(chunk_id, score), ...]
             Sorted descending by similarity score.
         """
-        collection = self._get_collection()
-        if collection.count() == 0:
+        if self.size == 0:
             return []
-
-        results = collection.query(
-            query_embeddings=query_vec.reshape(1, -1).tolist(),
-            n_results=min(top_k, collection.count()),
+        results = self._client.query_points(
+            collection_name=self._collection_name,
+            query=query_vec.tolist(),
+            limit=min(top_k, self.size),
         )
-        # results: {"ids": [["id1", "id2", ...]],
-        #            "distances": [[d1, d2, ...]],
-        #            "metadatas": [[{}, ...]],
-        #            "documents": ...}
-
-        chunk_ids = [int(id_) for id_ in results["ids"][0]]
-        # ChromaDB cosine distance → similarity score
-        # cosine distance = 1 - cos(a,b), so score = 1 - distance
-        scores = [1.0 - float(d) for d in results["distances"][0]]
-        return list(zip(chunk_ids, scores))
+        return [(hit.id, hit.score) for hit in results.points]
 
     @property
     def size(self) -> int:
-        if self._collection is None:
+        try:
+            return self._client.count(
+                collection_name=self._collection_name,
+            ).count
+        except Exception:
             return 0
-        return self._collection.count()
 
     @property
     def collection_name(self) -> str:
         return self._collection_name
 
     def reset(self) -> None:
-        """Drop and recreate the backing collection.
-
-        This is used when TF-IDF's vocabulary dimension changes. ChromaDB
-        collections have a fixed embedding dimension, so old vectors must be
-        discarded and rebuilt with the new dimension.
-        """
-        collection = self._get_collection()
-        client = self._client
-        if client is None:
-            return
+        """Drop and recreate the backing collection."""
         try:
-            client.delete_collection(name=self._collection_name)
+            self._client.delete_collection(
+                collection_name=self._collection_name,
+            )
         except Exception as exc:
-            logger.debug("ChromaDB collection reset ignored delete error: %s", exc)
-        self._collection = None
-        self._get_collection()
-
-    # -- Internal -----------------------------------------------------------
-
-    def _get_collection(self):
-        """Lazy-init the ChromaDB collection."""
-        if self._collection is not None:
-            return self._collection
-        import chromadb
-        client = self._client_override or chromadb.PersistentClient(
-            path=str(self._persist_path)
-        )
-        self._client = client
-        if self._client_override is None:
-            self._persist_path.mkdir(parents=True, exist_ok=True)
-        self._collection = client.get_or_create_collection(
-            name=self._collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
-        logger.info(
-            "ChromaDB collection '%s' ready (%d vectors)",
-            self._collection_name,
-            self._collection.count(),
-        )
-        return self._collection
+            logger.debug(
+                "Qdrant collection reset ignored delete error: %s", exc,
+            )
+        self._dimension = None

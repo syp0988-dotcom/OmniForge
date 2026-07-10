@@ -24,19 +24,27 @@ class Settings(BaseSettings):
     max_tokens: int = Field(default=1000, alias="MAX_TOKENS")
 
     # -- Knowledge base settings --
-    knowledge_embedder: str = Field(default="tfidf", alias="KNOWLEDGE_EMBEDDER")
-    knowledge_embedding_model: str = Field(
-        default="paraphrase-multilingual-MiniLM-L12-v2",
-        alias="KNOWLEDGE_EMBEDDING_MODEL",
-    )
     knowledge_alpha: float = Field(default=0.7, alias="KNOWLEDGE_ALPHA")
     knowledge_beta: float = Field(default=0.3, alias="KNOWLEDGE_BETA")
     knowledge_chunk_size: int = Field(default=500, alias="KNOWLEDGE_CHUNK_SIZE")
     knowledge_chunk_overlap: int = Field(default=50, alias="KNOWLEDGE_CHUNK_OVERLAP")
-    knowledge_chroma_path: str = Field(default="", alias="KNOWLEDGE_CHROMA_PATH")
-    knowledge_chroma_collection: str = Field(default="knowledge_chunks", alias="KNOWLEDGE_CHROMA_COLLECTION")
     knowledge_top_k: int = Field(default=5, alias="KNOWLEDGE_TOP_K")
     knowledge_min_score: float = Field(default=0.05, alias="KNOWLEDGE_MIN_SCORE")
+
+    # -- Embedding API settings (DashScope / OpenAI-compatible) --
+    embedding_api_key: str = Field(default="", alias="EMBEDDING_API_KEY")
+    embedding_base_url: str = Field(
+        default="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        alias="EMBEDDING_BASE_URL",
+    )
+    embedding_model_name: str = Field(
+        default="text-embedding-v3", alias="EMBEDDING_MODEL_NAME"
+    )
+
+    # -- Qdrant settings --
+    qdrant_url: str = Field(default="http://localhost:6333", alias="QDRANT_URL")
+    qdrant_api_key: str = Field(default="", alias="QDRANT_API_KEY")
+    qdrant_collection: str = Field(default="knowledge_chunks", alias="QDRANT_COLLECTION")
 
     # -- Context window & truncation settings --
     max_context_chars: int = Field(default=12000, alias="MAX_CONTEXT_CHARS")

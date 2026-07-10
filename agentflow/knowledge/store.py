@@ -1,13 +1,10 @@
-"""High-level KnowledgeStore: parser → chunk → embed → ChromaDB → hybrid search.
+"""High-level KnowledgeStore: parser → chunk → embed → Qdrant → hybrid search.
 
 The ``KnowledgeStore`` ties together all knowledge-base components:
   - Document parsing and chunking (``parser`` / ``chunking``)
-  - Embedding (``embedder.BaseEmbedder`` implementations)
-  - ANN indexing (``index.ChromaIndex``)
+  - Embedding (``embedder.QwenEmbedder``)
+  - ANN indexing (``index.QdrantIndex``)
   - Hybrid retrieval (``retrieval.HybridRetriever``)
-
-Unlike the old FAISS-based architecture, ChromaDB handles vector persistence
-and ANN search internally — no manual load/save/rebuild needed.
 
 Usage::
 
@@ -27,20 +24,11 @@ from typing import Any
 import numpy as np
 
 from agentflow.database.sqlite import SQLiteStore
-from agentflow.knowledge.embedder import (
-    SemanticEmbedder,
-    TfidfEmbedder,
-)
-from agentflow.knowledge.index import ChromaIndex
+from agentflow.knowledge.embedder import QwenEmbedder
+from agentflow.knowledge.index import QdrantIndex
 from agentflow.knowledge.parser import parse_document
 from agentflow.knowledge.retrieval import HybridRetriever
-from agentflow.knowledge.settings import (
-    chunk_params,
-    chroma_collection,
-    embedder_type,
-    embedding_model,
-    search_defaults,
-)
+from agentflow.knowledge.settings import chunk_params, search_defaults
 
 logger = logging.getLogger("knowledge.store")
 
@@ -52,25 +40,19 @@ class KnowledgeStore:
     ----------
     db : SQLiteStore | None
         Database backend.  Creates a default instance if ``None``.
-    embedder : str | None
-        Embedder type: ``"semantic"`` (default) or ``"tfidf"``.
-        Falls back to ``settings.knowledge_embedder`` if ``None``.
+    qdrant_index : QdrantIndex | None
+        Qdrant vector index.  Creates a default local instance if ``None``.
     """
 
     def __init__(
         self,
         db: SQLiteStore | None = None,
-        embedder: str | None = None,
-        chroma_index: ChromaIndex | None = None,
+        qdrant_index: QdrantIndex | None = None,
     ) -> None:
         self.db = db or SQLiteStore()
-        embedder_type_name = embedder or embedder_type()
-        self.embedder = self._create_embedder(embedder_type_name)
-        self.chroma_index = chroma_index  # None → lazy-init on first use
+        self.embedder = QwenEmbedder()
+        self.qdrant_index = qdrant_index  # None → lazy-init on first use
         self.retriever: HybridRetriever | None = None
-
-        # Load existing TF-IDF state if using tfidf embedder
-        self._maybe_load_cache()
 
     # -- Document management ---------------------------------------------------
 
@@ -88,7 +70,9 @@ class KnowledgeStore:
         logger.info("Ingesting document: %s (%d bytes)", filename, file_size)
 
         # 1. Parse and chunk
-        chunks = parse_document(path, file_type, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        chunks = parse_document(
+            path, file_type, chunk_size=chunk_size, chunk_overlap=chunk_overlap,
+        )
         if not chunks:
             logger.warning("  → No chunks extracted from %s", filename)
         logger.info("  → %d chunks extracted", len(chunks))
@@ -106,51 +90,32 @@ class KnowledgeStore:
         if not chunks:
             return doc_id
 
-        # 3. Ensure embedder is ready (TF-IDF needs fitting)
-        old_dimension = self.embedder.dimension if isinstance(self.embedder, TfidfEmbedder) else None
-        self._ensure_embedder_ready(chunks)
-        new_dimension = self.embedder.dimension if isinstance(self.embedder, TfidfEmbedder) else None
-        should_rebuild_index = (
-            isinstance(self.embedder, TfidfEmbedder)
-            and old_dimension != new_dimension
-            and bool(new_dimension)
-        )
+        # 3. Persist chunks to SQLite
+        chunk_ids: list[int] = []
+        for i, chunk_text in enumerate(chunks):
+            chunk_id = self.db.add_chunk(
+                document_id=doc_id, content=chunk_text, chunk_index=i,
+            )
+            chunk_ids.append(chunk_id)
 
         try:
-            # 4. Persist chunks to SQLite
-            chunk_ids: list[int] = []
-            for i, chunk_text in enumerate(chunks):
-                chunk_id = self.db.add_chunk(document_id=doc_id, content=chunk_text, chunk_index=i)
-                chunk_ids.append(chunk_id)
-
-            if should_rebuild_index:
-                logger.info(
-                    "TF-IDF dimension changed (%s -> %s); rebuilding vector index",
-                    old_dimension,
-                    new_dimension,
-                )
-                self._rebuild_tfidf_index()
-                self.retriever = None
-                logger.info("  鈫?Document #%d indexed successfully (%d chunks)", doc_id, len(chunks))
-                return doc_id
-
-            # 5. Batch embed all chunks (with size limit to prevent OOM)
-            if chunk_ids:
-                embed_batch_size = 128
-                vectors = self.embedder.embed(chunks, batch_size=embed_batch_size)
-                metadatas = [
-                    {"document_id": doc_id, "chunk_index": i}
-                    for i in range(len(chunk_ids))
-                ]
-                vectors_array = np.array([v for v in vectors], dtype=np.float32)
-                self._ensure_index(dimension=vectors_array.shape[1])
-                self.chroma_index.add(chunk_ids, vectors_array, metadatas)
-                self.retriever = None
+            # 4. Embed and add to Qdrant
+            vectors = self.embedder.embed(chunks, batch_size=20)
+            vectors_array = np.array([v for v in vectors], dtype=np.float32)
+            metadatas = [
+                {"document_id": doc_id, "chunk_index": i}
+                for i in range(len(chunk_ids))
+            ]
+            self._ensure_index()
+            self.qdrant_index.add(chunk_ids, vectors_array, metadatas)
+            self.retriever = None
         except Exception:
             self.db.delete_document_cascade(doc_id)
             raise
 
-        logger.info("  → Document #%d indexed successfully (%d chunks)", doc_id, len(chunks))
+        logger.info(
+            "  → Document #%d indexed successfully (%d chunks)", doc_id, len(chunks),
+        )
         return doc_id
 
     def delete_document(self, doc_id: int) -> None:
@@ -158,15 +123,15 @@ class KnowledgeStore:
         chunks = self.db.get_chunks_by_document(doc_id)
         chunk_ids = [c["id"] for c in chunks]
 
-        # Remove from ChromaDB (ensure index is loaded first)
         if chunk_ids:
             self._ensure_index()
-            if self.chroma_index is not None:
-                self.chroma_index.remove(chunk_ids)
+            if self.qdrant_index is not None:
+                self.qdrant_index.remove(chunk_ids)
 
-        # Cascade delete from SQLite
         self.db.delete_document_cascade(doc_id)
-        logger.info("Document #%d deleted (removed %d chunks)", doc_id, len(chunk_ids))
+        logger.info(
+            "Document #%d deleted (removed %d chunks)", doc_id, len(chunk_ids),
+        )
 
     def list_documents(self) -> list[dict[str, Any]]:
         """List all indexed documents with metadata."""
@@ -175,9 +140,9 @@ class KnowledgeStore:
     # -- Search ----------------------------------------------------------------
 
     def search(
-        self, query: str, top_k: int | None = None, min_score: float | None = None
+        self, query: str, top_k: int | None = None, min_score: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Hybrid search: vector similarity (ChromaDB) + lexical (FTS5).
+        """Hybrid search: vector similarity (Qdrant) + lexical (FTS5).
 
         Args:
             query: Natural language query string.
@@ -194,129 +159,19 @@ class KnowledgeStore:
         if min_score is None:
             _, min_score = search_defaults()
 
-        # Early exit if no documents indexed
         all_docs = self.db.get_all_documents()
         if not all_docs:
             logger.info("No documents indexed; returning empty search results.")
             return []
 
-        # Ensure retriever is initialised
         self._ensure_retriever()
-
         return self.retriever.search(query, top_k=top_k, min_score=min_score)
-
-    # -- Embedder factory ------------------------------------------------------
-
-    @staticmethod
-    def _create_embedder(embedder_type_name: str):
-        if embedder_type_name == "semantic":
-            try:
-                embedder = SemanticEmbedder(model_name=embedding_model())
-                # Probe: embed a dummy string to verify model loads
-                embedder.embed(["probe"])
-                logger.info("Using SemanticEmbedder (model=%s)", embedding_model())
-                return embedder
-            except Exception as exc:
-                logger.warning(
-                    "SemanticEmbedder requested but unavailable (%s). "
-                    "Falling back to TfidfEmbedder.",
-                    exc,
-                )
-                return TfidfEmbedder()
-        logger.info("Using TfidfEmbedder (fallback mode)")
-        return TfidfEmbedder()
 
     # -- Lazy init helpers -----------------------------------------------------
 
-    def _ensure_embedder_ready(self, new_chunks: list[str]) -> None:
-        """Ensure the embedder is fitted (TF-IDF) or loaded (semantic).
-
-        For TfidfEmbedder:
-          - First call: collects ALL existing chunks + new chunks and fits.
-          - Subsequent calls: incrementally updates with only the new chunks
-            via ``TfidfEmbedder.update()``, avoiding O(corpus) refit.
-        """
-        if not isinstance(self.embedder, TfidfEmbedder):
-            return  # semantic embedder is always ready
-
-        if getattr(self.embedder, "_fitted", False):
-            # Incremental update: only process new chunks
-            if new_chunks:
-                logger.info("Incrementally updating TfidfEmbedder with %d new texts", len(new_chunks))
-                self.embedder.update(new_chunks)
-                self._save_tfidf_cache()
-            return
-
-        # First fit: collect all existing chunk texts from the DB
-        all_docs = self.db.get_all_documents()
-        existing_texts: list[str] = []
-        for doc in all_docs:
-            chunks = self.db.get_chunks_by_document(doc["id"])
-            existing_texts.extend(c["content"] for c in chunks)
-
-        all_texts = existing_texts + new_chunks
-        if not all_texts:
-            return
-
-        logger.info("Fitting TfidfEmbedder on %d texts…", len(all_texts))
-        self.embedder.fit(all_texts)
-        self._save_tfidf_cache()
-
-    def _save_tfidf_cache(self) -> None:
-        """Persist TF-IDF vocabulary cache to DB."""
-        if not isinstance(self.embedder, TfidfEmbedder):
-            return
-        try:
-            cache = json.dumps(self.embedder.to_dict())
-            self.db.set_knowledge_meta("tfidf_cache", cache)
-        except Exception as exc:
-            logger.debug("Failed to save TF-IDF cache (non-critical): %s", exc)
-
-    def _ensure_index(self, dimension: int | None = None) -> None:
-        collection_name = self._desired_collection_name(dimension)
-        if self.chroma_index is None:
-            self.chroma_index = ChromaIndex(collection_name=collection_name)
-            return
-        if collection_name and self.chroma_index.collection_name != collection_name:
-            client_override = getattr(self.chroma_index, "_client_override", None)
-            self.chroma_index = ChromaIndex(collection_name=collection_name)
-            if client_override is not None:
-                self.chroma_index._client_override = client_override
-
-    def _desired_collection_name(self, dimension: int | None = None) -> str | None:
-        if isinstance(self.embedder, TfidfEmbedder):
-            dim = dimension or self.embedder.dimension
-            if dim > 0:
-                return f"{chroma_collection()}_tfidf_{dim}"
-        return None
-
-    def _rebuild_tfidf_index(self) -> None:
-        """Re-embed all SQLite chunks into a fresh TF-IDF Chroma collection."""
-        if not isinstance(self.embedder, TfidfEmbedder):
-            return
-
-        all_chunks: list[tuple[int, int, int, str]] = []
-        for doc in self.db.get_all_documents():
-            for chunk in self.db.get_chunks_by_document(doc["id"]):
-                all_chunks.append((chunk["id"], doc["id"], chunk["chunk_index"], chunk["content"]))
-
-        self._ensure_index(dimension=self.embedder.dimension)
-        if self.chroma_index is None:
-            return
-        self.chroma_index.reset()
-
-        if not all_chunks:
-            return
-
-        chunk_ids = [cid for cid, _, _, _ in all_chunks]
-        texts = [content for _, _, _, content in all_chunks]
-        vectors = self.embedder.embed(texts, batch_size=128)
-        vectors_array = np.array([v for v in vectors], dtype=np.float32)
-        metadatas = [
-            {"document_id": doc_id, "chunk_index": chunk_index}
-            for _, doc_id, chunk_index, _ in all_chunks
-        ]
-        self.chroma_index.add(chunk_ids, vectors_array, metadatas)
+    def _ensure_index(self) -> None:
+        if self.qdrant_index is None:
+            self.qdrant_index = QdrantIndex()
 
     def _ensure_retriever(self) -> None:
         if self.retriever is not None:
@@ -327,30 +182,10 @@ class KnowledgeStore:
         self.retriever = HybridRetriever(
             embedder=self.embedder,
             db=self.db,
-            chroma_index=self.chroma_index,
+            qdrant_index=self.qdrant_index,
             alpha=alpha,
             beta=beta,
         )
-
-    def _maybe_load_cache(self) -> None:
-        """For TF-IDF embedder: restore cached vocab if available.
-
-        This is a best-effort cache that avoids re-fitting when the
-        embedder type is ``"tfidf"`` and previous state exists.
-        """
-        if not isinstance(self.embedder, TfidfEmbedder):
-            return
-        raw = self.db.get_knowledge_meta("tfidf_cache")
-        if raw:
-            try:
-                self.embedder.from_dict(json.loads(raw))
-                logger.info(
-                    "Loaded TF-IDF cache: %d terms, %d docs",
-                    len(self.embedder.vocab),
-                    self.embedder.num_docs,
-                )
-            except (json.JSONDecodeError, TypeError) as exc:
-                logger.warning("Failed to load TF-IDF cache: %s", exc)
 
 
 # -- File-type detection helper -----------------------------------------------
