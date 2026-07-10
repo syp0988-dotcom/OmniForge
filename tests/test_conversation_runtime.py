@@ -521,6 +521,29 @@ class TestConversationManager:
         # Without tracking, uses plain __str__ context
         assert result is not None
 
+    def test_new_creation_request_does_not_inherit_previous_goal(self):
+        from agentflow.conversation.state import ConversationState
+        ss = SessionState(
+            current_goal="创建两个文件一个python贪吃蛇一个java贪吃蛇",
+            status="idle",
+            tracking=ConversationState(topic="贪吃蛇"),
+        )
+
+        resolved = ConversationManager.resolve_question("创建一个猜数字的游戏", ss)
+        rewritten = ConversationManager.rewrite_question(resolved, ss)
+
+        assert resolved == "创建一个猜数字的游戏"
+        assert rewritten == "创建一个猜数字的游戏"
+        assert ss.current_goal == ""
+        assert ss.status == "idle"
+
+    def test_follow_up_still_inherits_previous_goal(self):
+        ss = SessionState(current_goal="创建 Python 贪吃蛇游戏", status="idle")
+
+        resolved = ConversationManager.resolve_question("优化一下", ss)
+
+        assert "创建 Python 贪吃蛇游戏" in resolved
+
     # -- finalize_turn with tracking (Phase 8) --
 
     def test_finalize_turn_saves_last_answer(self):

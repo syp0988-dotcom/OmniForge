@@ -623,12 +623,16 @@ def create_file(req: CreateFileRequest) -> JSONResponse:
 
 @router.post("/files/read")
 def read_generated_file(req: ReadFileRequest) -> JSONResponse:
-    """Read a generated text file for in-app preview."""
+    """Read a generated file for in-app preview."""
     target = _resolve_generated_file(req.path, req.workspace_path)
     max_bytes = 1024 * 1024
     data = target.read_bytes()
     truncated = len(data) > max_bytes
-    text = data[:max_bytes].decode("utf-8", errors="replace")
+    if target.suffix.lower() == ".docx":
+        text = _read_docx_preview(target)
+        truncated = False
+    else:
+        text = data[:max_bytes].decode("utf-8", errors="replace")
     return JSONResponse(
         content={
             "filename": target.name,
@@ -638,6 +642,36 @@ def read_generated_file(req: ReadFileRequest) -> JSONResponse:
             "size": len(data),
         }
     )
+
+
+def _read_docx_preview(path: Path) -> str:
+    """Extract readable text from a .docx file for preview."""
+    try:
+        from docx import Document
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail="python-docx is not installed") from exc
+
+    try:
+        doc = Document(str(path))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to read docx file: {exc}") from exc
+
+    parts: list[str] = []
+    paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    if paragraphs:
+        parts.extend(paragraphs)
+
+    for table_index, table in enumerate(doc.tables, start=1):
+        rows: list[str] = []
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            if any(cells):
+                rows.append(" | ".join(cells))
+        if rows:
+            parts.append(f"\n[表格 {table_index}]")
+            parts.extend(rows)
+
+    return "\n\n".join(parts) if parts else "（该 Word 文档没有可预览的文本内容）"
 
 
 @router.get("/files")

@@ -192,31 +192,28 @@ class ReflectionAgent(AgentProtocol):
                     len(generated),
                 )
             else:
-                # Nothing to generate -- workspace might be complete or LLM failed.
-                # Use a stuck counter to prevent infinite loops.
-                stuck_rounds = int(state.get("_stuck_rounds", 0)) + 1
-                state["_stuck_rounds"] = stuck_rounds
-                ws_has_content = _workspace_has_content(tool_results)
-                if ws_has_content and stuck_rounds >= 3:
-                    reflection["goal_completed"] = True
-                    reflection["reason"] = "工作区已满足目标要求"
-                    logger.info(
-                        "Reflection fallback: no more content after %d rounds, "
-                        "workspace has content -> completed",
-                        stuck_rounds,
-                    )
-                elif not ws_has_content and stuck_rounds >= 5:
-                    reflection["goal_completed"] = True
-                    reflection["reason"] = "无法生成文件内容，终止循环"
-                    logger.warning(
-                        "Reflection fallback: empty workspace after %d rounds, giving up",
-                        stuck_rounds,
-                    )
-                else:
-                    logger.info(
-                        "Reflection fallback: no content (round %d, ws_has_content=%s)",
-                        stuck_rounds, ws_has_content,
-                    )
+                # No deterministic template matched and no LLM fallback is used.
+                # Report the failure reason instead of trying endless recovery.
+                reflection["goal_completed"] = True
+                reflection["reason"] = "无法自动生成文件内容"
+                state["_generation_failed"] = True
+                state["_generation_failure_reason"] = (
+                    f"已创建项目目录，但无法自动生成「{goal}」的代码文件。\n\n"
+                    "可能的原因：\n"
+                    "1. 大模型输出的代码内容在传输过程中损坏，导致文件写入任务丢失\n"
+                    "2. 当前内置模板不支持该编程语言或项目类型\n\n"
+                    "请重新描述你的需求，或直接告诉我需要创建哪些文件及其具体内容。"
+                )
+                # Persist to session_state so follow-up questions (e.g. "为什么失败")
+                # can access the concrete failure reason instead of hallucinating.
+                ss = state.get("session_state")
+                if ss is not None:
+                    ss.metadata["last_failure_reason"] = state["_generation_failure_reason"]
+                    ss.metadata["last_failure_goal"] = goal
+                logger.warning(
+                    "Reflection fallback: no template for goal '%s', reporting failure",
+                    goal[:80],
+                )
 
         # Check template-based completion
         template = match_template(goal, goal_type)
@@ -505,6 +502,20 @@ class ReflectionAgent(AgentProtocol):
                                 })
 
         # Determine completion
+        # A project queue with only mkdir/infrastructure tasks but no
+        # content-creating tasks (write_file, etc.) is NOT complete.
+        _WRITE_ACTIONS = frozenset({"write_file", "create_file", "append_file", "edit_file"})
+        _has_file_creation = any(
+            t.input.get("action", "") in _WRITE_ACTIONS
+            for t in queue.all
+        )
+        if all_ok and not _has_file_creation:
+            all_ok = False
+            logger.info(
+                "Rule eval: queue has no file-creation tasks (only mkdir/infra), "
+                "forcing all_ok=False to trigger stuck fallback"
+            )
+
         if all_ok:
             template = match_template(goal, goal_type)
             if template:
@@ -734,6 +745,11 @@ def _all_project_tasks_done(queue: TaskQueue, results: list[dict[str, Any]]) -> 
         return False
     if not results:
         return False
+    # Don't consider done if the queue only has infrastructure tasks (mkdir)
+    # and no actual file-creation tasks.
+    _WRITE_ACTIONS = frozenset({"write_file", "create_file", "append_file", "edit_file"})
+    if not any(t.input.get("action", "") in _WRITE_ACTIONS for t in queue.all):
+        return False
     return all(not isinstance(r, dict) or r.get("success", False) for r in results)
 
 
@@ -742,428 +758,15 @@ def _generate_stuck_tasks(
     project_name: str,
     results: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Generate fallback tasks when the queue is stuck.
+    """Generate file creation tasks from deterministic templates only.
 
-    Two-phase approach to avoid embedding large code content in JSON
-    (which DeepSeek's output frequently corrupts):
-
-      Phase 1: Ask LLM for a small JSON array with just file paths.
-      Phase 2: For each file, ask LLM for raw code (no JSON wrapping).
-
-    This is slower (N+1 LLM calls) but avoids the content-in-JSON
-    corruption that plagued the single-call approach.
+    No LLM fallback — if no template matches, returns empty so the
+    reflector can report the failure reason to the user.
     """
-    deterministic = _deterministic_file_fallback_tasks(goal, project_name, results)
-    if deterministic:
-        return deterministic
-
-    # ── Find the directory from the last successful mkdir result ──────
-    dir_path = None
-    for r in results:
-        if not isinstance(r, dict):
-            continue
-        if r.get("success") and r.get("action") in ("mkdir", "create_directory"):
-            path = ""
-            res = r.get("result", {}) or {}
-            if isinstance(res, dict):
-                path = res.get("path", "") or res.get("directory", "") or ""
-            elif isinstance(res, str):
-                path = res
-            if not path:
-                msg = r.get("message", "")
-                for kw in ("Directory created: ", "目录已创建: "):
-                    if kw in msg:
-                        path = msg.split(kw, 1)[-1].strip()
-                        break
-            if path:
-                dir_path = path
-
-    if not dir_path:
-        dir_path = _fallback_project_dir(goal, project_name)
-        logger.info("Rule fallback: no mkdir result found, using %s", dir_path)
-
-    project_path = Path(dir_path)
-    if project_path.exists() and not project_path.is_dir():
-        logger.warning("Rule fallback: fallback path %r is not a directory", dir_path)
-        return []
-
-    dir_name = project_path.name
-
-    existing_files = set()
-    if project_path.exists():
-        for entry in project_path.iterdir():
-            if entry.is_file():
-                existing_files.add(entry.name)
-
-    file_list = "\n".join(f"  - {f}" for f in sorted(existing_files)) if existing_files else "  (空)"
-
-    llm = get_llm_service()
-
-    batch_configs = _batch_code_fallback(goal, dir_name, project_path, existing_files, llm)
-    if batch_configs:
-        return batch_configs
-
-    # ═══════════════════════════════════════════════════════════════════
-    # Fallback: ask LLM for file list, then generate each file separately.
-    # ═══════════════════════════════════════════════════════════════════
-    structure_prompt = (
-        f"用户目标：{goal}\n\n"
-        f"工作目录名：{dir_name}\n"
-        f"已有文件：\n{file_list}\n\n"
-        f"请分析还需要创建哪些文件。\n"
-        f"以 JSON 数组格式输出（不要其他文字）：\n"
-        f'[\n'
-        f'  {{\n'
-        f'    "path": "{dir_name}/example.py",\n'
-        f'    "language": "python",\n'
-        f'    "description": "文件功能描述"\n'
-        f'  }}\n'
-        f']\n\n'
-        f"要求：\n"
-        f"1. 只输出 JSON，不要任何其他文字\n"
-        f"2. 跳过已有文件，只创建缺失的文件\n"
-        f"3. path 必须以 '{dir_name}/' 开头\n"
-        f"4. 每个文件给出合理的路径、语言和描述"
-    )
-
-    # Phase 2: per-file content prompts
-    content_prompt_tpl = (
-        '你是一个代码生成器。请生成以下文件的完整、可直接运行的代码。\n'
-        '只输出代码本身，不要任何解释、注释说明或 markdown 格式。\n'
-        '\n'
-        '项目描述：{goal}\n'
-        '文件路径：{path}\n'
-        '语言：{language}\n'
-        '描述：{description}\n'
-    )
-
-    try:
-        raw = llm.complete(messages=[{"role": "user", "content": structure_prompt}])
-        logger.info("Rule fallback (phase 1): response (first 300)=%s", raw[:300])
-
-        # Try to parse as JSON array, with common repairs
-        text = raw.strip()
-        candidates = [text]
-        for marker in ("```json", "```JSON", "```"):
-            start = text.find(marker)
-            if start == -1:
-                continue
-            content = text[start + len(marker):]
-            end = content.rfind("```")
-            if end != -1:
-                content = content[:end]
-            content = content.strip()
-            if content:
-                candidates.append(content)
-
-        entries = None
-        for c in candidates:
-            try:
-                entries = json.loads(c)
-                break
-            except json.JSONDecodeError:
-                fixed = _fix_json_newlines(c)
-                if fixed != c:
-                    try:
-                        entries = json.loads(fixed)
-                        break
-                    except json.JSONDecodeError:
-                        pass
-
-        if not entries or not isinstance(entries, list):
-            logger.warning("Rule fallback (phase 1): LLM response not parseable, trying batch code gen")
-            # ── Batch fallback: ask for ALL code at once with markers ──
-            return _batch_code_fallback(goal, dir_name, project_path, existing_files, llm)
-
-        # ═══════════════════════════════════════════════════════════════
-        # Phase 2:  Generate content for each file (raw code, no JSON)
-        # ═══════════════════════════════════════════════════════════════
-        configs = []
-        for item in entries:
-            if not isinstance(item, dict):
-                continue
-            path = str(item.get("path", "")).strip()
-            language = str(item.get("language", "")).strip()
-            description = str(item.get("description", "")).strip()
-
-            if not path:
-                continue
-            fname = Path(path).name
-            if fname in existing_files:
-                continue
-
-            content_prompt = content_prompt_tpl.format(
-                goal=goal, path=path,
-                language=language or "python",
-                description=description or path,
-            )
-
-            logger.info("Rule fallback (phase 2): generating %s ...", path)
-            try:
-                content = llm.complete(messages=[{"role": "user", "content": content_prompt}])
-            except Exception as exc:
-                logger.warning("Rule fallback (phase 2): LLM failed for %s: %s", path, exc)
-                continue
-
-            content = content.strip()
-
-            # Strip markdown code fences if the LLM added them anyway
-            if content.startswith("```"):
-                first_nl = content.find("\n")
-                if first_nl != -1:
-                    content = content[first_nl + 1:]
-            if content.endswith("```"):
-                content = content[:-3].strip()
-            elif content.endswith("```\n"):
-                content = content[:-4].strip()
-
-            if len(content) < 50:
-                logger.warning(
-                    "Rule fallback (phase 2): content for %s too short (%d chars), skipping",
-                    path, len(content),
-                )
-                continue
-
-            task_id = f"create_{fname.replace('.', '_')}"
-            configs.append({
-                "task_id": task_id,
-                "title": f"创建 {fname}",
-                "priority": 95,
-                "tool": "filesystem",
-                "input": {
-                    "action": "write_file",
-                    "path": path,
-                    "content": content,
-                },
-            })
-
-        if configs:
-            logger.info(
-                "Rule fallback: created %d task(s) via phase-2 LLM: %s",
-                len(configs), [c.get("input", {}).get("path", "?") for c in configs],
-            )
-            return configs
-
-        # ── Phase 2 produced no valid content → try batch fallback ──
-        logger.info("Rule fallback (phase 2): no valid configs, trying batch code gen")
-        return _batch_code_fallback(goal, dir_name, project_path, existing_files, llm)
-
-    except Exception as exc:
-        logger.warning("Rule fallback: LLM call failed (%s), using minimal fallback", exc)
-        return _minimal_fallback_tasks(dir_name, existing_files)
+    return _deterministic_file_fallback_tasks(goal, project_name, results)
 
 
-def _batch_code_fallback(
-    goal: str,
-    dir_name: str,
-    project_path: Path,
-    existing_files: set[str],
-    llm: Any,
-) -> list[dict[str, Any]]:
-    """Generate ALL file code in a single LLM call using marker delimiters.
-
-    Falls back to per-file generation if the batch output is truncated
-    or unparseable.
-    """
-    batch_prompt = (
-        f'请为以下项目生成所有缺失文件的完整代码。\n\n'
-        f'项目描述：{goal}\n'
-        f'工作目录：{dir_name}\n\n'
-        f'使用以下格式（等号和文件名作为分隔符）：\n'
-        f'===== path/to/file.ext =====\n'
-        f'完整代码...\n'
-        f'===== next/file.py =====\n'
-        f'完整代码...\n\n'
-        f'要求：\n'
-        f'1. 每个文件以 ===== 相对路径 ===== 开头\n'
-        f'2. 代码必须完整可直接运行\n'
-        f'3. 不要使用 markdown 代码块标记\n'
-        f'4. 跳过已有文件（{", ".join(sorted(existing_files)) or "无"}）'
-    )
-
-    try:
-        raw = llm.complete(messages=[{"role": "user", "content": batch_prompt}])
-        logger.info("Rule fallback (batch): response (first 300)=%s", raw[:300])
-
-        # Parse markers: ===== path ===== ...code...
-        marker_re = re.compile(r'^=====\s+(.+?)\s+=====\s*$', re.MULTILINE)
-        parts = marker_re.split(raw.strip())
-        # parts: [before, path1, code1, path2, code2, ...]
-        # Skip parts[0] which is text before the first marker
-
-        configs = []
-        for i in range(1, len(parts) - 1, 2):
-            path = parts[i].strip()
-            code = parts[i + 1].strip()
-
-            if not path or not code:
-                continue
-            fname = Path(path).name
-            if fname in existing_files:
-                continue
-            if len(code) < 50:
-                continue
-
-            configs.append({
-                "task_id": f"create_{fname.replace('.', '_')}",
-                "title": f"创建 {fname}",
-                "priority": 95,
-                "tool": "filesystem",
-                "input": {
-                    "action": "write_file",
-                    "path": path,
-                    "content": code,
-                },
-            })
-
-        if configs:
-            logger.info(
-                "Rule fallback (batch): created %d task(s): %s",
-                len(configs), [c.get("input", {}).get("path", "?") for c in configs],
-            )
-            return configs
-        logger.info("Rule fallback (batch): no valid configs, using per-file code gen")
-
-        # ── Per-file fallback: one LLM call per file ──
-        # If the batch didn't produce results, let the LLM decide what
-        # files to create by asking for individual Python and Java files.
-        return _per_file_code_fallback(goal, dir_name, existing_files, llm)
-
-    except Exception as exc:
-        logger.warning("Rule fallback (batch): failed (%s), trying per-file gen", exc)
-        return _per_file_code_fallback(goal, dir_name, existing_files, llm)
-
-
-def _per_file_code_fallback(
-    goal: str,
-    dir_name: str,
-    existing_files: set[str],
-    llm: Any,
-) -> list[dict[str, Any]]:
-    """Generate one LLM call per file as the final resort."""
-
-    # Ask LLM what files to create (single-call, no content)
-    list_prompt = (
-        f'项目：{goal}\n'
-        f'工作目录：{dir_name}\n'
-        f'已有文件：{", ".join(sorted(existing_files)) or "无"}\n\n'
-        f'还需要创建哪些文件？以 JSON 数组格式输出，每项包含 path 和 language：\n'
-        f'[{{"path": "{dir_name}/file.py", "language": "python"}}]\n'
-        f'只输出 JSON。'
-    )
-
-    try:
-        raw = llm.complete(messages=[{"role": "user", "content": list_prompt}])
-        text = raw.strip()
-        # Extract JSON array from response
-        for marker in ("```json", "```JSON", "```"):
-            start = text.find(marker)
-            if start != -1:
-                end = text.find("```", start + len(marker))
-                content = text[start + len(marker):end].strip() if end != -1 else text[start + len(marker):].strip()
-                if content:
-                    try:
-                        text = json.loads(content) if isinstance(json.loads(content), list) else text
-                    except json.JSONDecodeError:
-                        pass
-                    break
-
-        try:
-            entries = json.loads(text) if isinstance(text, str) else text
-            if not isinstance(entries, list):
-                entries = []
-        except json.JSONDecodeError:
-            entries = []
-
-        if not entries:
-            # Last resort: hardcoded snake game prompt
-            entries = [
-                {"path": f"{dir_name}/snake.py", "language": "python"},
-                {"path": f"{dir_name}/SnakeGame.java", "language": "java"},
-            ]
-
-        configs = []
-        for item in entries:
-            if not isinstance(item, dict):
-                continue
-            path = str(item.get("path", "")).strip()
-            language = str(item.get("language", "python")).strip()
-            if not path:
-                continue
-            fname = Path(path).name
-            if fname in existing_files:
-                continue
-
-            gen_prompt = (
-                f'生成以下文件的完整可直接运行的代码。只输出代码，不要任何其他文字。\n'
-                f'文件：{path}\n'
-                f'语言：{language}\n'
-                f'项目：{goal}\n'
-            )
-
-            content = llm.complete(messages=[{"role": "user", "content": gen_prompt}])
-            content = content.strip()
-
-            # Strip code fences
-            if content.startswith("```"):
-                idx = content.find("\n")
-                if idx != -1:
-                    content = content[idx:]
-            content = content.strip()
-            if content.endswith("```"):
-                content = content[:-3].strip()
-
-            if len(content) < 50:
-                continue
-
-            configs.append({
-                "task_id": f"create_{fname.replace('.', '_')}",
-                "title": f"创建 {fname}",
-                "priority": 95,
-                "tool": "filesystem",
-                "input": {
-                    "action": "write_file",
-                    "path": path,
-                    "content": content,
-                },
-            })
-
-        if configs:
-            logger.info(
-                "Rule fallback (per-file): created %d task(s): %s",
-                len(configs), [c.get("input", {}).get("path", "?") for c in configs],
-            )
-        return configs
-
-    except Exception as exc:
-        logger.warning("Rule fallback (per-file): failed (%s)", exc)
-        return []
-
-
-def _minimal_fallback_tasks(
-    dir_name: str,
-    existing_files: set[str],
-) -> list[dict[str, Any]]:
-    """Absolute last-resort: create a simple main.py if it doesn't exist."""
-    if "main.py" in existing_files:
-        return []
-    logger.info("Rule (minimal) fallback: creating basic main.py")
-    return [
-        {
-            "task_id": "create_main_py",
-            "title": "创建 main.py",
-            "priority": 50,
-            "tool": "filesystem",
-            "input": {
-                "action": "write_file",
-                "path": f"{dir_name}/main.py",
-                "content": _BASIC_MAIN_PY,
-            },
-        },
-    ]
-
-
-# ── Last-resort minimal content template ──────────────────────────────
+# ── Minimal content templates (used by deterministic fallback) ─────────
 
 _BASIC_MAIN_PY = '''"""
 {project_name} - 主程序入口

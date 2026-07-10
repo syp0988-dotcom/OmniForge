@@ -168,6 +168,25 @@ class ConversationManager:
                     return enriched
                 return question
 
+        # --- 4. New self-contained task after a previous goal ---
+        # Keep old goals available for real follow-ups like "优化一下", but do
+        # not inject them into explicit new requests such as "创建一个猜数字游戏".
+        if (
+            session_state.current_goal
+            and not session_state.is_waiting
+            and ConversationManager._is_new_task_request(question)
+        ):
+            logger.info(
+                "New self-contained task detected; clearing stale goal '%s'",
+                session_state.current_goal,
+            )
+            session_state.reset()
+            session_state.tracking = ConversationState()
+            ConversationManager._update_tracking_from_question(
+                original, session_state.tracking, session_state,
+            )
+            return question
+
         # --- 4. Anaphora / modification detection ---
         if session_state.current_goal and not ConversationManager._is_self_contained(question):
             enriched = ConversationManager._enrich_with_context(
@@ -482,6 +501,10 @@ class ConversationManager:
         A self-contained question mentions a specific topic or action
         that doesn't obviously refer to the current task.
         """
+        if ConversationManager._is_new_task_request(question):
+            return True
+        if ConversationManager._is_context_dependent_request(question):
+            return False
         # Questions with specific entities are self-contained
         if len(question) > 15:
             return True
@@ -496,6 +519,65 @@ class ConversationManager:
             re.compile(r"今天.*(天气|新闻)"),
         ]
         return any(p.match(question) for p in self_contained_patterns)
+
+    # Question suffixes that turn a task keyword into a status/context inquiry
+    # e.g. "创建在哪里了" starts with "创建" but is asking WHERE, not requesting creation
+    _TASK_INQUIRY_PATTERNS: list[re.Pattern] = [
+        re.compile(r"在哪里"),        # where was it created?
+        re.compile(r"在哪"),          # where?
+        re.compile(r"了吗"),          # was it done?
+        re.compile(r"好了吗"),        # is it ready?
+        re.compile(r"完了吗"),        # is it finished?
+        re.compile(r"有没有"),        # does it exist?
+        re.compile(r"怎么.*没有"),    # why isn't there?
+        re.compile(r"没.*看到"),      # I don't see it
+        re.compile(r"找不到"),        # can't find it
+    ]
+
+    @staticmethod
+    def _is_new_task_request(question: str) -> bool:
+        """Detect explicit new tasks that should not inherit old context."""
+        q = (question or "").strip()
+        if not q:
+            return False
+
+        lower = q.lower()
+        if re.match(r"^(继续|接着|然后|再|把它|将它|这个|那个|上面|刚才|之前)", q):
+            return False
+        if re.match(r"^(continue|then|also|again|modify|change|update)\b", lower):
+            return False
+
+        starts = (
+            "创建", "新建", "生成", "写一个", "写个", "写一份", "做一个", "做个",
+            "开发", "实现", "制作", "搭建", "帮我创建", "帮我生成", "帮我写",
+            "请创建", "请生成", "请写", "搜索", "查询", "介绍", "解释",
+        )
+        if q.startswith(starts):
+            # If the question contains a task-inquiry pattern, it's a
+            # follow-up question about the previous task, not a new one.
+            if any(p.search(q) for p in ConversationManager._TASK_INQUIRY_PATTERNS):
+                return False
+            return True
+
+        return bool(
+            re.match(r"^(create|build|generate|write|make|implement|develop|search|explain)\b", lower)
+        )
+
+    @staticmethod
+    def _is_context_dependent_request(question: str) -> bool:
+        """Detect short follow-ups that should inherit current context."""
+        q = (question or "").strip()
+        if not q:
+            return False
+
+        lower = q.lower()
+        if re.match(r"^(继续|接着|然后|再|把它|将它|这个|那个|上面|刚才|之前)", q):
+            return True
+        if re.match(r"^(continue|then|also|again|modify|change|update)\b", lower):
+            return True
+        return bool(
+            re.search(r"(优化|修改|改一下|换成|调整|完善|补充|扩展|重写|润色|删掉|加上|增加)", q)
+        )
 
     @staticmethod
     def _enrich_with_context(question: str, ss: SessionState) -> str:

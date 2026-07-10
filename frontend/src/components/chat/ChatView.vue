@@ -38,8 +38,12 @@
   </div>
 </template>
 
+<script lang="ts">
+export default { name: 'ChatView' }
+</script>
+
 <script setup lang="ts">
-import { ref, inject, watch, nextTick } from 'vue'
+import { ref, inject, watch, nextTick, onActivated } from 'vue'
 import WelcomeView from './WelcomeView.vue'
 import ChatInput from './ChatInput.vue'
 import MessageItem from './MessageItem.vue'
@@ -65,4 +69,9 @@ watch(
     })
   },
 )
+
+/* Recover messages if state was lost during page switch / HMR */
+onActivated(() => {
+  chatState.recoverSessionMessages()
+})
 </script>

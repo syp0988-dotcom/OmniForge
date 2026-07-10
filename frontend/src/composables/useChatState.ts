@@ -30,6 +30,38 @@ const messages = ref<Msg[]>([])
 const sessions = ref<Session[]>([])
 const currentSessionId = ref<number | null>(null)
 
+/* ---- SessionStorage persistence (survives HMR / component teardown) ---- */
+
+const _MSG_KEY = 'omni_msgs'
+const _SID_KEY = 'omni_sid'
+
+watch(messages, (val) => {
+  try { sessionStorage.setItem(_MSG_KEY, JSON.stringify(val)) } catch { /* quota */ }
+}, { deep: true })
+
+watch(currentSessionId, (val) => {
+  if (val != null) sessionStorage.setItem(_SID_KEY, String(val))
+  else sessionStorage.removeItem(_SID_KEY)
+})
+
+/** Restore messages + sessionId from sessionStorage when in-memory state is
+ *  empty (recovers from HMR or unexpected component teardown).  Returns true
+ *  when recovery data was found and applied. */
+function _recoverFromStorage(): boolean {
+  let recovered = false
+  if (messages.value.length === 0) {
+    try {
+      const raw = sessionStorage.getItem(_MSG_KEY)
+      if (raw) { messages.value = JSON.parse(raw); recovered = true }
+    } catch { /* ignore */ }
+  }
+  if (currentSessionId.value == null) {
+    const raw = sessionStorage.getItem(_SID_KEY)
+    if (raw) { currentSessionId.value = Number(raw); recovered = true }
+  }
+  return recovered
+}
+
 /* Load sessions on startup, then load the most recent session's messages */
 ;(async () => {
   try {
@@ -46,6 +78,8 @@ const currentSessionId = ref<number | null>(null)
     }
   } catch (e) {
     console.warn('Failed to load sessions on startup:', e)
+    // Fallback: restore whatever was in sessionStorage
+    _recoverFromStorage()
   }
 })()
 
@@ -358,6 +392,7 @@ export function useChatState() {
         return
       }
       // Streaming failed — update the placeholder with error message
+      console.warn('[ChatState] SSE stream failed:', err, 'agentMsgId:', agentMsgId)
       agentMsg.text = '请求失败，请检查后端是否正常运行。'
       const idx = messages.value.findIndex((m) => m.id === agentMsgId)
       if (idx !== -1) {
@@ -383,6 +418,8 @@ export function useChatState() {
   const newChat = async () => {
     messages.value = []
     currentSessionId.value = null
+    sessionStorage.removeItem(_MSG_KEY)
+    sessionStorage.removeItem(_SID_KEY)
     try {
       const sess = await createSession()
       currentSessionId.value = sess.id
@@ -390,6 +427,65 @@ export function useChatState() {
     } catch (e) {
       console.warn('Failed to create new session:', e)
     }
+  }
+
+  /** Recover messages if in-memory state was lost or corrupted (HMR, cache
+   *  eviction, SSE stream interrupted by page switch before LLM responded).
+   *
+   *  Recovery strategy:
+   *  1. No messages at all → sessionStorage, then backend reload
+   *  2. Stale placeholder (agent msg still "...", stream not running) →
+   *     reload from backend — the SSE response was lost
+   *  3. Messages look intact → no-op
+   *
+   *  Safe to call multiple times. */
+  const recoverSessionMessages = async () => {
+    // Case 1: completely empty — recover from storage/backend
+    if (messages.value.length === 0) {
+      if (_recoverFromStorage()) return
+      const sid = currentSessionId.value
+      if (sid != null) {
+        try { await _loadSessionMessages(sid) } catch { /* ignore */ }
+      }
+      return
+    }
+
+    // Case 2: detect stale placeholder — the last agent message never got
+    // a real response (SSE stream finished/errored while user was on another
+    // page, leaving the "..." placeholder unresolved).
+    const msgs = messages.value
+    const lastMsg = msgs[msgs.length - 1]
+    if (
+      lastMsg &&
+      lastMsg.role === 'agent' &&
+      lastMsg.text === '...' &&
+      !thinking.value
+    ) {
+      // Stream already ended — placeholder was never filled. Reload from
+      // backend to get the persisted response (or remove placeholder if
+      // nothing was saved).
+      const sid = currentSessionId.value
+      if (sid != null) {
+        try {
+          const remote = await getSessionMessages(sid)
+          if (remote.length > 0) {
+            messages.value = remote.map((m) => ({
+              id: String(m.id),
+              role: m.role as 'user' | 'agent',
+              text: m.content,
+            }))
+            return
+          }
+        } catch { /* ignore */ }
+      }
+      // Backend had nothing — remove the stale placeholder so the user
+      // can see their question and retry
+      messages.value = msgs.filter((m) => m.id !== lastMsg.id)
+      return
+    }
+
+    // Case 3: messages look intact, but verify sessionStorage is up to date
+    // (covers edge case where storage was cleared by a crash)
   }
 
   const switchingSession = ref(false)
@@ -714,6 +810,7 @@ export function useChatState() {
     stopChat,
     newChat,
     switchSession,
+    recoverSessionMessages,
     deleteSessionById,
     renameSessionById,
     // agent methods

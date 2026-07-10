@@ -105,6 +105,13 @@ class AnswerAgent(AgentProtocol):
         user_prompt = builder.format_answer_prompt()
         if source_mode == "knowledge":
             user_prompt = self._append_knowledge_sources(user_prompt, state)
+
+        # If the previous turn had a generation failure, include the concrete
+        # failure reason so the LLM doesn't hallucinate an explanation.
+        failure_context = self._get_failure_context(state)
+        if failure_context:
+            user_prompt = failure_context + "\n\n" + user_prompt
+
         messages.append({"role": "user", "content": user_prompt})
 
         if state.get("_stream_answer"):
@@ -129,6 +136,23 @@ class AnswerAgent(AgentProtocol):
             "## 知识库来源文件\n"
             f"{sources}\n\n"
             "请在回答末尾添加“来源：”，列出上面的文件名；不要列出未出现在上方的来源。"
+        )
+
+    @staticmethod
+    def _get_failure_context(state: dict[str, object]) -> str:
+        ss = state.get("session_state")
+        if ss is None:
+            return ""
+        reason = ss.metadata.pop("last_failure_reason", "")
+        goal = ss.metadata.pop("last_failure_goal", "")
+        if not reason:
+            return ""
+        return (
+            "## 上一轮任务失败信息\n"
+            f"上一轮任务「{goal}」执行失败，具体原因如下：\n\n"
+            f"{reason}\n\n"
+            "请基于以上失败信息回答用户的问题。"
+            "如果用户询问失败原因，请直接引用上述信息回答，不要自行推测。"
         )
 
     @staticmethod
@@ -172,6 +196,16 @@ class AnswerAgent(AgentProtocol):
         plan = state.get("plan", {})
         tool_results = state.get("tool_results", [])
         reflection_msg = str(state.get("_reflection_message", ""))
+
+        # Generation failed -> show the specific failure reason
+        if state.get("_generation_failed"):
+            reason = str(state.get("_generation_failure_reason", ""))
+            lines = [f"❌ 目标未完成：**{goal}**", ""]
+            if reason:
+                lines.append(reason)
+            if reflection_msg:
+                lines.extend(["", reflection_msg])
+            return "\n".join(lines)
 
         # Count from task_queue (has actual execution status) rather than
         # plan.tasks (which retains original TODO status).

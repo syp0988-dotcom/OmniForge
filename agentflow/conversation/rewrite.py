@@ -92,6 +92,9 @@ class RewriteEngine:
         if any(p.match(q) for p in _CONFIRM_PATTERNS):
             return False
 
+        if _looks_like_new_task_request(q):
+            return False
+
         # Ordinal references
         if any(p.match(q) for p in _ORDINAL_PATTERNS):
             return True
@@ -124,7 +127,8 @@ class RewriteEngine:
                 return False
             # Pure CJK noun phrases (4+ chars, no modifier verbs) are self-contained
             # e.g. "机器学习入门", "数据结构", "数据分析方法"
-            if re.fullmatch(r"[一-鿿]{4,}", q):
+            # But interrogative words signal a follow-up question, not a topic
+            if re.fullmatch(r"[一-鿿]{4,}", q) and not re.search(r"[哪吗何怎]", q):
                 return False
             # Check if it starts with a verb phrase that might be complete
             # Short complete questions like "你好" are OK
@@ -259,6 +263,9 @@ def _looks_like_standalone_short_topic(text: str) -> bool:
         return False
     if re.search(r"[？?！!，,。；;：:\s]", q):
         return False
+    # Interrogative particles → this is a question, not a standalone topic
+    if re.search(r"[哪吗何怎]", q):
+        return False
     if re.search(r"[一-\u9fff].*[a-zA-Z0-9]|[a-zA-Z0-9].*[一-\u9fff]", q):
         return True
     if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{1,14}", q):
@@ -266,3 +273,44 @@ def _looks_like_standalone_short_topic(text: str) -> bool:
     if re.fullmatch(r"[一-\u9fff]{3,8}", q):
         return True
     return False
+
+
+# Question suffixes that turn a task keyword into a status/context inquiry
+_TASK_INQUIRY_PATTERNS: list[re.Pattern] = [
+    re.compile(r"在哪里"),
+    re.compile(r"在哪"),
+    re.compile(r"了吗"),
+    re.compile(r"好了吗"),
+    re.compile(r"完了吗"),
+    re.compile(r"有没有"),
+    re.compile(r"怎么.*没有"),
+    re.compile(r"没.*看到"),
+    re.compile(r"找不到"),
+]
+
+
+def _looks_like_new_task_request(text: str) -> bool:
+    """Detect explicit new tasks that should stay independent."""
+    q = text.strip()
+    if not q:
+        return False
+
+    lower = q.lower()
+    if re.match(r"^(继续|接着|然后|再|把它|将它|这个|那个|上面|刚才|之前)", q):
+        return False
+    if re.match(r"^(continue|then|also|again|modify|change|update)\b", lower):
+        return False
+
+    starts = (
+        "创建", "新建", "生成", "写一个", "写个", "写一份", "做一个", "做个",
+        "开发", "实现", "制作", "搭建", "帮我创建", "帮我生成", "帮我写",
+        "请创建", "请生成", "请写", "搜索", "查询", "介绍", "解释",
+    )
+    if q.startswith(starts):
+        if any(p.search(q) for p in _TASK_INQUIRY_PATTERNS):
+            return False
+        return True
+
+    return bool(
+        re.match(r"^(create|build|generate|write|make|implement|develop|search|explain)\b", lower)
+    )

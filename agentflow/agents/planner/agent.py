@@ -588,18 +588,37 @@ class PlannerAgent(AgentProtocol):
             inp = _parse_tool_arguments(tc.arguments, tc.name)
 
             # Write_file with no path = args parsing failed (common with DeepSeek FC
-            # when large code content corrupts the JSON).  Instead of silently
-            # skipping, try to recover the path from raw args and create a mkdir
-            # task so the reflector can detect the empty directory and generate
-            # the actual file content via _generate_stuck_tasks.
+            # when large code content corrupts the JSON).  Try to recover path and
+            # content from the raw args.  If content is recoverable, create the
+            # write_file task directly; otherwise fall back to a mkdir task so the
+            # reflector can detect and fill in the missing file.
             if action in ("write_file", "create_file") and not inp.get("path"):
                 path = _extract_path_from_args(tc.arguments)
-                if path:
+                if not path:
+                    logger.warning(
+                        "Skipping %s task — no valid path after parsing args", tc.name
+                    )
+                    continue
+                content = _extract_content_from_args(tc.arguments)
+                if content and len(content) > 10:
+                    tasks.append(Task(
+                        task_id=f"{tc.name.replace('__', '_')}_{i}",
+                        title=f"创建 {path}",
+                        priority=80,
+                        tool="filesystem",
+                        goal=f"write_file: {path}",
+                        input={"action": "write_file", "path": path, "content": content},
+                        agent="planner",
+                    ))
+                    logger.info(
+                        "Recovered path='%s' + content (%d chars) from malformed FC args",
+                        path, len(content),
+                    )
+                else:
                     parent = str(Path(path).parent)
                     if parent and parent != ".":
                         mkdir_path = parent
                     else:
-                        # No parent dir in path, use the filename stem as project dir
                         mkdir_path = Path(path).stem
                     mkdir_id = f"mkdir_{mkdir_path.replace('/', '_').replace('.', '')}"
                     tasks.append(Task(
@@ -612,12 +631,8 @@ class PlannerAgent(AgentProtocol):
                         agent="planner",
                     ))
                     logger.info(
-                        "Extracted path='%s' from malformed FC args → mkdir '%s'",
+                        "Recovered path='%s' (no content) → mkdir '%s'",
                         path, mkdir_path,
-                    )
-                else:
-                    logger.warning(
-                        "Skipping %s task — no valid path after parsing args", tc.name
                     )
                 continue
 
@@ -648,9 +663,8 @@ class PlannerAgent(AgentProtocol):
     # Build Plan from JSON
     # ------------------------------------------------------------------
 
-    @staticmethod
     def _build_plan_from_json(
-        data: dict[str, Any], goal: str, goal_type: str,
+        self, data: dict[str, Any], goal: str, goal_type: str,
     ) -> Plan:
         """Convert a validated JSON dict into a Plan."""
         goal_completed = bool(data.get("goal_completed", False))
@@ -691,7 +705,7 @@ class PlannerAgent(AgentProtocol):
             # Legacy format: capability field instead of tool
             capability_raw = str(item.get("capability", "")).strip()
             if not tool and capability_raw:
-                tool = resolve_capability(capability_raw) or ""
+                tool = resolve_capability(capability_raw, self.registry) or ""
                 capability = capability_raw
             elif tool:
                 capability = f"{tool}.{action}" if action else tool
@@ -811,6 +825,38 @@ def _extract_path_from_args(raw: str | None) -> str | None:
         return None
     m = re.search(r'"path"\s*:\s*"([^"]+)"', raw)
     return m.group(1) if m else None
+
+
+def _extract_content_from_args(raw: str | None) -> str | None:
+    """Extract the ``content`` field from malformed JSON arguments via regex.
+
+    When LLM function calling returns corrupted JSON (common with large code
+    content containing unescaped newlines/quotes), the ``content`` field is
+    typically the last field in the JSON object.  This extracts it so that
+    write_file tasks don't need to be silently dropped.
+    """
+    if not raw:
+        return None
+    # Strategy 1: content is the last field — greedy match to trailing "}
+    m = re.search(r'"content"\s*:\s*"(.*)"\s*\}?\s*$', raw, re.DOTALL)
+    if m:
+        return _unescape_json_content(m.group(1))
+    # Strategy 2: content is followed by other fields — lazy match to next "field":
+    m = re.search(r'"content"\s*:\s*"(.+?)"\s*,\s*"[a-z_]+"\s*:', raw, re.DOTALL)
+    if m:
+        return _unescape_json_content(m.group(1))
+    return None
+
+
+def _unescape_json_content(raw: str) -> str:
+    """Undo basic JSON string escaping in recovered content."""
+    result = raw
+    result = result.replace("\\n", "\n")
+    result = result.replace("\\t", "\t")
+    result = result.replace("\\r", "\r")
+    result = result.replace('\\"', '"')
+    result = result.replace("\\\\", "\\")
+    return result
 
 
 def _fix_json_newlines(raw: str) -> str:

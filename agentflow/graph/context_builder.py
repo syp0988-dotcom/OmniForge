@@ -343,10 +343,17 @@ class ContextBuilder:
 
         return "\n".join(parts) if parts else ""
 
+    @property
+    def workspace_path(self) -> Path:
+        """The workspace directory for file operations (matches FileSystemTool)."""
+        return settings.project_root / "outputs"
+
     def _get_project_structure(self) -> str:
         """Get a lightweight project directory listing."""
+        root = self.workspace_path
+        if not root.exists():
+            return ""
         try:
-            root = Path.cwd()
             entries = list(root.iterdir())[:30]  # max 30 entries
             if entries:
                 lines = []
@@ -364,7 +371,7 @@ class ContextBuilder:
 
     def get_workspace_state(self) -> dict[str, Any]:
         """Scan the workspace and return current file/directory state."""
-        ws_path = Path.cwd()
+        ws_path = self.workspace_path
         files: set[str] = set()
         dirs: set[str] = set()
 

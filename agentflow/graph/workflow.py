@@ -62,6 +62,7 @@ class WorkflowState(TypedDict, total=False):
 
     question: str
     workflow: list[str]
+    source_mode: str  # "auto" | "web" | "knowledge" — user's explicit source choice
     category: str  # Backward compat — set from goal_type
     plan: dict[str, Any]
     search_results: list[dict[str, Any]]

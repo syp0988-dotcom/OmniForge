@@ -107,7 +107,7 @@ class Task:
 
     def complete(self, result: Any = None) -> None:
         """Mark the task as completed, optionally storing a result."""
-        self.status = TaskStatus.COMPLETED
+        self.status = TaskStatus.DONE
         if result is not None:
             self.result = result
         self.updated_at = datetime.now(timezone.utc).isoformat()
@@ -138,6 +138,7 @@ class Task:
     def is_terminal(self) -> bool:
         """Whether the task has reached a terminal state."""
         return self.status in (
+            TaskStatus.DONE,
             TaskStatus.COMPLETED,
             TaskStatus.FAILED,
             TaskStatus.CANCELLED,
