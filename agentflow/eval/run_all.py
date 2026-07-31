@@ -5,7 +5,6 @@ Covers: Tool Eval, Planner Eval, Completion Eval, Intent Eval, RAG Eval.
 
 from __future__ import annotations
 
-import sys
 import traceback
 from pathlib import Path
 
@@ -32,9 +31,9 @@ def run_tool_eval():
     result = runner.run(verbose=True)
 
     summary = result["summary"]
-    print(f"\n--- Tool Eval Results ---")
+    print("\n--- Tool Eval Results ---")
     print(f"Overall success_rate: {summary['success_rate']:.2%}")
-    print(f"Action rates:")
+    print("Action rates:")
     for action, rate in sorted(summary.get("action_rates", {}).items()):
         print(f"  {action}: {rate:.2%}")
     print(f"Error distribution: {summary.get('error_distribution', {})}")
@@ -70,7 +69,7 @@ def run_planner_eval():
     result = runner.run(verbose=True)
 
     summary = result["summary"]
-    print(f"\n--- Planner Eval Results ---")
+    print("\n--- Planner Eval Results ---")
     for key, value in sorted(summary.items()):
         print(f"  {key}: {value:.4f}")
 
@@ -98,11 +97,11 @@ def run_completion_eval():
     result = runner.run(max_turns=5, verbose=True)
 
     summary = result["summary"]
-    print(f"\n--- Completion Eval Results ---")
+    print("\n--- Completion Eval Results ---")
     for key, value in sorted(summary.items()):
         print(f"  {key}: {value:.4f}")
 
-    print(f"\nPer-sample:")
+    print("\nPer-sample:")
     for s in runner.per_sample:
         status = "OK" if s.get("expected_match", False) else "MISMATCH"
         print(f"  [{status}] {s['sample_id']}: turns={s.get('turns_taken',0)} "
@@ -134,16 +133,16 @@ def run_intent_eval():
     result = runner.run(verbose=True)
 
     summary = result["summary"]
-    print(f"\n--- Intent Eval Results ---")
+    print("\n--- Intent Eval Results ---")
     print(f"goal_type_accuracy:  {summary.get('goal_type_accuracy', 0):.2%}")
     print(f"embedding_hit_rate:  {summary.get('embedding_hit_rate', 0):.2%}")
     print(f"embedding_accuracy:  {summary.get('embedding_accuracy', 0):.2%}")
     print(f"llm_accuracy:        {summary.get('llm_accuracy', 0):.2%}")
     print(f"confidence_mean:     {summary.get('confidence_mean', 0):.4f}")
-    print(f"\nPer-label accuracy:")
+    print("\nPer-label accuracy:")
     for label, acc in sorted(summary.get("per_label_accuracy", {}).items()):
         print(f"  {label}: {acc:.2%}")
-    print(f"\nConfusion matrix:")
+    print("\nConfusion matrix:")
     confusion = summary.get("confusion", {})
     for expected_label, actuals in sorted(confusion.items()):
         for actual_label, count in sorted(actuals.items()):
@@ -189,7 +188,7 @@ def run_rag_eval():
     result = runner.run(verbose=True)
 
     summary = result["summary"]
-    print(f"\n--- RAG Eval Results ---")
+    print("\n--- RAG Eval Results ---")
     for key in ["recall@1", "recall@3", "recall@5", "recall@10",
                  "precision@1", "precision@3", "precision@5", "precision@10",
                  "ndcg@1", "ndcg@3", "ndcg@5", "ndcg@10",

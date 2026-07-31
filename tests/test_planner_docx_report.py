@@ -46,8 +46,8 @@ def test_python_java_snake_goal_creates_two_files():
     queue = result["task_queue"]
     paths = [task["input"]["path"] for task in queue]
 
-    assert paths == ["snake_game/python_snake.py", "snake_game/JavaSnake.java"]
+    assert paths == ["snake_game/snake_game.py", "snake_game/SnakeGame.java"]
     assert all(task["tool"] == "filesystem" for task in queue)
     assert all(task["input"]["action"] == "write_file" for task in queue)
-    assert "Python Snake demo" in queue[0]["input"]["content"]
-    assert "Java Snake demo" in queue[1]["input"]["content"]
+    assert "tkinter" in queue[0]["input"]["content"]
+    assert "javax.swing" in queue[1]["input"]["content"]

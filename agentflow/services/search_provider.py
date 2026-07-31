@@ -24,9 +24,24 @@ from urllib.parse import unquote_plus
 
 import requests
 
+from agentflow.config.settings import settings
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("search_provider")
+
+
+def _make_session() -> requests.Session:
+    """Create a requests Session with proxy support from settings."""
+    session = requests.Session()
+    proxies = {}
+    if settings.https_proxy:
+        proxies["https"] = settings.https_proxy
+    if settings.http_proxy:
+        proxies["http"] = settings.http_proxy
+    if proxies:
+        session.proxies.update(proxies)
+        logger.info("Search HTTP session configured with proxy")
+    return session
 
 
 class BaseSearchProvider(ABC):
@@ -51,12 +66,14 @@ class TavilyProvider(BaseSearchProvider):
 
     Requires an API key from https://app.tavily.com.
     Supports general, news, and finance search with configurable depth.
+    Uses HTTP proxy from settings (HTTP_PROXY / HTTPS_PROXY) when configured.
     """
 
     BASE_URL = "https://api.tavily.com/search"
 
     def __init__(self, api_key: str = "") -> None:
         self._api_key = api_key or os.environ.get("TAVILY_API_KEY", "")
+        self._session = _make_session()
 
     def search(self, query: str, max_results: int = 5, **kwargs: Any) -> list[dict[str, Any]]:
         """Execute search via Tavily API and return normalized results."""
@@ -79,7 +96,7 @@ class TavilyProvider(BaseSearchProvider):
         }
 
         try:
-            response = requests.post(
+            response = self._session.post(
                 self.BASE_URL, json=payload, headers=headers, timeout=15
             )
             response.raise_for_status()
@@ -108,6 +125,7 @@ class DuckDuckGoProvider(BaseSearchProvider):
 
     Scrapes the public ``html.duckduckgo.com/html/`` page (no API key
     required).  Returns up to 5 results.
+    Uses HTTP proxy from settings when configured.
     """
 
     BASE_URL = "https://html.duckduckgo.com/html/"
@@ -117,13 +135,16 @@ class DuckDuckGoProvider(BaseSearchProvider):
     )
     MAX_RESULTS = 5
 
+    def __init__(self) -> None:
+        self._session = _make_session()
+
     def search(self, query: str) -> list[dict[str, Any]]:
         """Execute a DuckDuckGo search and return normalized results."""
         payload = {"q": query, "kl": "us-en"}
         headers = {"User-Agent": self.USER_AGENT}
 
         try:
-            response = requests.get(
+            response = self._session.get(
                 self.BASE_URL, params=payload, headers=headers, timeout=15
             )
             response.raise_for_status()

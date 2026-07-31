@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.env
+.git
+.gitignore
+logs/
+outputs/
+knowledge_files/
+data/
+uploads/
+frontend/
+tests/
+*.log
+*.db
+.venv/
+venv/

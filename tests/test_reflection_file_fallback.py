@@ -15,7 +15,7 @@ def test_stuck_file_creation_generates_python_and_java_snake_tasks(tmp_path, mon
 
     paths = [task["input"]["path"] for task in tasks]
     assert paths == [
-        "generated_files/snake_games/python_snake.py",
+        "generated_files/snake_games/snake_game.py",
         "generated_files/snake_games/SnakeGame.java",
     ]
     assert all(task["tool"] == "filesystem" for task in tasks)
@@ -43,7 +43,7 @@ def test_empty_project_queue_gets_file_creation_fallback(tmp_path, monkeypatch):
     assert len(queue) == 2
     assert {task["status"] for task in queue} == {"todo"}
     assert {task["input"]["path"] for task in queue} == {
-        "generated_files/snake_games/python_snake.py",
+        "generated_files/snake_games/snake_game.py",
         "generated_files/snake_games/SnakeGame.java",
     }
 

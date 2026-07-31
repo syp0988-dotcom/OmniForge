@@ -86,7 +86,7 @@ class Event:
 # ---------------------------------------------------------------------------
 
 # Avoid circular import at module level — import WorkflowContext lazily.
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING  # noqa: E402
 
 if TYPE_CHECKING:
     from agentflow.graph.context import WorkflowContext

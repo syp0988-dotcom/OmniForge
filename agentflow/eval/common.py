@@ -117,7 +117,7 @@ class MockLLMService:
         self._responses = responses or {}
         self._tool_call_responses = tool_call_responses or []
         self._tc_index = 0
-        self._degraded = degraded
+        self._degraded = bool(degraded)
 
     @property
     def client(self):

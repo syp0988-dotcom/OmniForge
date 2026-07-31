@@ -11,7 +11,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 
 from agentflow.agents.search.query_rewriter import QueryRewriter
 from agentflow.conversation.session_state import SessionState

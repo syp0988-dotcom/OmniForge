@@ -46,7 +46,8 @@ class AnswerAgent(AgentProtocol):
         """
         is_continue = bool(state.get("_continue_mode", False))
         goal_analysis = state.get("goal_analysis", {})
-        degraded = bool(state.get("_degraded", False))
+        _degraded_set: set = state.get("_degraded", set()) or set()
+        degraded = "_answer" in _degraded_set or bool(_degraded_set)
         llm_error = str(state.get("_llm_error", ""))
 
         if isinstance(goal_analysis, dict):
@@ -140,20 +141,32 @@ class AnswerAgent(AgentProtocol):
 
     @staticmethod
     def _get_failure_context(state: dict[str, object]) -> str:
+        # Primary: unified _errors channel
+        errors = state.get("_errors", [])
+        if errors:
+            last = errors[-1]
+            return (
+                "## 任务失败信息\n"
+                f"错误来源：{last.get('source', '?')}\n"
+                f"错误类型：{last.get('type', '?')}\n\n"
+                f"{last.get('message', '')}\n\n"
+                "请基于以上失败信息回答用户的问题。"
+                "如果用户询问失败原因，请直接引用上述信息回答，不要自行推测。"
+            )
+        # Fallback: legacy session_state channel (backward compat)
         ss = state.get("session_state")
-        if ss is None:
-            return ""
-        reason = ss.metadata.pop("last_failure_reason", "")
-        goal = ss.metadata.pop("last_failure_goal", "")
-        if not reason:
-            return ""
-        return (
-            "## 上一轮任务失败信息\n"
-            f"上一轮任务「{goal}」执行失败，具体原因如下：\n\n"
-            f"{reason}\n\n"
-            "请基于以上失败信息回答用户的问题。"
-            "如果用户询问失败原因，请直接引用上述信息回答，不要自行推测。"
-        )
+        if ss is not None:
+            reason = ss.metadata.pop("last_failure_reason", "")
+            goal = ss.metadata.pop("last_failure_goal", "")
+            if reason:
+                return (
+                    "## 上一轮任务失败信息\n"
+                    f"上一轮任务「{goal}」执行失败，具体原因如下：\n\n"
+                    f"{reason}\n\n"
+                    "请基于以上失败信息回答用户的问题。"
+                    "如果用户询问失败原因，请直接引用上述信息回答，不要自行推测。"
+                )
+        return ""
 
     @staticmethod
     def _format_knowledge_sources(results: object) -> str:
@@ -194,12 +207,19 @@ class AnswerAgent(AgentProtocol):
     ) -> str:
         """Build a completion summary for project/coding/refactor goals."""
         plan = state.get("plan", {})
-        tool_results = state.get("tool_results", [])
         reflection_msg = str(state.get("_reflection_message", ""))
 
         # Generation failed -> show the specific failure reason
         if state.get("_generation_failed"):
-            reason = str(state.get("_generation_failure_reason", ""))
+            # Primary: unified _errors channel; fallback: legacy key
+            errors = state.get("_errors", [])
+            reason = ""
+            if errors:
+                last = errors[-1]
+                if last.get("type") == "generation_failed":
+                    reason = last.get("message", "")
+            if not reason:
+                reason = str(state.get("_generation_failure_reason", ""))
             lines = [f"❌ 目标未完成：**{goal}**", ""]
             if reason:
                 lines.append(reason)

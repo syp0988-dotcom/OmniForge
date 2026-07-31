@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from jinja2 import BaseLoader, Environment, FileSystemLoader, TemplateNotFound
+from jinja2 import FileSystemLoader, TemplateNotFound
 from jinja2.sandbox import SandboxedEnvironment
 
 from agentflow.blueprints.configurator import ProjectConfig

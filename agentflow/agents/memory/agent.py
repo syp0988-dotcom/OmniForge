@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from agentflow.agents.base import AgentProtocol
-from agentflow.conversation.manager import ConversationManager
 from agentflow.conversation.session_state import SessionState
 from agentflow.services.long_term_memory import LongTermMemory
 from agentflow.utils.decorators import safe_run
@@ -67,16 +66,6 @@ class MemoryAgent(AgentProtocol):
             "history": history,
             "context_str": context_str,
         }
-
-        # -- Update session state heuristics based on the answer -----------
-        # Always run finalize_turn — even when answer is empty (e.g. LLM
-        # unavailable).  Otherwise current_goal never gets set and follow-up
-        # questions like "什么意思" have no context to resolve against.
-        ss = state.get("session_state")
-        if not isinstance(ss, SessionState):
-            ss = SessionState()
-        ConversationManager.finalize_turn(state, ss, answer)
-        state["session_state"] = ss
 
         # -- Enhanced memory: summary, goals, topic tracking ---------------
         self._update_memory_meta(state["memory"], state, question, answer, history)

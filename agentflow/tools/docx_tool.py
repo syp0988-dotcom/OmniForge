@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -175,9 +174,7 @@ class DocxTool(BaseTool):
 
     def _cmd_create(self, path: str = "", content: str = "", **kwargs: Any) -> ToolResult:
         from docx import Document
-        from docx.shared import Inches, Pt, Cm
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
-        from docx.oxml.ns import qn
+        from docx.shared import Pt
 
         filepath = self._resolve(path)
 

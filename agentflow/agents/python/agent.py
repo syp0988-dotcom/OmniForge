@@ -7,9 +7,9 @@ PythonTool (via the Executor in future, directly for now).
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from agentflow.agents.base import AgentProtocol
+from agentflow.config.settings import settings
 from agentflow.tools.python_tool import PythonTool
 from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
@@ -28,6 +28,26 @@ class PythonAgent(AgentProtocol):
 
     @safe_run
     def run(self, state: dict[str, object]) -> dict[str, object]:
+        # Safety check: honour the ALLOW_UNSAFE_PYTHON_TOOL setting
+        if not settings.allow_unsafe_python_tool:
+            logger.warning("Python execution blocked by ALLOW_UNSAFE_PYTHON_TOOL=False")
+            state["python_result"] = {
+                "status": "blocked",
+                "stdout": "",
+                "stderr": "",
+                "return_code": 0,
+                "duration": 0.0,
+            }
+            state["tool_results"] = [{
+                "success": True,
+                "tool": "python",
+                "action": "execute",
+                "result": {"status": "blocked"},
+                "error": None,
+                "message": "Python execution blocked by safety policy (ALLOW_UNSAFE_PYTHON_TOOL=False)",
+            }]
+            return state
+
         # Find the python task in the task queue and mark it running
         task_queue: list[dict] = list(state.get("task_queue", []) or [])
         task = self._find_python_task(task_queue)

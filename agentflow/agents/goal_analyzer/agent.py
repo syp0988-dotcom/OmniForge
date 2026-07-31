@@ -20,8 +20,8 @@ import json
 from typing import Any
 
 from agentflow.agents.base import AgentProtocol
+from agentflow.utils.errors import record_error as _record_error
 from agentflow.agents.goal_analyzer.intent_index import (
-    INTENT_LABEL_TO_GOAL_TYPE,
     IntentIndex,
 )
 from agentflow.config.prompts import GOAL_ANALYZER_SYSTEM_PROMPT
@@ -123,8 +123,9 @@ class GoalAnalyzer(AgentProtocol):
         }
 
         if goal.get("fallback"):
-            state["_degraded"] = True
-            state["_llm_error"] = "GoalAnalyzer: LLM 不可用，使用默认目标分析"
+            state.setdefault("_degraded", set()).add("goal_analyzer")
+            _record_error(state, "goal_analyzer", "llm_unavailable",
+                          "GoalAnalyzer: LLM 不可用，使用默认目标分析")
 
         logger.info(
             "Goal: type=%s knowledge=%s confidence=%.2f goal='%s'%s%s",

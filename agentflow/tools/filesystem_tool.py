@@ -16,13 +16,14 @@ keyword argument to ``execute()``):
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
-import stat
-import time
 from pathlib import Path
 from typing import Any
+
+from agentflow.tools.base import BaseTool
+from agentflow.tools.result import ToolResult
+from agentflow.utils.logging import build_logger
 
 
 def _extract_code_from_markdown(text: str) -> str:
@@ -55,9 +56,6 @@ def _extract_code_from_markdown(text: str) -> str:
         return text
     return "\n".join(blocks).strip()
 
-from agentflow.tools.base import BaseTool
-from agentflow.tools.result import ToolResult
-from agentflow.utils.logging import build_logger
 
 logger = build_logger("filesystem_tool")
 
@@ -108,7 +106,8 @@ class FileSystemTool(BaseTool):
                 "description": "创建新文件（文件已存在则失败）",
                 "parameters": {
                     "path": {"type": "string", "description": "文件路径（相对于工作区）"},
-                    "content": {"type": "string", "description": "初始文件内容"},
+                    "content": {"type": "string", "description": "初始文件内容（纯文本文件填写，代码文件留空）"},
+                    "code_prompt": {"type": "string", "description": "代码文件的需求描述（一句话说明这个文件要实现什么功能），代码文件用此字段代替 content"},
                 },
                 "required": ["path"],
             },
@@ -116,9 +115,10 @@ class FileSystemTool(BaseTool):
                 "description": "写入文件内容（覆盖已有文件）",
                 "parameters": {
                     "path": {"type": "string", "description": "文件路径（相对于工作区）"},
-                    "content": {"type": "string", "description": "要写入的完整内容"},
+                    "content": {"type": "string", "description": "要写入的完整内容（纯文本文件填写，代码文件留空）"},
+                    "code_prompt": {"type": "string", "description": "代码文件的需求描述（一句话说明这个文件要实现什么功能），代码文件用此字段代替 content"},
                 },
-                "required": ["path", "content"],
+                "required": ["path"],
             },
             "append_file": {
                 "description": "向已有文件追加内容",

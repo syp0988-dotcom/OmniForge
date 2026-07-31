@@ -35,7 +35,13 @@ from pathlib import Path
 from typing import Any
 
 from agentflow.agents.base import AgentProtocol
+from agentflow.utils.errors import record_error as _record_error
 from agentflow.agents.planner.task_queue import TaskQueue
+from agentflow.agents.planner.special_goals import (
+    go_snake_content,
+    java_snake_content,
+    python_snake_content,
+)
 from agentflow.agents.planner.templates import (
     extract_project_name,
     get_existing_files,
@@ -158,8 +164,10 @@ class ReflectionAgent(AgentProtocol):
             return self._done("任务队列为空，无需继续")
 
         # Evaluate: rule-based first, LLM only for complex decisions
+        _degraded_set: set = state.get("_degraded", set()) or set()
         reflection = self._evaluate(
             goal, goal_type, current_queue, tool_results,
+            degraded_set=_degraded_set,
         )
 
         # Apply task updates
@@ -215,18 +223,19 @@ class ReflectionAgent(AgentProtocol):
                 reflection["goal_completed"] = True
                 reflection["reason"] = "无法自动生成文件内容"
                 state["_generation_failed"] = True
-                state["_generation_failure_reason"] = (
+                failure_msg = (
                     f"已创建项目目录，但无法自动生成「{goal}」的代码文件。\n\n"
                     "可能的原因：\n"
                     "1. 大模型输出的代码内容在传输过程中损坏，导致文件写入任务丢失\n"
                     "2. 当前内置模板不支持该编程语言或项目类型\n\n"
                     "请重新描述你的需求，或直接告诉我需要创建哪些文件及其具体内容。"
                 )
-                # Persist to session_state so follow-up questions (e.g. "为什么失败")
-                # can access the concrete failure reason instead of hallucinating.
+                state["_generation_failure_reason"] = failure_msg
+                _record_error(state, "reflection", "generation_failed", failure_msg)
+                # Backward-compat: persist to session_state for follow-up questions
                 ss = state.get("session_state")
                 if ss is not None:
-                    ss.metadata["last_failure_reason"] = state["_generation_failure_reason"]
+                    ss.metadata["last_failure_reason"] = failure_msg
                     ss.metadata["last_failure_goal"] = goal
                 logger.warning(
                     "Reflection fallback: no template for goal '%s', reporting failure",
@@ -339,6 +348,7 @@ class ReflectionAgent(AgentProtocol):
         goal_type: str,
         queue: TaskQueue,
         tool_results: list[dict[str, Any]],
+        degraded_set: set | None = None,
     ) -> dict[str, Any]:
         """Evaluate task results — rule-based by default, LLM only for complex cases.
 
@@ -360,6 +370,11 @@ class ReflectionAgent(AgentProtocol):
             "Reflection eval: has_failure=%s all_done=%s stuck=%s rule_new_tasks=%d",
             has_failure, all_done, stuck, len(rule_result.get("new_tasks", [])),
         )
+
+        # Respect per-node degraded mode
+        if degraded_set and ("_reflection" in degraded_set or "_planner" in degraded_set):
+            logger.info("Reflection eval -> degraded, skipping LLM")
+            return rule_result
 
         if all_done and not has_failure:
             logger.info("Reflection eval -> rule-complete, skipping LLM")
@@ -472,7 +487,6 @@ class ReflectionAgent(AgentProtocol):
             if not isinstance(r, dict):
                 continue
             success = r.get("success", False)
-            error = r.get("error", "")
             task_name = r.get("action", r.get("goal", ""))
 
             # Try to find the corresponding task by matching goal/path.
@@ -707,8 +721,12 @@ def _deterministic_file_fallback_tasks(
     wants_python = "python" in text or re.search(r"\bpy\b", text) is not None
     wants_java = "java" in text
     wants_go = "go" in text or "golang" in text or "go语言" in goal
-    wants_snake = "snake" in text or "贪吃蛇" in goal
-    wants_files = any(token in goal for token in ("文件", "创建", "新建", "生成", "写", "完成"))
+    wants_snake = "snake" in text or "贪吃蛇" in goal or "蛇" in goal
+    wants_files = any(
+        token in goal
+        for token in ("文件", "创建", "新建", "生成", "写", "完成", "编写",
+                       "实现", "做", "开发", "帮忙", "帮我", "请", "游戏")
+    )
 
     if not wants_files:
         return []
@@ -717,12 +735,16 @@ def _deterministic_file_fallback_tasks(
     existing = _existing_file_names(results, dir_name)
     specs: list[tuple[str, str]] = []
 
+    # Snake game templates — only generate requested language(s)
     if wants_snake and wants_python:
-        specs.append(("python_snake.py", _PYTHON_SNAKE_TEMPLATE))
+        specs.append(("snake_game.py", python_snake_content()))
     if wants_snake and wants_java:
-        specs.append(("SnakeGame.java", _JAVA_SNAKE_TEMPLATE))
+        specs.append(("SnakeGame.java", java_snake_content()))
     if wants_snake and wants_go:
-        specs.append(("snake.go", _GO_SNAKE_TEMPLATE))
+        specs.append(("snake.go", go_snake_content()))
+    # If snake but no language specified, default to Python
+    if wants_snake and not wants_python and not wants_java and not wants_go:
+        specs.append(("snake_game.py", python_snake_content()))
 
     if not specs:
         if wants_python:
@@ -817,447 +839,6 @@ import "fmt"
 func main() {{
     fmt.Println("Hello from {project_name}!")
 }}
-'''
-
-_GO_SNAKE_TEMPLATE = r'''package main
-
-import (
-	"fmt"
-	"math/rand"
-	"os"
-	"time"
-
-	"github.com/gdamore/tcell/v2"
-)
-
-const (
-	cell  = 20
-	width = 30
-	height = 20
-	tickMs = 120
-)
-
-type Point struct{ X, Y int }
-
-var (
-	screen   tcell.Screen
-	snake    []Point
-	food     Point
-	dir      = Point{1, 0}
-	nextDir  = Point{1, 0}
-	score    int
-	gameOver bool
-)
-
-func main() {
-	var err error
-	screen, err = tcell.NewScreen()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
-	}
-	if err := screen.Init(); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
-	}
-	defer screen.Fini()
-
-	screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite))
-	screen.EnableMouse()
-	rand.Seed(time.Now().UnixNano())
-
-	reset()
-	go inputLoop()
-	gameLoop()
-}
-
-func reset() {
-	snake = []Point{{width / 2, height / 2}, {width/2 - 1, height / 2}}
-	food = newFood()
-	dir = Point{1, 0}
-	nextDir = Point{1, 0}
-	score = 0
-	gameOver = false
-}
-
-func newFood() Point {
-	for {
-		p := Point{rand.Intn(width), rand.Intn(height)}
-		hit := false
-		for _, s := range snake {
-			if s == p {
-				hit = true
-				break
-			}
-		}
-		if !hit {
-			return p
-		}
-	}
-}
-
-func inputLoop() {
-	for {
-		ev := screen.PollEvent()
-		switch ev := ev.(type) {
-		case *tcell.EventKey:
-			if gameOver && ev.Key() == tcell.KeyRune && ev.Rune() == ' ' {
-				reset()
-				continue
-			}
-			switch ev.Key() {
-			case tcell.KeyUp, tcell.KeyRune:
-				if ev.Rune() == 'w' || ev.Rune() == 'W' {
-					if dir.Y != 1 { nextDir = Point{0, -1} }
-				}
-			case tcell.KeyDown:
-				if dir.Y != -1 { nextDir = Point{0, 1} }
-			case tcell.KeyLeft:
-				if dir.X != 1 { nextDir = Point{-1, 0} }
-			case tcell.KeyRight:
-				if dir.X != -1 { nextDir = Point{1, 0} }
-			case tcell.KeyRune:
-				switch ev.Rune() {
-				case 'w', 'W':
-					if dir.Y != 1 { nextDir = Point{0, -1} }
-				case 's', 'S':
-					if dir.Y != -1 { nextDir = Point{0, 1} }
-				case 'a', 'A':
-					if dir.X != 1 { nextDir = Point{-1, 0} }
-				case 'd', 'D':
-					if dir.X != -1 { nextDir = Point{1, 0} }
-				}
-			}
-		}
-	}
-}
-
-func gameLoop() {
-	ticker := time.NewTicker(time.Duration(tickMs) * time.Millisecond)
-	defer ticker.Stop()
-	for range ticker.C {
-		if !gameOver {
-			dir = nextDir
-			head := snake[0]
-			newHead := Point{head.X + dir.X, head.Y + dir.Y}
-			if newHead.X < 0 || newHead.X >= width || newHead.Y < 0 || newHead.Y >= height {
-				gameOver = true
-			} else {
-				for _, s := range snake {
-					if s == newHead {
-						gameOver = true
-						break
-					}
-				}
-			}
-			if !gameOver {
-				snake = append([]Point{newHead}, snake...)
-				if newHead == food {
-					score++
-					food = newFood()
-				} else {
-					snake = snake[:len(snake)-1]
-				}
-			}
-		}
-		draw()
-		if gameOver {
-			time.Sleep(3 * time.Second)
-			return
-		}
-	}
-}
-
-func draw() {
-	screen.Clear()
-	// Draw food
-	foodStyle := tcell.StyleDefault.Foreground(tcell.ColorRed)
-	screen.SetContent(food.X*2, food.Y, '█', nil, foodStyle)
-
-	// Draw snake
-	for i, s := range snake {
-		var style tcell.Style
-		if i == 0 {
-			style = tcell.StyleDefault.Foreground(tcell.ColorGreen)
-		} else {
-			style = tcell.StyleDefault.Foreground(tcell.ColorLightGreen)
-		}
-		screen.SetContent(s.X*2, s.Y, '█', nil, style)
-	}
-
-	// Score
-	scoreStr := fmt.Sprintf("Score: %d", score)
-	for i, r := range scoreStr {
-		screen.SetContent(i, height, r, nil, tcell.StyleDefault.Foreground(tcell.ColorWhite))
-	}
-	if gameOver {
-		msg := "Game Over - press Space"
-		for i, r := range msg {
-			screen.SetContent(width - len(msg)/2 + i, height/2, r, nil, tcell.StyleDefault.Foreground(tcell.ColorYellow))
-		}
-	}
-	screen.Show()
-}
-'''
-
-_PYTHON_SNAKE_TEMPLATE = '''import random
-import tkinter as tk
-
-CELL = 20
-WIDTH = 30
-HEIGHT = 20
-TICK_MS = 120
-
-
-class SnakeGame:
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("Python Snake")
-        self.canvas = tk.Canvas(
-            self.root,
-            width=WIDTH * CELL,
-            height=HEIGHT * CELL,
-            bg="#111827",
-            highlightthickness=0,
-        )
-        self.canvas.pack()
-        self.root.bind("<KeyPress>", self.on_key)
-        self.reset()
-
-    def reset(self):
-        self.snake = [(WIDTH // 2, HEIGHT // 2), (WIDTH // 2 - 1, HEIGHT // 2)]
-        self.direction = (1, 0)
-        self.pending_direction = self.direction
-        self.food = self.new_food()
-        self.score = 0
-        self.game_over = False
-        self.tick()
-
-    def new_food(self):
-        while True:
-            food = (random.randrange(WIDTH), random.randrange(HEIGHT))
-            if food not in self.snake:
-                return food
-
-    def on_key(self, event):
-        keys = {
-            "Up": (0, -1),
-            "Down": (0, 1),
-            "Left": (-1, 0),
-            "Right": (1, 0),
-            "w": (0, -1),
-            "s": (0, 1),
-            "a": (-1, 0),
-            "d": (1, 0),
-        }
-        if event.keysym == "space" and self.game_over:
-            self.reset()
-            return
-        next_dir = keys.get(event.keysym)
-        if next_dir and (next_dir[0] != -self.direction[0] or next_dir[1] != -self.direction[1]):
-            self.pending_direction = next_dir
-
-    def tick(self):
-        if not self.game_over:
-            self.direction = self.pending_direction
-            head_x, head_y = self.snake[0]
-            dx, dy = self.direction
-            new_head = (head_x + dx, head_y + dy)
-
-            hit_wall = not (0 <= new_head[0] < WIDTH and 0 <= new_head[1] < HEIGHT)
-            hit_self = new_head in self.snake
-            if hit_wall or hit_self:
-                self.game_over = True
-            else:
-                self.snake.insert(0, new_head)
-                if new_head == self.food:
-                    self.score += 1
-                    self.food = self.new_food()
-                else:
-                    self.snake.pop()
-
-        self.draw()
-        self.root.after(TICK_MS, self.tick)
-
-    def draw(self):
-        self.canvas.delete("all")
-        fx, fy = self.food
-        self.canvas.create_oval(
-            fx * CELL + 3,
-            fy * CELL + 3,
-            (fx + 1) * CELL - 3,
-            (fy + 1) * CELL - 3,
-            fill="#ef4444",
-            outline="",
-        )
-        for index, (x, y) in enumerate(self.snake):
-            color = "#22c55e" if index else "#84cc16"
-            self.canvas.create_rectangle(
-                x * CELL + 1,
-                y * CELL + 1,
-                (x + 1) * CELL - 1,
-                (y + 1) * CELL - 1,
-                fill=color,
-                outline="",
-            )
-        self.canvas.create_text(10, 10, anchor="nw", fill="white", text=f"Score: {self.score}")
-        if self.game_over:
-            self.canvas.create_text(
-                WIDTH * CELL // 2,
-                HEIGHT * CELL // 2,
-                fill="white",
-                font=("Arial", 22, "bold"),
-                text="Game Over - press Space",
-            )
-
-    def run(self):
-        self.root.mainloop()
-
-
-if __name__ == "__main__":
-    SnakeGame().run()
-'''
-
-_JAVA_SNAKE_TEMPLATE = '''import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.Font;
-import java.awt.Graphics;
-import java.awt.Point;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
-import javax.swing.JFrame;
-import javax.swing.JPanel;
-import javax.swing.Timer;
-
-public class SnakeGame extends JPanel {
-    private static final int CELL = 20;
-    private static final int WIDTH = 30;
-    private static final int HEIGHT = 20;
-
-    private final Random random = new Random();
-    private final List<Point> snake = new ArrayList<>();
-    private Point food;
-    private int dx = 1;
-    private int dy = 0;
-    private int nextDx = 1;
-    private int nextDy = 0;
-    private int score = 0;
-    private boolean gameOver = false;
-
-    public SnakeGame() {
-        setPreferredSize(new Dimension(WIDTH * CELL, HEIGHT * CELL));
-        setBackground(new Color(17, 24, 39));
-        setFocusable(true);
-        addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent event) {
-                handleKey(event.getKeyCode());
-            }
-        });
-        reset();
-        new Timer(120, event -> tick()).start();
-    }
-
-    private void reset() {
-        snake.clear();
-        snake.add(new Point(WIDTH / 2, HEIGHT / 2));
-        snake.add(new Point(WIDTH / 2 - 1, HEIGHT / 2));
-        dx = nextDx = 1;
-        dy = nextDy = 0;
-        score = 0;
-        gameOver = false;
-        food = newFood();
-    }
-
-    private Point newFood() {
-        Point point;
-        do {
-            point = new Point(random.nextInt(WIDTH), random.nextInt(HEIGHT));
-        } while (snake.contains(point));
-        return point;
-    }
-
-    private void handleKey(int key) {
-        if (key == KeyEvent.VK_SPACE && gameOver) {
-            reset();
-            repaint();
-            return;
-        }
-        int candidateDx = nextDx;
-        int candidateDy = nextDy;
-        if (key == KeyEvent.VK_UP || key == KeyEvent.VK_W) {
-            candidateDx = 0;
-            candidateDy = -1;
-        } else if (key == KeyEvent.VK_DOWN || key == KeyEvent.VK_S) {
-            candidateDx = 0;
-            candidateDy = 1;
-        } else if (key == KeyEvent.VK_LEFT || key == KeyEvent.VK_A) {
-            candidateDx = -1;
-            candidateDy = 0;
-        } else if (key == KeyEvent.VK_RIGHT || key == KeyEvent.VK_D) {
-            candidateDx = 1;
-            candidateDy = 0;
-        }
-        if (candidateDx != -dx || candidateDy != -dy) {
-            nextDx = candidateDx;
-            nextDy = candidateDy;
-        }
-    }
-
-    private void tick() {
-        if (!gameOver) {
-            dx = nextDx;
-            dy = nextDy;
-            Point head = snake.get(0);
-            Point next = new Point(head.x + dx, head.y + dy);
-            boolean hitWall = next.x < 0 || next.x >= WIDTH || next.y < 0 || next.y >= HEIGHT;
-            boolean hitSelf = snake.contains(next);
-            if (hitWall || hitSelf) {
-                gameOver = true;
-            } else {
-                snake.add(0, next);
-                if (next.equals(food)) {
-                    score++;
-                    food = newFood();
-                } else {
-                    snake.remove(snake.size() - 1);
-                }
-            }
-        }
-        repaint();
-    }
-
-    @Override
-    protected void paintComponent(Graphics g) {
-        super.paintComponent(g);
-        g.setColor(new Color(239, 68, 68));
-        g.fillOval(food.x * CELL + 3, food.y * CELL + 3, CELL - 6, CELL - 6);
-        for (int i = 0; i < snake.size(); i++) {
-            Point part = snake.get(i);
-            g.setColor(i == 0 ? new Color(132, 204, 22) : new Color(34, 197, 94));
-            g.fillRect(part.x * CELL + 1, part.y * CELL + 1, CELL - 2, CELL - 2);
-        }
-        g.setColor(Color.WHITE);
-        g.drawString("Score: " + score, 10, 18);
-        if (gameOver) {
-            g.setFont(new Font("Arial", Font.BOLD, 22));
-            g.drawString("Game Over - press Space", WIDTH * CELL / 2 - 130, HEIGHT * CELL / 2);
-        }
-    }
-
-    public static void main(String[] args) {
-        JFrame frame = new JFrame("Java Snake");
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setResizable(false);
-        frame.add(new SnakeGame());
-        frame.pack();
-        frame.setLocationRelativeTo(null);
-        frame.setVisible(true);
-    }
-}
 '''
 
 

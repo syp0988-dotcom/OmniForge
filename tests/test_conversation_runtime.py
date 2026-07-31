@@ -13,9 +13,7 @@ Covers:
 
 from __future__ import annotations
 
-import json
 
-import pytest
 
 from agentflow.conversation.manager import ConversationManager
 from agentflow.conversation.session_state import SessionState
@@ -341,7 +339,7 @@ class TestConversationManager:
             status="waiting_user",
             slots={"city": "", "date": "2024-01-01"},
         )
-        resolved = cm.resolve_question("北京", ss)
+        cm.resolve_question("北京", ss)
         assert ss.slots["city"] == "北京"
         assert not ss.has_unfilled_slots
         assert not ss.is_waiting  # all slots filled → resume
@@ -353,7 +351,7 @@ class TestConversationManager:
             status="waiting_user",
             slots={"city": "", "date": ""},
         )
-        resolved = cm.resolve_question("北京", ss)
+        cm.resolve_question("北京", ss)
         assert ss.slots["city"] == "北京"
         assert ss.is_waiting  # still has unfilled slots
 
@@ -364,7 +362,7 @@ class TestConversationManager:
             status="waiting_user",
             waiting_for="确认操作",
         )
-        resolved = cm.resolve_question("继续", ss)
+        cm.resolve_question("继续", ss)
         assert not ss.is_waiting  # continue resumes
 
     def test_anaphora_enrichment(self):

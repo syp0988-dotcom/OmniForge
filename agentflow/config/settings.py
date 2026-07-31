@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     app_name: str = Field(default="OmniForge", alias="APP_NAME")
     debug: bool = Field(default=False, alias="DEBUG")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    log_format: str = Field(default="text", alias="LOG_FORMAT")  # "text" | "json"
     deepseek_api_key: str = Field(default="", alias="DEEPSEEK_API_KEY")
     deepseek_base_url: str = Field(default="https://api.deepseek.com", alias="DEEPSEEK_BASE_URL")
     model_name: str = Field(default="deepseek-chat", alias="MODEL_NAME")
@@ -61,6 +62,10 @@ class Settings(BaseSettings):
 
     # -- Tool safety settings --
     allow_unsafe_python_tool: bool = Field(default=False, alias="ALLOW_UNSAFE_PYTHON_TOOL")
+
+    # -- HTTP proxy settings (for search providers behind GFW) --
+    http_proxy: str = Field(default="", alias="HTTP_PROXY")
+    https_proxy: str = Field(default="", alias="HTTPS_PROXY")
 
     @property
     def project_root(self) -> Path:

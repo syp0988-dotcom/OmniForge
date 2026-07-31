@@ -51,7 +51,7 @@ class IntentEvalRunner:
 
             state = {"question": question}
             if degraded:
-                state["_degraded"] = True
+                state["_degraded"] = {"goal_analyzer", "planner", "answer"}
 
             if mock_resp is not None:
                 result = self._run_with_mock_llm(state, mock_resp)

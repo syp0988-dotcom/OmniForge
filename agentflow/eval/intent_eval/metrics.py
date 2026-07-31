@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 
 
 def goal_type_accuracy(actual_types: list[str], expected_types: list[str]) -> float:

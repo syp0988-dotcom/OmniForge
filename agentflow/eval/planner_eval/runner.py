@@ -51,7 +51,7 @@ class PlannerEvalRunner:
             if bypass:
                 # 确定性路径或降级模式
                 if mock_resp and mock_resp.get("type") == "degraded":
-                    state["_degraded"] = True
+                    state["_degraded"] = {"planner"}
                 result_state = PlannerAgent(registry=self.registry).run(state)
             elif mock_resp:
                 # 注入 Mock LLM

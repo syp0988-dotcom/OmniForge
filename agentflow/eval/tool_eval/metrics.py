@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from agentflow.tools.result import ToolResult
 
 
 def success_rate(results: list[dict]) -> float:

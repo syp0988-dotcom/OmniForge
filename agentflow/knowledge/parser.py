@@ -12,7 +12,6 @@ import re
 import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import IO
 
 from agentflow.knowledge.chunking import chunk_document
 
@@ -219,7 +218,6 @@ def _read_epub(path: Path) -> str:
     except Exception:
         return _fallback_read(path)
     parts: list[str] = []
-    from ebooklib.epub import LINK, LINK_ITEM
     for item in book.get_items():
         if item.get_type() == ebooklib.ITEM_DOCUMENT:
             content = item.get_content()

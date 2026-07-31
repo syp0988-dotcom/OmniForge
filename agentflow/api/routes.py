@@ -8,7 +8,6 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 from pydantic import BaseModel
 
@@ -16,10 +15,11 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from agentflow.agents.registry import get_all as get_all_agents
+from agentflow.utils.trace_context import set_trace_id
 from agentflow.database.sqlite import SQLiteStore
-from agentflow.graph.workflow import build_workflow, run_workflow
+from agentflow.graph.workflow import build_workflow
 from agentflow.knowledge.store import KnowledgeStore
-from agentflow.models.chat import ChatRequest, ChatResponse, FileProposal
+from agentflow.models.chat import ChatRequest, ChatResponse
 from agentflow.models.model_config import LLMModelCreate, LLMModelUpdate
 from agentflow.services.file_proposer import propose_files
 from agentflow.utils.logging import build_logger
@@ -121,6 +121,9 @@ async def chat(request: ChatRequest):
     from agentflow.graph.context import WorkflowContext
 
     # -- Session setup --
+    trace_id = set_trace_id()
+    logger.debug("[%s] Chat request: %s", trace_id, request.message[:80])
+
     session_id = request.session_id
     if session_id is None:
         sess = get_store().create_session()
@@ -143,8 +146,10 @@ async def chat(request: ChatRequest):
     initial_state: dict = {
         "question": request.message,
         "workflow": [],
+        "task_queue": [],
         "history": history_dicts,
         "source_mode": request.source_mode,
+        "trace_id": trace_id,
     }
     if history_dicts:
         initial_state["memory"] = {"history": list(history_dicts)}
@@ -170,6 +175,9 @@ async def chat(request: ChatRequest):
         if not answer:
             logger.warning("Chat: answer is empty. error=%s keys=%s",
                            error, list((final_state or {}).keys())[:20])
+
+        # Save execution record for observability
+        _maybe_save_execution(final_state, session_id, request.message, answer)
 
         # Persist messages
         get_store().add_message("user", request.message, session_id=session_id)
@@ -238,6 +246,9 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
                 return False
 
         # -- Session setup --
+        stream_trace_id = set_trace_id()
+        logger.debug("[%s] Stream request: %s", stream_trace_id, body.message[:80])
+
         session_id = body.session_id
         if session_id is None:
             sess = get_store().create_session()
@@ -261,9 +272,11 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
         initial_state: dict = {
             "question": body.message,
             "workflow": [],
+            "task_queue": [],
             "history": history_dicts,
             "_stream_answer": True,
             "source_mode": body.source_mode,
+            "trace_id": stream_trace_id,
         }
         if history_dicts:
             initial_state["memory"] = {"history": list(history_dicts)}
@@ -365,6 +378,9 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
                 yield _sse_event("text", {"text": chunk})
                 await asyncio.sleep(0.02)  # small delay for streaming effect
 
+        # -- Save execution record for observability --
+        _maybe_save_execution(final_state, session_id, body.message, answer)
+
         # -- Persist messages --
         get_store().add_message("user", body.message, session_id=session_id)
         if answer:
@@ -398,6 +414,53 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
         yield _sse_event("done", done_data)
 
     return StreamingResponse(_event_generator(), media_type="text/event-stream")
+
+
+def _maybe_save_execution(
+    final_state: dict | None,
+    session_id: int,
+    question: str,
+    answer: str,
+) -> None:
+    """Save execution record + final checkpoint when a final_state is available."""
+    if not final_state:
+        return
+    try:
+        goal_analysis = final_state.get("goal_analysis", {}) or {}
+        goal_type = goal_analysis.get("goal_type", "") if isinstance(goal_analysis, dict) else ""
+        trace = final_state.get("_trace", []) or []
+        errors = final_state.get("_errors", []) or []
+        degraded = bool(final_state.get("_degraded", False))
+        trace_id = str(final_state.get("trace_id", "") or "")
+
+        # Calculate total duration from trace
+        duration_ms = 0.0
+        if trace:
+            durations = [t.get("duration_ms", 0) or 0 for t in trace]
+            duration_ms = sum(durations)
+
+        execution_id = get_store().save_execution(
+            session_id=session_id,
+            trace_id=trace_id,
+            question=question,
+            answer=answer,
+            goal_type=goal_type,
+            trace_json=json.dumps(trace, ensure_ascii=False),
+            errors_json=json.dumps(errors, ensure_ascii=False),
+            degraded=degraded,
+            duration_ms=round(duration_ms, 2),
+        )
+
+        # Save final task queue checkpoint
+        task_queue = final_state.get("task_queue", []) or []
+        if task_queue and execution_id:
+            get_store().save_checkpoint(
+                execution_id=execution_id,
+                node_name="__final__",
+                task_queue_json=json.dumps(task_queue, ensure_ascii=False),
+            )
+    except Exception:
+        logger.exception("Failed to save execution record (non-fatal)")
 
 
 def _sse_event(event: str, data: dict) -> str:
@@ -1103,6 +1166,128 @@ def clear_memories(category: str = "") -> JSONResponse:
     from agentflow.services.long_term_memory import LongTermMemory
     LongTermMemory(db=get_store()).clear(category=category)
     return JSONResponse(content={"status": "cleared"})
+
+
+# -- Execution history -------------------------------------------------------
+
+
+@router.get("/executions")
+def list_executions(
+    session_id: int | None = None, limit: int = 20,
+) -> list[dict[str, object]]:
+    """List execution records, optionally filtered by session."""
+    return get_store().list_executions(session_id=session_id, limit=limit)
+
+
+@router.get("/executions/{exec_id}")
+def get_execution(exec_id: int) -> dict[str, object]:
+    """Get a single execution record with full trace and errors."""
+    record = get_store().get_execution(exec_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    # Parse stored JSON strings back into objects for the API response
+    try:
+        record["trace"] = json.loads(record["trace"]) if isinstance(record.get("trace"), str) else record.get("trace", [])
+    except (json.JSONDecodeError, TypeError):
+        record["trace"] = []
+    try:
+        record["errors"] = json.loads(record["errors"]) if isinstance(record.get("errors"), str) else record.get("errors", [])
+    except (json.JSONDecodeError, TypeError):
+        record["errors"] = []
+    return record  # type: ignore[return-value]
+
+
+@router.get("/executions/{exec_id}/trace")
+def get_execution_trace(exec_id: int) -> dict[str, object]:
+    """Return graph-structured trace data for workflow visualization.
+
+    Returns nodes (with labels, durations, routes) and edges derived
+    from the execution trace's node sequence.
+    """
+    record = get_store().get_execution(exec_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Execution not found")
+
+    raw_trace = record.get("trace", "[]")
+    try:
+        trace = json.loads(raw_trace) if isinstance(raw_trace, str) else raw_trace
+    except (json.JSONDecodeError, TypeError):
+        trace = []
+
+    nodes: list[dict[str, object]] = []
+    edges: list[dict[str, object]] = []
+    prev_node: str | None = None
+
+    for entry in trace:
+        node_name = entry.get("node", "?")
+        nodes.append({
+            "id": node_name,
+            "label": node_name,
+            "duration_ms": entry.get("duration_ms", 0),
+            "route": entry.get("route"),
+        })
+        if prev_node:
+            edges.append({"source": prev_node, "target": node_name})
+        prev_node = node_name
+
+    # Compute timeline with cumulative offsets
+    timeline: list[dict[str, object]] = []
+    cumulative = 0.0
+    for entry in trace:
+        start_offset = cumulative
+        duration = entry.get("duration_ms", 0) or 0
+        cumulative += duration
+        timeline.append({
+            "node": entry.get("node", "?"),
+            "start_offset_ms": round(start_offset, 2),
+            "duration_ms": round(duration, 2),
+            "route": entry.get("route"),
+        })
+
+    return {
+        "execution_id": exec_id,
+        "trace_id": record.get("trace_id", ""),
+        "nodes": nodes,
+        "edges": edges,
+        "timeline": timeline,
+    }
+
+
+@router.get("/executions/{exec_id}/checkpoints")
+def list_execution_checkpoints(exec_id: int) -> list[dict[str, object]]:
+    """List all checkpoints for an execution."""
+    return get_store().list_checkpoints(exec_id)  # type: ignore[return-value]
+
+
+@router.post("/executions/{exec_id}/resume")
+def resume_execution(exec_id: int) -> dict[str, object]:
+    """Resume an execution from its last checkpoint.
+
+    Loads the most recent checkpoint and re-enters the workflow.
+    The task queue is restored and processing continues.
+    """
+    checkpoints = get_store().list_checkpoints(exec_id)
+    if not checkpoints:
+        raise HTTPException(status_code=400, detail="No checkpoints found for this execution")
+
+    last_cp = checkpoints[-1]
+    try:
+        task_queue = json.loads(last_cp["task_queue_json"])
+    except (json.JSONDecodeError, TypeError):
+        task_queue = []
+
+    # Build minimal initial state from checkpoint
+    from agentflow.graph.workflow import run_workflow
+    graph = build_workflow()
+    result = run_workflow(graph, "", session_state={})
+    # Restore the saved task queue
+    result["task_queue"] = task_queue
+    return {
+        "status": "resumed",
+        "execution_id": exec_id,
+        "checkpoint_node": last_cp.get("node_name", "?"),
+        "restored_tasks": len(task_queue) if isinstance(task_queue, list) else 0,
+    }
 
 
 # -- Tool introspection -------------------------------------------------------

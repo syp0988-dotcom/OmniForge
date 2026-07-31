@@ -28,8 +28,19 @@ from typing import Any
 
 from agentflow.agents.base import AgentProtocol
 from agentflow.agents.planner.capability import resolve as resolve_capability
-from agentflow.agents.planner.prompt import build_fc_planner_prompt, build_planner_prompt
+from agentflow.utils.errors import record_error as _record_error
+from agentflow.agents.planner.prompt import (
+    build_codegen_prompt,
+    build_fc_planner_prompt,
+    build_planner_prompt,
+)
 from agentflow.agents.planner.schemas import get_tool_schemas, parse_function_name
+from agentflow.agents.planner.special_goals import (
+    build_docx_report_plan,
+    build_snake_game_files_plan,
+    is_docx_report_goal,
+    is_snake_game_goal,
+)
 from agentflow.agents.planner.task_queue import TaskQueue
 from agentflow.agents.planner.templates import (
     extract_project_name,
@@ -37,7 +48,7 @@ from agentflow.agents.planner.templates import (
     get_initial_tasks,
     match_template,
 )
-from agentflow.blueprints import BlueprintLoader, FileSpec, ProjectConfigurator
+from agentflow.blueprints import BlueprintLoader, FileSpec, ProjectConfig, ProjectConfigurator
 from agentflow.graph.context_builder import ContextBuilder
 from agentflow.graph.plan import Plan
 from agentflow.graph.task import Task, TaskStatus
@@ -46,6 +57,14 @@ from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("planner")
+
+# Tool actions that only read/inspect — never useful as queued tasks.
+# The LLM sometimes generates these despite prompt instructions.
+_NON_CREATIVE_ACTIONS = frozenset({
+    "read_file", "list_directory", "tree", "exists",
+    "search_file", "search_content", "read", "list", "search",
+    "get", "find", "stat", "glob", "ls", "cat", "head", "tail",
+})
 
 
 class PlannerAgent(AgentProtocol):
@@ -74,8 +93,8 @@ class PlannerAgent(AgentProtocol):
             goal_type = "other"
 
         # Goal types that never need task planning — conversational or simple
-        if _is_snake_game_files_goal(str(goal)):
-            plan = _build_snake_game_files_plan(str(goal))
+        if is_snake_game_goal(str(goal)):
+            plan = build_snake_game_files_plan(str(goal))
             state["plan"] = plan
             state["category"] = "project"
             state["task_queue"] = [t.to_dict() for t in plan.tasks]
@@ -83,8 +102,8 @@ class PlannerAgent(AgentProtocol):
             logger.info("Snake game files template: initialized %d task(s)", len(plan.tasks))
             return state
 
-        if _is_docx_report_goal(str(goal)):
-            plan = _build_docx_report_plan(str(goal), state)
+        if is_docx_report_goal(str(goal)):
+            plan = build_docx_report_plan(str(goal), state)
             state["plan"] = plan
             state["category"] = "project"
             state["task_queue"] = [t.to_dict() for t in plan.tasks]
@@ -107,7 +126,8 @@ class PlannerAgent(AgentProtocol):
             return state
 
         # -- Degraded mode: skip LLM-dependent planning -------------------
-        if state.get("_degraded") or state.get("_llm_error"):
+        _degraded: set = state.get("_degraded", set()) or set()
+        if "_planner" in _degraded or state.get("_llm_error"):
             logger.warning("Degraded mode: skipping LLM planning, using direct answer")
             plan = Plan(
                 goal=goal, category=goal_type,
@@ -156,6 +176,9 @@ class PlannerAgent(AgentProtocol):
                 goal, goal_type, state, current_queue
             )
 
+        # Fill code content for tasks that need it (CodeGenerator)
+        self._fill_code_content(plan)
+
         # Merge plan tasks into the queue
         merged = self._merge_into_queue(current_queue, plan)
 
@@ -166,11 +189,10 @@ class PlannerAgent(AgentProtocol):
 
         # Detect degraded fallback — LLM was unavailable
         if plan.direct_answer and not plan.goal_completed and not plan.tasks:
-            state["_degraded"] = True
-            state["_llm_error"] = (
-                "LLM planner unavailable — both function-calling and JSON "
-                "planning failed (timeout or network error)"
-            )
+            state.setdefault("_degraded", set()).add("planner")
+            _record_error(state, "planner", "llm_unavailable",
+                          "LLM planner unavailable — both function-calling and JSON "
+                          "planning failed (timeout or network error)")
             logger.warning("Plan: degraded fallback (LLM unavailable)")
 
         if plan.goal_completed:
@@ -405,6 +427,9 @@ class PlannerAgent(AgentProtocol):
         else:
             plan = self._generate_more_tasks(goal, goal_type, state, current_queue)
 
+        # Fill code content for tasks that need it (CodeGenerator)
+        self._fill_code_content(plan)
+
         merged = self._merge_into_queue(current_queue, plan)
         state["plan"] = plan
         state["task_queue"] = merged.to_dict_list()
@@ -412,8 +437,9 @@ class PlannerAgent(AgentProtocol):
         state["workflow"] = _plan_to_workflow(plan, goal_type, self.registry)
 
         if plan.direct_answer and not plan.goal_completed and not plan.tasks:
-            state["_degraded"] = True
-            state["_llm_error"] = "LLM planner unavailable (mock degraded)"
+            state.setdefault("_degraded", set()).add("planner")
+            _record_error(state, "planner", "llm_unavailable",
+                          "LLM planner unavailable (mock degraded)")
 
         if plan.goal_completed:
             logger.info("Plan (mock): goal_completed")
@@ -447,6 +473,9 @@ class PlannerAgent(AgentProtocol):
                 tasks=[], direct_answer=True, goal_completed=True,
                 reasoning=f"无法生成计划（goal_type={goal_type}），直接回答",
             )
+
+        # Fill code content for tasks that need it (CodeGenerator)
+        self._fill_code_content(plan)
 
         if plan.goal_completed:
             logger.info("Plan: goal_completed (goal_type=%s)", goal_type)
@@ -615,13 +644,21 @@ class PlannerAgent(AgentProtocol):
         tasks: list[Task] = []
         for i, tc in enumerate(tool_calls):
             tool, action = parse_function_name(tc.name)
+
+            # Safety filter: skip read-only / inspection tool calls.
+            # The LLM sometimes generates these despite prompt instructions;
+            # they are never useful as queued tasks.
+            if action in _NON_CREATIVE_ACTIONS:
+                logger.info(
+                    "Skipping non-creative tool call %s (action=%s)", tc.name, action
+                )
+                continue
+
             inp = _parse_tool_arguments(tc.arguments, tc.name)
 
             # Write_file with no path = args parsing failed (common with DeepSeek FC
-            # when large code content corrupts the JSON).  Try to recover path and
-            # content from the raw args.  If content is recoverable, create the
-            # write_file task directly; otherwise fall back to a mkdir task so the
-            # reflector can detect and fill in the missing file.
+            # when large code content corrupts the JSON).  Try to recover path,
+            # content, and code_prompt from the raw args.
             if action in ("write_file", "create_file") and not inp.get("path"):
                 path = _extract_path_from_args(tc.arguments)
                 if not path:
@@ -630,6 +667,7 @@ class PlannerAgent(AgentProtocol):
                     )
                     continue
                 content = _extract_content_from_args(tc.arguments)
+                code_prompt = _extract_code_prompt_from_args(tc.arguments)
                 if content and len(content) > 10:
                     tasks.append(Task(
                         task_id=f"{tc.name.replace('__', '_')}_{i}",
@@ -643,6 +681,21 @@ class PlannerAgent(AgentProtocol):
                     logger.info(
                         "Recovered path='%s' + content (%d chars) from malformed FC args",
                         path, len(content),
+                    )
+                elif code_prompt:
+                    # code_prompt present but content empty → CodeGenerator fills it later
+                    tasks.append(Task(
+                        task_id=f"{tc.name.replace('__', '_')}_{i}",
+                        title=f"创建 {path}",
+                        priority=80,
+                        tool="filesystem",
+                        goal=f"write_file: {path}",
+                        input={"action": "write_file", "path": path, "code_prompt": code_prompt},
+                        agent="planner",
+                    ))
+                    logger.info(
+                        "Recovered path='%s' + code_prompt (%d chars) from malformed FC args",
+                        path, len(code_prompt),
                     )
                 else:
                     parent = str(Path(path).parent)
@@ -661,7 +714,7 @@ class PlannerAgent(AgentProtocol):
                         agent="planner",
                     ))
                     logger.info(
-                        "Recovered path='%s' (no content) → mkdir '%s'",
+                        "Recovered path='%s' (no content or code_prompt) → mkdir '%s'",
                         path, mkdir_path,
                     )
                 continue
@@ -686,6 +739,7 @@ class PlannerAgent(AgentProtocol):
             original = len(tasks)
             tasks.sort(key=lambda t: -t.priority)
             tasks = tasks[:8]
+            reasoning = f"{reasoning} (trimmed from {original} to 8 tasks)"
 
         return Plan(
             goal=goal, category=category,
@@ -783,6 +837,86 @@ class PlannerAgent(AgentProtocol):
             goal_completed=goal_completed,
             reasoning=reasoning,
         )
+
+    # ------------------------------------------------------------------
+    # CodeGenerator — plain-text LLM call, zero JSON
+    # ------------------------------------------------------------------
+
+    def _call_codegen(self, code_prompt: str, language: str = "") -> str:
+        """Generate code via a plain-text LLM completion (no JSON, no tools).
+
+        Returns the LLM's raw output (typically markdown code blocks).
+        Content is extracted by filesystem_tool at write time.
+        """
+        if not code_prompt.strip():
+            return ""
+        messages = build_codegen_prompt(code_prompt, language)
+        try:
+            raw = self._llm.complete(messages=messages)
+            if raw and raw.strip():
+                logger.info(
+                    "CodeGen: generated %d chars for '%s' (%s)",
+                    len(raw), code_prompt[:60], language,
+                )
+                return raw.strip()
+        except Exception as exc:
+            logger.warning("CodeGen LLM call failed: %s", exc)
+        return ""
+
+    def _fill_code_content(self, plan: Plan) -> Plan:
+        """Post-process: fill code content for tasks that need it.
+
+        For each write_file/create_file task targeting a code file:
+        - If content is already set (template or inline), skip.
+        - If code_prompt is set, generate code from it.
+        - Otherwise, derive code_prompt from the task goal.
+        """
+        for task in plan.tasks:
+            inp = task.input
+            action = str(inp.get("action", "") or task.goal or "")
+            path = str(inp.get("path", ""))
+
+            # Only handle write operations on code files
+            if action not in ("write_file", "create_file"):
+                continue
+            if not _is_code_file(path):
+                continue
+
+            # Skip if content is already present and substantial
+            existing = str(inp.get("content", ""))
+            if existing and len(existing) > 10:
+                continue
+
+            # Determine code prompt
+            code_prompt = str(inp.get("code_prompt", "")).strip()
+            if not code_prompt:
+                code_prompt = str(task.goal or "")
+            # If the goal is just an action name (e.g. "write_file"), derive from path + plan goal
+            _ACTION_NAMES = frozenset({
+                "write_file", "create_file", "mkdir", "append_file", "edit_file",
+            })
+            if not code_prompt or code_prompt in _ACTION_NAMES:
+                # Derive a meaningful prompt from file path and plan goal
+                filename = Path(path).stem.replace("_", " ").replace("-", " ")
+                plan_goal = str(plan.goal or "")
+                code_prompt = f"编写 {filename}。上下文：{plan_goal}"
+            if not code_prompt or len(code_prompt) < 3:
+                continue
+
+            language = _guess_language(path)
+            logger.info(
+                "CodeGen: filling content for '%s' (lang=%s, prompt='%s')",
+                path, language, code_prompt[:80],
+            )
+            code = self._call_codegen(code_prompt, language)
+            if code:
+                inp["content"] = code
+                # Remove code_prompt now that it's been fulfilled
+                inp.pop("code_prompt", None)
+            else:
+                logger.warning("CodeGen: failed to generate code for '%s'", path)
+
+        return plan
 
     # ------------------------------------------------------------------
     # JSON parser
@@ -904,6 +1038,20 @@ def _extract_content_from_args(raw: str | None) -> str | None:
     return _extract_code_from_markdown(raw_text)
 
 
+def _extract_code_prompt_from_args(raw: str | None) -> str | None:
+    """Extract the ``code_prompt`` field from malformed JSON arguments.
+
+    When the FC planner passes ``code_prompt`` (not ``content``) for code files,
+    this recovers the code prompt so the CodeGenerator can fill content later.
+    """
+    if not raw:
+        return None
+    m = re.search(r'"code_prompt"\s*:\s*"(.*?)"\s*[,}]', raw, re.DOTALL)
+    if m:
+        return _unescape_json_content(m.group(1))
+    return None
+
+
 def _extract_code_from_markdown(text: str) -> str:
     """Extract code from markdown code blocks.
 
@@ -977,224 +1125,41 @@ def _fix_json_newlines(raw: str) -> str:
     return "".join(result)
 
 
+# CodeGenerator helpers
 # ------------------------------------------------------------------
-# Deterministic file-generation templates
-# ------------------------------------------------------------------
 
+# File extensions that contain code (need CodeGenerator).
+_CODE_EXTENSIONS = frozenset({
+    ".py", ".java", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".cpp",
+    ".c", ".h", ".hpp", ".cs", ".swift", ".kt", ".scala", ".rb", ".php",
+    ".vue", ".svelte", ".html", ".css", ".scss", ".less", ".sql", ".sh",
+    ".bash", ".ps1", ".yaml", ".yml", ".toml", ".xml",
+})
 
-def _is_snake_game_files_goal(goal: str) -> bool:
-    text = goal.lower()
-    has_snake = "蛇" in goal
-    has_python = "python" in text
-    has_java = "java" in text
-    has_create = any(token in goal for token in ("创建", "生成", "新建", "写", "请"))
-    has_file = "文件" in goal
-    score = sum([has_snake, has_python, has_java, has_create, has_file])
-    return score >= 3 and has_snake and has_python and has_java
-
-
-def _build_snake_game_files_plan(goal: str) -> Plan:
-    tasks = [
-        Task(
-            task_id="create_python_snake",
-            title="创建 Python 贪吃蛇文件",
-            priority=100,
-            goal="write_file",
-            capability="filesystem.write_file",
-            tool="filesystem",
-            input={
-                "action": "write_file",
-                "path": "snake_game/python_snake.py",
-                "content": _python_snake_content(),
-            },
-            agent="planner",
-        ),
-        Task(
-            task_id="create_java_snake",
-            title="创建 Java 贪吃蛇文件",
-            priority=95,
-            goal="write_file",
-            capability="filesystem.write_file",
-            tool="filesystem",
-            input={
-                "action": "write_file",
-                "path": "snake_game/JavaSnake.java",
-                "content": _java_snake_content(),
-            },
-            agent="planner",
-        ),
-    ]
-    return Plan(
-        goal=goal,
-        category="project",
-        tasks=tasks,
-        goal_completed=False,
-        reasoning="Matched deterministic Python/Java snake file template",
-    )
-
-
-def _python_snake_content() -> str:
-    return '''"""A tiny terminal snake demo in Python."""
-
-import random
-
-
-WIDTH = 20
-HEIGHT = 10
-
-
-def draw(snake, food):
-    for y in range(HEIGHT):
-        row = []
-        for x in range(WIDTH):
-            if (x, y) == food:
-                row.append("*")
-            elif (x, y) in snake:
-                row.append("O")
-            else:
-                row.append(".")
-        print("".join(row))
-
-
-def main():
-    snake = [(WIDTH // 2, HEIGHT // 2)]
-    food = (random.randrange(WIDTH), random.randrange(HEIGHT))
-    print("Python Snake demo")
-    draw(snake, food)
-
-
-if __name__ == "__main__":
-    main()
-'''
-
-
-def _java_snake_content() -> str:
-    return """import java.util.Random;
-
-public class JavaSnake {
-    static final int WIDTH = 20;
-    static final int HEIGHT = 10;
-
-    public static void main(String[] args) {
-        Random random = new Random();
-        int snakeX = WIDTH / 2;
-        int snakeY = HEIGHT / 2;
-        int foodX = random.nextInt(WIDTH);
-        int foodY = random.nextInt(HEIGHT);
-
-        System.out.println("Java Snake demo");
-        for (int y = 0; y < HEIGHT; y++) {
-            StringBuilder row = new StringBuilder();
-            for (int x = 0; x < WIDTH; x++) {
-                if (x == foodX && y == foodY) {
-                    row.append('*');
-                } else if (x == snakeX && y == snakeY) {
-                    row.append('O');
-                } else {
-                    row.append('.');
-                }
-            }
-            System.out.println(row);
-        }
-    }
+# Language name hints for CodeGenerator prompts.
+_EXT_TO_LANG: dict[str, str] = {
+    ".py": "Python", ".java": "Java", ".js": "JavaScript", ".ts": "TypeScript",
+    ".go": "Go", ".rs": "Rust", ".cpp": "C++", ".c": "C", ".html": "HTML",
+    ".css": "CSS", ".vue": "Vue", ".jsx": "React JSX", ".tsx": "React TSX",
+    ".sql": "SQL", ".sh": "Bash", ".yaml": "YAML", ".yml": "YAML",
 }
-"""
 
 
-# Docx report template helpers
-# ------------------------------------------------------------------
+def _is_code_file(path: str) -> bool:
+    """Check if a file path corresponds to a code file that needs generation."""
+    dot = path.rfind(".")
+    if dot == -1:
+        return False
+    ext = path[dot:].lower()
+    return ext in _CODE_EXTENSIONS
 
 
-def _is_docx_report_goal(goal: str) -> bool:
-    text = goal.lower()
-    wants_docx = any(token in text for token in ("docx", ".docx", "word"))
-    wants_report = any(token in goal for token in ("报告", "文档", "整理"))
-    create_intent = any(token in goal for token in ("整理", "生成", "创建", "输出", "做成", "写成"))
-    return wants_docx and wants_report and create_intent
-
-
-def _build_docx_report_plan(goal: str, state: dict) -> Plan:
-    content = _build_docx_report_content(goal, state)
-    task = Task(
-        task_id="create_docx_report",
-        title="创建 DOCX 报告",
-        priority=100,
-        goal="create",
-        capability="docx.create",
-        tool="docx",
-        input={
-            "action": "create",
-            "path": _docx_report_path(goal, state),
-            "content": content,
-        },
-        agent="planner",
-    )
-    return Plan(
-        goal=goal,
-        category="project",
-        tasks=[task],
-        goal_completed=False,
-        reasoning="Matched deterministic DOCX report template",
-    )
-
-
-def _build_docx_report_content(goal: str, state: dict) -> str:
-    source = _latest_assistant_content(state)
-    if not source:
-        knowledge_context = str(state.get("knowledge_context", "") or "").strip()
-        search_results = state.get("search_results")
-        source = knowledge_context or _stringify_search_results(search_results)
-    if not source:
-        source = "暂无可整理的上一轮内容，请补充报告材料。"
-
-    return (
-        "# DOCX 报告\n\n"
-        "## 用户需求\n\n"
-        f"{goal}\n\n"
-        "## 整理内容\n\n"
-        f"{source.strip()}\n"
-    )
-
-
-def _latest_assistant_content(state: dict) -> str:
-    history = state.get("history") or []
-    if not isinstance(history, list):
-        memory = state.get("memory")
-        if isinstance(memory, dict):
-            history = memory.get("history") or []
-    if not isinstance(history, list):
+def _guess_language(path: str) -> str:
+    """Guess programming language from file extension."""
+    dot = path.rfind(".")
+    if dot == -1:
         return ""
-
-    for message in reversed(history):
-        if not isinstance(message, dict):
-            continue
-        if message.get("role") == "assistant":
-            content = str(message.get("content", "") or "").strip()
-            if content:
-                return content
-    return ""
-
-
-def _stringify_search_results(search_results: object) -> str:
-    if not isinstance(search_results, list):
-        return ""
-    lines: list[str] = []
-    for item in search_results[:5]:
-        if not isinstance(item, dict):
-            continue
-        title = str(item.get("title", "") or "").strip()
-        summary = str(item.get("summary") or item.get("snippet") or item.get("content") or "").strip()
-        if title or summary:
-            lines.append(f"### {title or '搜索结果'}\n\n{summary}")
-    return "\n\n".join(lines)
-
-
-def _docx_report_path(goal: str, state: dict) -> str:
-    history_text = _latest_assistant_content(state)
-    combined = f"{goal}\n{history_text}".lower()
-    if "omniforge" in combined:
-        return "OmniForge报告.docx"
-    return "report.docx"
+    return _EXT_TO_LANG.get(path[dot:].lower(), "")
 
 
 # Helpers

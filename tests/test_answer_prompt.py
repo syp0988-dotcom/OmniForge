@@ -18,7 +18,6 @@ The expected result is that ``format_answer_prompt()`` has:
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -138,7 +137,7 @@ def measure(text: str, label: str) -> dict:
     """Measure metrics for a prompt text."""
     char_count = len(text)
     token_est = estimate_tokens(text)
-    section_count = sum(1 for l in text.split("\n") if l.startswith("## "))
+    section_count = sum(1 for line in text.split("\n") if line.startswith("## "))
     signals, noises = classify_sections(text)
     signal_count = len(signals)
     noise_count = len(noises)
@@ -198,7 +197,7 @@ def print_report(a: dict, b: dict) -> None:
         print(f"  [信号] {s}")
 
     print()
-    print(f"--- 首 300 字符对比 ---")
+    print("--- 首 300 字符对比 ---")
     print(f"[Planner] {a['label'][:300]}")
     print()
     print(f"[Answer ] {b['label'][:300]}")
@@ -240,7 +239,7 @@ def main():
     print(f"  - 每次 LLM 调用减少 {char_save:,} 字符 ({token_save} 估算 token)")
     print(f"  - 消除了 {noise_removed} 个噪音 section")
     print(f"  - 信噪比从 {planner_metrics['signal_to_noise']} 提升到 {answer_metrics['signal_to_noise']}")
-    print(f"  - LLM 收到的是干净的目标+上下文，不再被工作区/任务队列干扰")
+    print("  - LLM 收到的是干净的目标+上下文，不再被工作区/任务队列干扰")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # OmniForge Frontend
 
-This folder contains the React + TypeScript + Vite + Tailwind frontend scaffold for OmniForge. It's a lightweight skeleton used for UI development and will connect to the backend APIs (`/chat`, `/history`, `/upload`, `/health`).
+This folder contains the Vue 3 + TypeScript + Vite + Tailwind CSS frontend for OmniForge. It connects to the backend APIs (`/chat/stream`, `/upload`, `/knowledge/documents`, `/models`, `/workspace`, etc.).
 
 To run locally:
 

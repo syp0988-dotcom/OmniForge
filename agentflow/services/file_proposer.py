@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import uuid
-from pathlib import Path
 
 LANG_TO_EXT: dict[str, str] = {
     "python": "py",

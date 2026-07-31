@@ -15,7 +15,6 @@ Covers:
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +29,6 @@ from agentflow.agents.planner.capability import (
 )
 from agentflow.agents.project_structure_planner.agent import ProjectStructurePlanner
 from agentflow.graph.executor import Executor
-from agentflow.graph.plan import Plan
 from agentflow.graph.task import Task
 from agentflow.graph.context import WorkflowContext
 from agentflow.tools.base import BaseTool
@@ -580,7 +578,8 @@ class TestExecutorIntegration:
             input={"code": "print(1+1)"}, agent="test",
         )
         result_task = ex.execute(ctx, task)
-        assert result_task.status.value == "completed"
+        # Primary success state in the Task Queue model (see TaskStatus enum).
+        assert result_task.status.value == "done"
 
     def test_execute_batch(self):
         ex = Executor()
@@ -623,6 +622,11 @@ class TestExecutorIntegration:
 
 
 class TestPlannerExplicitTasks:
+    def _make_planner(self) -> PlannerAgent:
+        """PlannerAgent._build_plan_from_json is an instance method that may
+        consult the ToolRegistry for legacy capability resolution."""
+        return PlannerAgent()
+
     def test_build_plan_from_explicit_tasks(self):
         data = {
             "direct_answer": False,
@@ -635,7 +639,7 @@ class TestPlannerExplicitTasks:
                  "input": {"path": "my_app/main.py", "content": "print('hello')"}},
             ],
         }
-        plan = PlannerAgent._build_plan_from_json(data, goal="创建应用", goal_type="project")
+        plan = self._make_planner()._build_plan_from_json(data, goal="创建应用", goal_type="project")
         assert plan.direct_answer is False
         assert plan.goal_completed is False
         assert len(plan.tasks) == 2
@@ -650,7 +654,7 @@ class TestPlannerExplicitTasks:
             "reasoning": "无需工具",
             "tasks": [],
         }
-        plan = PlannerAgent._build_plan_from_json(data, goal="测试", goal_type="question")
+        plan = self._make_planner()._build_plan_from_json(data, goal="测试", goal_type="question")
         assert plan.direct_answer is True
         assert plan.goal_completed is True
         assert len(plan.tasks) == 0
@@ -661,7 +665,7 @@ class TestPlannerExplicitTasks:
             "reasoning": "test",
             "tasks": [{"tool": "filesystem", "action": "mkdir", "input": {"path": "x"}}],
         }
-        plan = PlannerAgent._build_plan_from_json(data, goal="test", goal_type="project")
+        plan = self._make_planner()._build_plan_from_json(data, goal="test", goal_type="project")
         assert len(plan.tasks) == 1
         assert plan.tasks[0].tool == "filesystem"
 
@@ -671,7 +675,7 @@ class TestPlannerExplicitTasks:
             "reasoning": "test",
             "tasks": [{"capability": "web.search", "goal": "搜索"}],
         }
-        plan = PlannerAgent._build_plan_from_json(data, goal="test", goal_type="question")
+        plan = self._make_planner()._build_plan_from_json(data, goal="test", goal_type="question")
         # Legacy format: capability is set, tool resolved later
         assert len(plan.tasks) == 1
         assert plan.tasks[0].capability == "web.search"

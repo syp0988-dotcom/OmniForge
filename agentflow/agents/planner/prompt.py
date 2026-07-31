@@ -10,6 +10,11 @@ Core principle: This is a TASK GENERATION system, not a stage scheduler.
 All tool names, actions, and capabilities are now injected dynamically
 from the ToolRegistry via ``{capabilities}`` and ``{tool_actions}``
 template variables — no hardcoded allowlists.
+
+**Code generation is separated from planning.**  The planner describes
+*what* file to create and *what it should do*; a dedicated CodeGenerator
+(plain-text LLM call, no JSON) writes the actual code afterward.
+This eliminates JSON-corruption issues from embedding code in LLM output.
 """
 
 from __future__ import annotations
@@ -34,23 +39,15 @@ SYSTEM_PROMPT = """你是一个动态任务队列规划器（Dynamic Task Queue 
 
 以上列表中的 action 和 tool 名称**必须使用英文**。绝对禁止使用中文。
 
-## ⚠️ 代码内容必须用 Markdown 代码块包裹
+## ⚠️ 核心规则：不要写代码，只写需求描述
 
-当创建文件（write_file、create_file）且 content 包含代码时，**必须**把代码用 Markdown 代码块包裹：
+你的职责是规划任务，不是写代码。系统有独立的代码生成器负责写代码。
 
-```
-一些描述性文字（可选）
-
-```语言名
-完整代码内容
-```
-
-其他说明（可选）
-```
-
-这样可以避免代码中的双引号、换行符等特殊字符破坏 JSON 格式。代码块中的内容会由系统自动提取为文件内容。
-
-如果 content 不是代码（如纯文本、Markdown 文档），则不需要包裹，直接写文本即可。
+对于 **write_file / create_file** 任务：
+- **代码文件**（.py / .java / .js / .ts / .go / .html / .css / .vue / .cpp 等）：
+  **不要设置 content 字段**。改为设置 **code_prompt** 字段，用一两句话描述这个文件需要实现什么功能。
+- **纯文本配置文件**（requirements.txt / README.md / .gitignore 等）：
+  可以直接设置 content 字段写入内容。
 
 ## 任务优先级指南
 
@@ -84,27 +81,27 @@ SYSTEM_PROMPT = """你是一个动态任务队列规划器（Dynamic Task Queue 
     "current_stage": "",
     "tasks": [
         {
-            "task_id": "create_backend",
-            "title": "创建后端应用",
-            "priority": 80,
+            "task_id": "create_readme",
+            "title": "创建 README",
+            "priority": 60,
             "tool": "filesystem",
-            "goal": "创建 app.py",
+            "goal": "创建 README.md 说明文档",
             "input": {
                 "action": "write_file",
-                "path": "book_management/app.py",
-                "content": "```python\\nfrom flask import Flask\\n\\napp = Flask(__name__)\\n\\n@app.route('/')\\ndef hello():\\n    return 'Hello World'\\n\\nif __name__ == '__main__':\\n    app.run()\\n```"
+                "path": "project/README.md",
+                "content": "# 我的项目\\n\\n一个猜数字游戏。\\n\\n## 运行方式\\n\\npython game.py"
             }
         },
         {
-            "task_id": "create_config",
-            "title": "创建应用配置",
-            "priority": 75,
+            "task_id": "create_game",
+            "title": "创建游戏主文件",
+            "priority": 90,
             "tool": "filesystem",
-            "goal": "创建 config.py",
+            "goal": "创建 game.py",
             "input": {
                 "action": "write_file",
-                "path": "book_management/config.py",
-                "content": "```python\\nDEBUG = True\\nSECRET_KEY = 'change-me'\\n```"
+                "path": "project/game.py",
+                "code_prompt": "用 Python 编写一个命令行猜数字游戏，包含以下功能：\\n1. 随机生成 1-100 的目标数字\\n2. 玩家输入猜测\\n3. 提示太大或太小\\n4. 猜对后显示尝试次数\\n5. 支持 replay"
             }
         }
     ]
@@ -113,15 +110,19 @@ SYSTEM_PROMPT = """你是一个动态任务队列规划器（Dynamic Task Queue 
 
 ## 字段说明
 
-- **goal_completed**: 整个目标是否已经完成（所有高优先级任务完成 + 工作区满足预期）
+- **goal_completed**: 整个目标是否已经完成
 - **tasks**: 要新增或更新的任务列表（3~5 个）
 - 每个 task 的字段：
-  - **task_id**: 唯一标识（如 "create_backend"、"create_database"）
+  - **task_id**: 唯一标识
   - **title**: 任务标题（简短中文，仅用于显示）
-  - **priority**: 优先级 0-100（越高越重要）
+  - **priority**: 优先级 0-100
   - **tool**: 工具名（必须是上面列出的英文 tool 名之一）
   - **goal**: 任务目标描述
-  - **input**: 工具执行参数（**action 必须使用英文**，包含 action、path、content 等）
+  - **input**: 工具执行参数
+    - **action**: 必须使用英文
+    - **path**: 文件路径
+    - **content**: 仅用于纯文本文件，代码文件不要填
+    - **code_prompt**: 用于代码文件，描述需要生成什么代码
 
 ## 不要
 
@@ -131,7 +132,8 @@ SYSTEM_PROMPT = """你是一个动态任务队列规划器（Dynamic Task Queue 
 - 不要生成低优先级的任务（除非高优先级都已存在）
 - 不要删除或修改任务队列中已有的任务（由 Reflection 负责）
 - **不要使用中文作为 action 名称**
-- **不要在 content 中直接放置裸露的源代码**——必须用 markdown 代码块包裹（见上方规则）
+- **不要在 code_prompt 对应的任务中设置 content 字段**
+- **不要把源代码放在 JSON 里**——用 code_prompt 描述需求即可
 """
 
 
@@ -142,16 +144,7 @@ def build_planner_prompt(
     replan_context: str = "",
     registry=None,
 ) -> list[dict[str, str]]:
-    """Build the full message list for the planner LLM call.
-
-    Args:
-        goal: The user's goal (from GoalAnalyzer).
-        goal_type: The type of goal (project, coding, question, etc.).
-        context_str: Aggregated context from ContextBuilder (includes
-            task queue, workspace state, knowledge, etc.).
-        replan_context: Previous failure context for re-plan iterations.
-        registry: ToolRegistry instance for dynamic capability/tool text.
-    """
+    """Build the full message list for the planner LLM call."""
     caps_text = registry_summary(registry)
     tools_text = tool_actions_summary(registry) or "  (no tools registered)"
 
@@ -191,10 +184,10 @@ FC_SYSTEM_PROMPT = """你是一个动态任务队列规划器（Dynamic Task Que
 ## 核心原则
 
 1. 你每次直接生成 1~5 个文件创建任务，一次性完成用户目标。
-2. **绝对不要**调用 list_directory、tree、exists 或任何检查工作区的工具——工作区状态已在上下文中提供。
+2. **绝对不要**调用 read_file、list_directory、tree、exists 或任何检查/读取工作区的工具——工作区状态已在上下文中提供，你只需要创建文件。
 3. 直接根据用户目标选择正确的工具：
    - 生成 Word 文档/报告 → 使用 **docx.create**（content 为 Markdown 格式）
-   - 创建代码文件 → 使用 **filesystem.write_file**
+   - 创建代码文件 → 使用 **filesystem.write_file**（只传 path，不传 content，代码由系统自动生成）
    - 创建目录 → 使用 **filesystem.mkdir**
    - 执行 Python → 使用 **python.execute**
 4. 你不需要探索——直接创建用户需要的文件。
@@ -207,21 +200,14 @@ FC_SYSTEM_PROMPT = """你是一个动态任务队列规划器（Dynamic Task Que
 
 以上列表中的 tool 和 action 名称**必须使用英文**。绝对禁止使用中文。
 
-## ⚠️ 代码内容必须用 Markdown 代码块包裹
+## ⚠️ 核心规则：用 code_prompt 代替 content
 
-当调用 write_file 或 create_file 时，content 参数中的代码**必须**用 Markdown 代码块包裹：
-
-```
-content 参数值示例：
-"```java
-public class Snake {
-    public static void main(String[] args) {
-        System.out.println(\"Hello\");
-    }
-}
-```"
-
-即 JSON 中写成 \"```java\\n代码内容\\n```\"。这样代码内的双引号、换行符都在代码块内部，不会破坏 JSON 结构。
+你的职责是规划，不是写代码。调用 **write_file / create_file** 时：
+- **代码文件**（.py / .java / .js / .ts / .go / .html / .css /.vue 等）：
+  **不要传 content 参数**。改为传 **code_prompt** 参数，用一两句话描述这个文件要实现什么功能。
+  例如：code_prompt="用 Python 编写一个命令行猜数字游戏，随机生成 1-100 的目标数字，玩家输入猜测并提示太大或太小，猜对后显示尝试次数"
+- **纯文本文件**（README.md / requirements.txt 等）：
+  直接传 **content** 参数（纯文本，不长）。不要传 code_prompt。
 
 ## 工具选择指南
 
@@ -232,21 +218,12 @@ public class Snake {
 ## 每次调用生成全部任务
 
 你必须**一次性生成所有需要创建的文件**。不要分多次调用。
-例如，如果用户需要一份测试报告，你应该直接生成：
-1. docx.create 创建 report.docx（content 为完整的 Markdown 格式报告内容）
-
-如果用户需要一个 Python 游戏，你应该同时生成：
-1. filesystem.mkdir 创建项目目录
-2. filesystem.write_file 创建 game.py（包含完整游戏代码）
-3. filesystem.write_file 创建 README.md（包含说明文档）
-
-所有工具调用都在同一次响应中发出。
 
 ## 检查
 
 - 工作区状态已在上下文中提供——**绝对不要**用任何工具检查
-- 确保文件内容完整可用（不要写空文件）
 - 你的目标不是回答。你的目标是创建文件来完成用户任务。
+- **不要在工具调用参数里写源代码**——只描述要创建什么文件
 """
 
 
@@ -283,4 +260,32 @@ def build_fc_planner_prompt(
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user_content},
+    ]
+
+
+# ---------------------------------------------------------------------------
+# CodeGenerator prompt — plain-text completion, zero JSON
+# ---------------------------------------------------------------------------
+
+CODEGEN_SYSTEM_PROMPT = """你是一个代码生成器。根据需求描述生成完整、可直接运行的代码。
+
+规则：
+1. 只输出代码，不要输出解释、注释说明或闲聊
+2. 代码用 Markdown 代码块包裹（```语言名\\n代码\\n```）
+3. 代码必须完整可用，包含所有必要的导入语句
+4. 根据用户描述推断最合适的技术方案
+5. 如果用户指定了技术栈，严格遵循"""
+
+
+def build_codegen_prompt(code_prompt: str, language: str = "") -> list[dict[str, str]]:
+    """Build messages for the CodeGenerator LLM call.
+
+    This is a plain-text completion — no JSON, no function calling.
+    The LLM outputs markdown code blocks which are stripped by filesystem_tool.
+    """
+    lang_hint = f"，使用 {language}" if language else ""
+    user = f"请生成代码{lang_hint}：\n\n{code_prompt}"
+    return [
+        {"role": "system", "content": CODEGEN_SYSTEM_PROMPT},
+        {"role": "user", "content": user},
     ]

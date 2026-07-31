@@ -31,7 +31,9 @@ Core principles:
 
 from __future__ import annotations
 
-from typing import Any
+import time
+from datetime import datetime, timezone
+from typing import Any, Callable
 
 from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
@@ -45,13 +47,11 @@ from agentflow.agents.python.agent import PythonAgent
 from agentflow.agents.reflection.agent import ReflectionAgent
 from agentflow.agents.search.agent import SearchAgent
 from agentflow.agents.search.query_rewriter import QueryRewriter
-from agentflow.conversation.context import ConversationContext
 from agentflow.conversation.manager import ConversationManager
 from agentflow.conversation.session_state import SessionState
 from agentflow.graph.context import WorkflowContext
 from agentflow.graph.executor import Executor
 from agentflow.services.long_term_memory import LongTermMemory
-from agentflow.tools.result import ToolResult
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("workflow")
@@ -97,10 +97,70 @@ class WorkflowState(TypedDict, total=False):
     _reflection_message: str  # context for re-plan on failure
     _replan_count: int        # number of re-plan iterations
     _reflection_output: dict[str, Any]  # ReflectionAgent structured output
+    _planner_cycle_count: int  # Planner invocation count (guards infinite loop)
+    _stuck_rounds: int         # Consecutive stuck rounds (no TODO, not done)
 
-    # Degraded / fallback mode
-    _degraded: bool           # LLM unavailable — skip LLM-dependent agents
+    # Degraded / fallback mode — set of node names that are degraded
+    _degraded: set[str]      # e.g. {"planner"} — controls per-node LLM skip
     _llm_error: str           # Last LLM error detail for fallback messaging
+    _generation_failed: bool  # True when file generation failed deterministically
+    _generation_failure_reason: str  # User-facing failure reason for generation
+
+    # Unified error channel (consolidates _llm_error, _generation_failure_reason, etc.)
+    _errors: list[dict]       # [{"source", "type", "message", "timestamp"}, ...]
+
+    # Execution tracing
+    trace_id: str             # Unique request ID for log correlation
+    _trace: list[dict]        # [{"node", "start", "duration_ms", "route"}, ...]
+
+
+# ------------------------------------------------------------------
+# Node tracing helper
+# ------------------------------------------------------------------
+
+
+def _trace_node(name: str, func: Callable[..., dict[str, object]]) -> Callable[..., dict[str, object]]:
+    """Wrap a node function to record timing and trace entries into ``state["_trace"]``.
+
+    The trace entry is appended to ``result["_trace"]`` so it flows through
+    LangGraph's state updates.  The route field is filled in by the
+    subsequent routing function.
+    """
+
+    def _traced(state: object) -> dict[str, object]:
+        start_ns = time.perf_counter_ns()
+        result = func(state)  # type: ignore[operator]
+        duration_ms = (time.perf_counter_ns() - start_ns) / 1_000_000
+
+        trace = list(result.get("_trace", []) or [])
+        trace.append({
+            "node": name,
+            "start": datetime.now(timezone.utc).isoformat(),
+            "duration_ms": round(duration_ms, 2),
+            "route": None,  # routing function fills this in
+        })
+        result["_trace"] = trace
+        return result
+
+    return _traced
+
+
+def _record_route(state: WorkflowState, route: str) -> None:
+    """Record the routing decision in the last trace entry."""
+    trace = state.get("_trace", [])
+    if trace:
+        trace[-1]["route"] = route
+
+
+def _trace_route(
+    func: Callable[[WorkflowState], str],
+) -> Callable[[WorkflowState], str]:
+    """Decorator for routing functions that records the chosen route in the trace."""
+    def wrapper(state: WorkflowState) -> str:
+        route = func(state)
+        _record_route(state, route)
+        return route
+    return wrapper
 
 
 def build_workflow() -> Any:
@@ -127,18 +187,18 @@ def build_workflow() -> Any:
 
     workflow = StateGraph(WorkflowState)
 
-    # ── Nodes ──
-    workflow.add_node("conversation_manager", _make_conversation_manager_node(cm))
-    workflow.add_node("goal_analyzer", goal_analyzer.run)
-    workflow.add_node("knowledge", knowledge.run)
-    workflow.add_node("planner", _make_planner_node(planner))
-    workflow.add_node("query_rewriter", _make_query_rewriter_node(query_rewriter))
-    workflow.add_node("search", _make_search_node(search))
-    workflow.add_node("tool_executor", _make_tool_executor_node(executor))
-    workflow.add_node("reflector", reflection.run)
-    workflow.add_node("python", python_executor.run)
-    workflow.add_node("answer", answer.run)
-    workflow.add_node("memory", memory.run)
+    # ── Nodes (all wrapped with _trace_node for observability) ──
+    workflow.add_node("conversation_manager", _trace_node("conversation_manager", _make_conversation_manager_node(cm)))
+    workflow.add_node("goal_analyzer", _trace_node("goal_analyzer", goal_analyzer.run))
+    workflow.add_node("knowledge", _trace_node("knowledge", knowledge.run))
+    workflow.add_node("planner", _trace_node("planner", _make_planner_node(planner)))
+    workflow.add_node("query_rewriter", _trace_node("query_rewriter", _make_query_rewriter_node(query_rewriter)))
+    workflow.add_node("search", _trace_node("search", _make_search_node(search)))
+    workflow.add_node("tool_executor", _trace_node("tool_executor", _make_tool_executor_node(executor)))
+    workflow.add_node("reflector", _trace_node("reflector", reflection.run))
+    workflow.add_node("python", _trace_node("python", python_executor.run))
+    workflow.add_node("answer", _trace_node("answer", answer.run))
+    workflow.add_node("memory", _trace_node("memory", _make_memory_node(memory)))
 
     workflow.set_entry_point("conversation_manager")
 
@@ -222,11 +282,24 @@ def build_workflow() -> Any:
     return _workflow_cache
 
 
+def reset_workflow_cache() -> None:
+    """Invalidate the cached compiled workflow.
+
+    Call this after code changes during development to force a fresh
+    rebuild on the next ``build_workflow()`` call without requiring a
+    full server process restart.
+    """
+    global _workflow_cache
+    _workflow_cache = None
+    logger.info("Workflow cache cleared — next call will rebuild")
+
+
 # =========================================================================
 # Routing functions
 # =========================================================================
 
 
+@_trace_route
 def _route_after_goal_analyzer(state: WorkflowState) -> str:
     """Route based on goal_type AND knowledge_source (dual-framework).
 
@@ -289,6 +362,7 @@ def _route_after_goal_analyzer(state: WorkflowState) -> str:
     return "planner"
 
 
+@_trace_route
 def _route_after_executor(state: WorkflowState) -> str:
     """Route after a tool/python execution.
 
@@ -328,6 +402,7 @@ def _route_after_executor(state: WorkflowState) -> str:
     return "reflector"
 
 
+@_trace_route
 def _route_after_planner(state: WorkflowState) -> str:
     """Route based on Plan and Task Queue to execution node.
 
@@ -374,6 +449,7 @@ def _route_after_planner(state: WorkflowState) -> str:
     return "reflector"
 
 
+@_trace_route
 def _route_after_reflector(state: WorkflowState) -> str:
     """Reflection router for Dynamic Task Queue.
 
@@ -418,16 +494,18 @@ def _route_after_reflector(state: WorkflowState) -> str:
         return "tool_executor"
 
     # No TODO tasks but goal not completed -> need more from planner.
-    # Guard against infinite planner↔reflector loops: check cycle count.
+    # Guard against infinite planner↔reflector loops: increment stuck
+    # counter and check cycle count.
     cycle_count = int(state.get("_planner_cycle_count", 0))
-    stuck_rounds = int(state.get("_stuck_rounds", 0))
+    stuck_rounds = int(state.get("_stuck_rounds", 0)) + 1
+    state["_stuck_rounds"] = stuck_rounds
     if stuck_rounds >= 3:
         logger.warning("Reflector: %d stuck rounds without TODO, forcing answer", stuck_rounds)
         return "answer"
     if cycle_count >= 4:
         logger.warning("Reflector: %d planner cycles without progress, forcing answer", cycle_count)
         return "answer"
-    logger.info("Reflector -> planner (need more tasks, cycle %d)", cycle_count)
+    logger.info("Reflector -> planner (need more tasks, cycle %d, stuck=%d)", cycle_count, stuck_rounds)
     return "planner"
 
 
@@ -626,6 +704,29 @@ def _make_search_node(search_agent: object) -> object:
             if isinstance(t, dict) and t.get("status") == "running":
                 t["status"] = "done"
         result["task_queue"] = queue
+        return result
+
+    return _node
+
+
+def _make_memory_node(memory: MemoryAgent) -> object:
+    """Factory: wraps memory.run() and calls finalize_turn post-node.
+
+    This decouples MemoryAgent from ConversationManager — the agent
+    only manages conversation history; session state finalization is
+    handled at the workflow level.
+    """
+
+    def _node(state: WorkflowState) -> dict[str, object]:
+        result = memory.run(state)  # existing behavior
+        # finalize_turn was previously called inside MemoryAgent.run();
+        # now it runs here to break the reverse dependency.
+        answer = str(result.get("answer", ""))
+        ss = result.get("session_state")
+        if not isinstance(ss, SessionState):
+            ss = SessionState()
+        ConversationManager.finalize_turn(result, ss, answer)
+        result["session_state"] = ss
         return result
 
     return _node

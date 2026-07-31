@@ -50,7 +50,7 @@ flowchart TD
 The retrieval-augmented generation system supports PDF, DOCX, TXT, MD, HTML, XLSX, PPTX, CSV, EPUB, and source code files with structure-aware chunking.
 
 ```
-Document → Parser → Chunker → Qwen Embedder (1024-d)
+Document → Parser → Chunker → Qwen Embedder (v2/v3)
                                    ├── Qdrant (COSINE vector index)
                                    └── SQLite FTS5 (lexical index)
                                          ↓
@@ -63,7 +63,7 @@ Document → Parser → Chunker → Qwen Embedder (1024-d)
 
 - **Parser**: Multi-format document reader (pypdf, python-docx, openpyxl, python-pptx, BeautifulSoup, ebooklib)
 - **Chunker**: Structure-aware strategies — paragraph, markdown (heading-preserving), code (function boundaries), table, slide
-- **Embedder**: Qwen text-embedding-v3 via DashScope (1024-dimensional)
+- **Embedder**: Qwen text-embedding-v2/v3 via DashScope (1024/1536-d, dimension auto-detected)
 - **Retrieval**: Reciprocal Rank Fusion (RRF) combining vector (α=0.7) and lexical (β=0.3) scores; jieba CJK segmentation
 - **Evaluation**: Built-in eval framework with recall@k, precision@k, ndcg@k, hit@k, MRR metrics
 
@@ -138,6 +138,11 @@ cd frontend && npm install && npm run dev
 ```bash
 docker compose -f agentflow/docker/docker-compose.yml up --build
 ```
+
+For a single-service container, the root [`Dockerfile`](Dockerfile) is the
+canonical API image (the frontend is served separately via Vite). The
+`deploy/k8s/` manifests are the Kubernetes reference for the same image;
+`agentflow/docker/` is the older compose layout kept for local testing.
 
 ## Development
 

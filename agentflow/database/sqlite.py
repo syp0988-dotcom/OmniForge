@@ -192,6 +192,45 @@ class SQLiteStore:
                 ON long_term_memory(category)
             """)
 
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS executions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER,
+                    trace_id TEXT NOT NULL DEFAULT '',
+                    question TEXT NOT NULL DEFAULT '',
+                    answer TEXT NOT NULL DEFAULT '',
+                    goal_type TEXT NOT NULL DEFAULT '',
+                    trace_json TEXT NOT NULL DEFAULT '[]',
+                    errors_json TEXT NOT NULL DEFAULT '[]',
+                    degraded INTEGER NOT NULL DEFAULT 0,
+                    duration_ms REAL NOT NULL DEFAULT 0.0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            connection.execute("""
+                CREATE INDEX IF NOT EXISTS idx_executions_session_id
+                ON executions(session_id)
+            """)
+            connection.execute("""
+                CREATE INDEX IF NOT EXISTS idx_executions_created_at
+                ON executions(created_at)
+            """)
+
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS execution_checkpoints (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    execution_id INTEGER NOT NULL,
+                    node_name TEXT NOT NULL DEFAULT '',
+                    task_queue_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE CASCADE
+                )
+            """)
+            connection.execute("""
+                CREATE INDEX IF NOT EXISTS idx_checkpoints_execution_id
+                ON execution_checkpoints(execution_id)
+            """)
+
             # --- Migration: add session_id column to existing chats table ---
             try:
                 connection.execute("ALTER TABLE chats ADD COLUMN session_id INTEGER NOT NULL DEFAULT 0")
@@ -757,6 +796,131 @@ class SQLiteStore:
             else:
                 connection.execute("DELETE FROM long_term_memory")
             connection.commit()
+
+    # ------------------------------------------------------------------
+    # Execution records
+    # ------------------------------------------------------------------
+
+    def save_execution(
+        self,
+        session_id: int | None,
+        trace_id: str,
+        question: str,
+        answer: str,
+        goal_type: str,
+        trace_json: str,
+        errors_json: str,
+        degraded: bool,
+        duration_ms: float,
+    ) -> int:
+        """Persist a completed workflow execution record."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO executions(session_id, trace_id, question, answer, "
+                "goal_type, trace_json, errors_json, degraded, duration_ms) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (session_id, trace_id, question, answer, goal_type,
+                 trace_json, errors_json, int(degraded), duration_ms),
+            )
+            connection.commit()
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_execution(self, exec_id: int) -> dict[str, Any] | None:
+        """Retrieve a single execution record by ID."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "SELECT id, session_id, trace_id, question, answer, goal_type, "
+                "trace_json, errors_json, degraded, duration_ms, created_at "
+                "FROM executions WHERE id = ?",
+                (exec_id,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "session_id": row[1],
+            "trace_id": row[2],
+            "question": row[3],
+            "answer": row[4],
+            "goal_type": row[5],
+            "trace": row[6],
+            "errors": row[7],
+            "degraded": bool(row[8]),
+            "duration_ms": row[9],
+            "created_at": row[10],
+        }
+
+    def list_executions(
+        self, session_id: int | None = None, limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """List execution records, optionally filtered by session."""
+        if session_id is not None:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    "SELECT id, session_id, trace_id, question, answer, goal_type, "
+                    "trace_json, errors_json, degraded, duration_ms, created_at "
+                    "FROM executions WHERE session_id = ? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (session_id, limit),
+                )
+                rows = cursor.fetchall()
+        else:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    "SELECT id, session_id, trace_id, question, answer, goal_type, "
+                    "trace_json, errors_json, degraded, duration_ms, created_at "
+                    "FROM executions ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+        return [
+            {
+                "id": r[0], "session_id": r[1], "trace_id": r[2],
+                "question": r[3], "answer": r[4], "goal_type": r[5],
+                "trace": r[6], "errors": r[7],
+                "degraded": bool(r[8]), "duration_ms": r[9],
+                "created_at": r[10],
+            }
+            for r in rows
+        ]
+
+    # ------------------------------------------------------------------
+    # Execution checkpoints
+    # ------------------------------------------------------------------
+
+    def save_checkpoint(
+        self, execution_id: int, node_name: str, task_queue_json: str,
+    ) -> int:
+        """Persist a task queue checkpoint after a node execution."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO execution_checkpoints(execution_id, node_name, task_queue_json) "
+                "VALUES (?, ?, ?)",
+                (execution_id, node_name, task_queue_json),
+            )
+            connection.commit()
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def list_checkpoints(
+        self, execution_id: int,
+    ) -> list[dict[str, Any]]:
+        """List all checkpoints for an execution, in chronological order."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "SELECT id, node_name, task_queue_json, created_at "
+                "FROM execution_checkpoints "
+                "WHERE execution_id = ? ORDER BY id ASC",
+                (execution_id,),
+            )
+            rows = cursor.fetchall()
+        return [
+            {
+                "id": r[0], "node_name": r[1],
+                "task_queue_json": r[2], "created_at": r[3],
+            }
+            for r in rows
+        ]
 
     # ------------------------------------------------------------------
     # Cleanup methods (session timeout, TTL)

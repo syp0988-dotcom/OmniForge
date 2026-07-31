@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Iterator
@@ -18,6 +19,10 @@ _MAX_RETRIES = 2
 _BASE_DELAY = 1.0
 _MAX_DELAY = 10.0
 
+# Circuit breaker defaults
+_CB_FAILURE_THRESHOLD = 5   # Consecutive failures before OPEN
+_CB_RECOVERY_TIMEOUT = 30.0  # Seconds before HALF_OPEN
+
 # Token estimation heuristic
 _CHARS_PER_TOKEN = 4
 
@@ -28,6 +33,82 @@ class BudgetExceeded(Exception):
 
 class LLMUnavailable(Exception):
     """Raised when the LLM service is unavailable for any reason."""
+
+
+class CircuitBreaker:
+    """Thread-safe circuit breaker for LLM calls.
+
+    States::
+
+        CLOSED (normal) ── consecutive failures >= threshold ──→ OPEN
+        OPEN ── timeout elapsed ──→ HALF_OPEN
+        HALF_OPEN ── success ──→ CLOSED
+        HALF_OPEN ── failure ──→ OPEN
+    """
+
+    CLOSED = "CLOSED"
+    OPEN = "OPEN"
+    HALF_OPEN = "HALF_OPEN"
+
+    def __init__(
+        self,
+        failure_threshold: int = _CB_FAILURE_THRESHOLD,
+        recovery_timeout: float = _CB_RECOVERY_TIMEOUT,
+    ) -> None:
+        self._failure_threshold = failure_threshold
+        self._recovery_timeout = recovery_timeout
+        self._state = self.CLOSED
+        self._failure_count = 0
+        self._last_failure_time = 0.0
+        self._lock = threading.Lock()
+
+    @property
+    def state(self) -> str:
+        """Return current state, transitioning OPEN → HALF_OPEN if timeout elapsed."""
+        if self._state == self.OPEN:
+            if time.monotonic() - self._last_failure_time >= self._recovery_timeout:
+                with self._lock:
+                    if self._state == self.OPEN:
+                        self._state = self.HALF_OPEN
+                        logger.info("Circuit breaker: OPEN → HALF_OPEN (timeout elapsed)")
+        return self._state
+
+    def call(self, func: callable, *args: Any, **kwargs: Any) -> Any:
+        """Execute *func* through the circuit breaker.
+
+        Raises ``LLMUnavailable`` immediately when the circuit is OPEN.
+        """
+        if self.state == self.OPEN:
+            raise LLMUnavailable(
+                f"Circuit breaker OPEN — LLM unavailable "
+                f"(threshold={self._failure_threshold})"
+            )
+        try:
+            result = func(*args, **kwargs)
+            self._on_success()
+            return result
+        except Exception:
+            self._on_failure()
+            raise
+
+    def _on_success(self) -> None:
+        with self._lock:
+            if self._state == self.HALF_OPEN:
+                logger.info("Circuit breaker: HALF_OPEN → CLOSED (probe succeeded)")
+            self._state = self.CLOSED
+            self._failure_count = 0
+
+    def _on_failure(self) -> None:
+        with self._lock:
+            self._failure_count += 1
+            self._last_failure_time = time.monotonic()
+            if self._failure_count >= self._failure_threshold:
+                if self._state != self.OPEN:
+                    logger.warning(
+                        "Circuit breaker: → OPEN after %d consecutive failures",
+                        self._failure_count,
+                    )
+                self._state = self.OPEN
 
 
 # Error classification — maps exception types to user-facing categories
@@ -158,7 +239,18 @@ class LLMService:
         self._temperature: float = settings.temperature
         self._max_tokens: int = settings.max_tokens
         self._db = db or SQLiteStore()
+        self._circuit_breakers: dict[str, CircuitBreaker] = {}
         self._try_load_active_model()
+
+    def _get_breaker(self, node_name: str = "default") -> CircuitBreaker:
+        """Return (or create) a circuit breaker for the given node.
+
+        Each node gets its own breaker so one node's failures don't
+        affect others (e.g. Planner failing won't block AnswerAgent).
+        """
+        if node_name not in self._circuit_breakers:
+            self._circuit_breakers[node_name] = CircuitBreaker()
+        return self._circuit_breakers[node_name]
 
     def _try_load_active_model(self) -> None:
         """If a model is marked active in the database, override env settings."""
@@ -208,23 +300,32 @@ class LLMService:
     def client(self) -> Any | None:
         return self._client
 
-    def _call_with_retry(self, messages: list[dict[str, str]]) -> str:
-        """Call the LLM with exponential backoff retry.
+    def _call_with_retry(
+        self, messages: list[dict[str, str]], node_name: str = "default",
+    ) -> str:
+        """Call the LLM with circuit breaker + exponential backoff retry.
 
-        Retries up to ``_MAX_RETRIES`` times with jitter between attempts.
-        All exceptions are re-raised after exhausting retries so the caller
-        can apply its own fallback logic.
+        The circuit breaker short-circuits when the service has suffered
+        ``_CB_FAILURE_THRESHOLD`` consecutive failures, avoiding pointless
+        retries during extended outages. Each *node_name* gets its own
+        breaker so one agent's failures don't affect others.
         """
+        def _do_call() -> str:
+            response = self.client.chat.completions.create(
+                model=self._model_name,
+                messages=messages,
+                temperature=self._temperature,
+                max_tokens=self._max_tokens,
+            )
+            return response.choices[0].message.content or ""
+
+        # Circuit breaker check: if OPEN, raise immediately without retrying
+        # (state transitions happen inside the breaker call).
+        breaker = self._get_breaker(node_name)
         last_exc: Exception | None = None
         for attempt in range(_MAX_RETRIES + 1):
             try:
-                response = self.client.chat.completions.create(
-                    model=self._model_name,
-                    messages=messages,
-                    temperature=self._temperature,
-                    max_tokens=self._max_tokens,
-                )
-                return response.choices[0].message.content or ""
+                return breaker.call(_do_call)
             except Exception as exc:
                 last_exc = exc
                 if attempt < _MAX_RETRIES:
@@ -234,7 +335,8 @@ class LLMService:
                         "LLM request failed (attempt %d/%d): %s. Retrying in %.1fs...",
                         attempt + 1, _MAX_RETRIES + 1, exc, delay,
                     )
-                    time.sleep(delay)
+                    if not isinstance(exc, LLMUnavailable):
+                        time.sleep(delay)
         # All retries exhausted
         raise last_exc  # type: ignore[misc]
 
@@ -243,6 +345,7 @@ class LLMService:
         prompt: str | None = None,
         messages: list[dict[str, str]] | None = None,
         session_state: object | None = None,
+        node_name: str = "default",
     ) -> str:
         """Generate a completion using the configured model or a deterministic fallback.
 
@@ -250,6 +353,7 @@ class LLMService:
         calling the API and accumulates estimated usage afterwards.
 
         Retries transient failures with exponential backoff before falling back.
+        The *node_name* selects which circuit breaker to use.
         """
         if not self.client:
             logger.warning("No API key configured; using fallback response")
@@ -277,7 +381,7 @@ class LLMService:
                 )
 
         try:
-            result = self._call_with_retry(messages)
+            result = self._call_with_retry(messages, node_name=node_name)
             # Accumulate estimated usage
             if session_state is not None and hasattr(session_state, "add_token_usage"):
                 input_tokens = sum(estimate_tokens(m.get("content", "")) for m in messages)
@@ -298,6 +402,7 @@ class LLMService:
         prompt: str | None = None,
         messages: list[dict[str, str]] | None = None,
         session_state: object | None = None,
+        node_name: str = "answer",
     ) -> Iterator[str]:
         """Stream a completion token-by-token when the provider supports it."""
         if messages is None:
@@ -324,13 +429,18 @@ class LLMService:
 
         collected: list[str] = []
         try:
-            stream = self.client.chat.completions.create(
-                model=self._model_name,
-                messages=messages,
-                temperature=self._temperature,
-                max_tokens=self._max_tokens,
-                stream=True,
-            )
+            # Circuit breaker check for streaming calls
+            def _do_stream():
+                return self.client.chat.completions.create(
+                    model=self._model_name,
+                    messages=messages,
+                    temperature=self._temperature,
+                    max_tokens=self._max_tokens,
+                    stream=True,
+                )
+
+            breaker = self._get_breaker(node_name="answer")
+            stream = breaker.call(_do_stream)
             for chunk in stream:
                 choices = getattr(chunk, "choices", None) or []
                 if not choices:
@@ -341,6 +451,9 @@ class LLMService:
                     collected.append(content)
                     yield content
         except BudgetExceeded:
+            raise
+        except LLMUnavailable:
+            logger.warning("Streaming LLM request blocked by circuit breaker")
             raise
         except Exception as exc:  # pragma: no cover - provider/runtime dependent
             logger.exception("Streaming LLM request failed: %s", exc)
@@ -363,6 +476,7 @@ class LLMService:
         messages: list[dict[str, str]],
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict[str, Any] | None = "auto",
+        node_name: str = "planner",
     ) -> LLMResponse:
         """Call the LLM with OpenAI-compatible function definitions.
 
@@ -371,6 +485,7 @@ class LLMService:
             tools: List of OpenAI-compatible function definitions.
             tool_choice: ``"auto"`` (default), ``"required"``, ``"none"``,
                 or ``{"type": "function", "function": {"name": "..."}}``.
+            node_name: Selects which circuit breaker to use.
 
         Returns:
             ``LLMResponse`` with ``content`` and/or ``tool_calls``.
@@ -390,10 +505,13 @@ class LLMService:
         if tool_choice is not None:
             kwargs["tool_choice"] = tool_choice
 
+        breaker = self._get_breaker(node_name)
         last_exc: Exception | None = None
         for attempt in range(_MAX_RETRIES + 1):
             try:
-                response = self.client.chat.completions.create(**kwargs)
+                response = breaker.call(
+                    lambda: self.client.chat.completions.create(**kwargs)
+                )
                 msg = response.choices[0].message
 
                 content = msg.content or ""

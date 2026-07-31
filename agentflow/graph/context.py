@@ -198,6 +198,17 @@ class WorkflowContext(dict):
     def router(self, value: dict[str, Any]) -> None:
         self["router"] = value
 
+    # -- Trace ID ----------------------------------------------------------------
+
+    @property
+    def trace_id(self) -> str:
+        """Unique request ID for log correlation across nodes."""
+        return str(self.get("trace_id", ""))
+
+    @trace_id.setter
+    def trace_id(self, value: str) -> None:
+        self["trace_id"] = value
+
     # -- Conversation Context (Phase 7) -----------------------------------------
 
     @property

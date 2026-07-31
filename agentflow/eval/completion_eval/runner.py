@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -20,7 +19,7 @@ from agentflow.eval.common import (
     save_results,
 )
 from agentflow.eval.completion_eval.dataset import CompletionEvalDataset
-from agentflow.eval.completion_eval.metrics import compute_all, aggregate
+from agentflow.eval.completion_eval.metrics import compute_all
 from agentflow.tools.registry import ToolRegistry
 
 logger = logging.getLogger("completion_eval")
