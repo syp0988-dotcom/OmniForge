@@ -10,6 +10,7 @@ from openai import OpenAI
 
 from agentflow.config.settings import settings
 from agentflow.database.sqlite import SQLiteStore
+from agentflow.utils.metrics import inc, observe_duration
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("llm")
@@ -381,7 +382,11 @@ class LLMService:
                 )
 
         try:
+            _start = time.perf_counter()
             result = self._call_with_retry(messages, node_name=node_name)
+            observe_duration("llm_call_duration_seconds",
+                             time.perf_counter() - _start, node=node_name)
+            inc("llm_calls_total", node=node_name)
             # Accumulate estimated usage
             if session_state is not None and hasattr(session_state, "add_token_usage"):
                 input_tokens = sum(estimate_tokens(m.get("content", "")) for m in messages)

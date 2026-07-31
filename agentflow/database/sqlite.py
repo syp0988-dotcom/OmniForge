@@ -13,6 +13,10 @@ from agentflow.utils.logging import build_logger as _build_logger
 
 _log = _build_logger("sqlite")
 
+# Schema version.  Bump this when adding a migration in ``_initialize``;
+# the migration chain runs in order from ``PRAGMA user_version``.
+_SCHEMA_VERSION = 1
+
 
 class SQLiteStore:
     """Simple SQLite-backed persistence for chat/history and knowledge base data.
@@ -163,6 +167,20 @@ class SQLiteStore:
             except sqlite3.OperationalError:
                 pass
 
+            # -- Lightweight column migration: content_hash for upload dedup --
+            columns = [
+                row[1]
+                for row in connection.execute("PRAGMA table_info(documents)").fetchall()
+            ]
+            if "content_hash" not in columns:
+                connection.execute(
+                    "ALTER TABLE documents ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_documents_content_hash "
+                "ON documents(content_hash)"
+            )
+
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS llm_models (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -256,6 +274,15 @@ class SQLiteStore:
                     connection.execute(
                         "UPDATE chats SET session_id = 0 WHERE session_id = 0"
                     )
+
+            # -- Versioned migration bookkeeping -------------------------------
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version < _SCHEMA_VERSION:
+                connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+                _log.info(
+                    "Database schema migrated %d -> %d",
+                    version, _SCHEMA_VERSION,
+                )
 
             connection.commit()
 
@@ -379,15 +406,43 @@ class SQLiteStore:
     # -- Documents -------------------------------------------------------------
 
     def add_document(
-        self, filename: str, file_type: str, file_size: int, doc_metadata: str = "{}"
+        self,
+        filename: str,
+        file_type: str,
+        file_size: int,
+        doc_metadata: str = "{}",
+        content_hash: str = "",
     ) -> int:
         with self._connect() as connection:
             cursor = connection.execute(
-                "INSERT INTO documents(filename, file_type, file_size, doc_metadata) VALUES (?, ?, ?, ?)",
-                (filename, file_type, file_size, doc_metadata),
+                "INSERT INTO documents(filename, file_type, file_size, doc_metadata, content_hash) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (filename, file_type, file_size, doc_metadata, content_hash),
             )
             connection.commit()
             return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_document_by_hash(self, content_hash: str) -> dict[str, Any] | None:
+        """Return the first document that matches a content hash ('' never matches)."""
+        if not content_hash:
+            return None
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "SELECT id, filename, file_type, file_size, doc_metadata, created_at "
+                "FROM documents WHERE content_hash = ? ORDER BY id LIMIT 1",
+                (content_hash,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "filename": row[1],
+            "file_type": row[2],
+            "file_size": row[3],
+            "doc_metadata": row[4],
+            "created_at": row[5],
+        }
 
     def update_document_metadata(self, doc_id: int, updates: dict[str, object]) -> None:
         """Merge *updates* into the JSON metadata of an existing document."""
@@ -429,6 +484,17 @@ class SQLiteStore:
         with self._connect() as connection:
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+            connection.commit()
+
+    def clear_all_knowledge(self) -> None:
+        """Delete every chunk and document, and reset embedding model meta."""
+        with self._connect() as connection:
+            connection.execute("DELETE FROM chunks")
+            connection.execute("DELETE FROM documents")
+            connection.execute(
+                "DELETE FROM knowledge_meta "
+                "WHERE key IN ('embedding_model', 'embedding_dimension')"
+            )
             connection.commit()
 
     # -- Chunks ----------------------------------------------------------------

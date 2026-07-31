@@ -1,0 +1,24 @@
+{"id": "qc01", "question": "京东的核心理念是什么？", "relevant_chunk_ids": [1552]}
+{"id": "qc02", "question": "京东一直坚守并引以为傲的信念是什么？", "relevant_chunk_ids": [1552, 1553], "variant_of": "qc01"}
+{"id": "qc03", "question": "京东对哪三类钱明确说不赚？", "relevant_chunk_ids": [1553]}
+{"id": "qc04", "question": "京东从来不赚哪几种钱？", "relevant_chunk_ids": [1553], "variant_of": "qc03"}
+{"id": "qc05", "question": "试用期内辞职要提前几天提出书面申请？", "relevant_chunk_ids": [1580]}
+{"id": "qc06", "question": "还在试用期就想离职，得提前多久打离职报告？", "relevant_chunk_ids": [1580], "variant_of": "qc05"}
+{"id": "qc07", "question": "加班的最小统计单位是多少？", "relevant_chunk_ids": [1587]}
+{"id": "qc08", "question": "加班时长按多小的时间单位来核算？", "relevant_chunk_ids": [1587], "variant_of": "qc07"}
+{"id": "qc09", "question": "员工每年能休多少天全薪病假？", "relevant_chunk_ids": [1591]}
+{"id": "qc10", "question": "带薪病假一年有几天是全薪的？", "relevant_chunk_ids": [1591], "variant_of": "qc09"}
+{"id": "qc11", "question": "京东的内部办公信息系统包括哪些？", "relevant_chunk_ids": [1664]}
+{"id": "qc12", "question": "京东员工日常办公会用到哪几个内部系统？", "relevant_chunk_ids": [1664], "variant_of": "qc11"}
+{"id": "qc13", "question": "迟到和早退是怎么界定的？", "relevant_chunk_ids": [1584]}
+{"id": "qc14", "question": "哪些情况不算加班？", "relevant_chunk_ids": [1588]}
+{"id": "qc15", "question": "工作满十年的员工每年有多少天年假？", "relevant_chunk_ids": [1595]}
+{"id": "qc16", "question": "员工丧假有几天？", "relevant_chunk_ids": [1598]}
+{"id": "qc17", "question": "安居计划是什么？", "relevant_chunk_ids": [1613]}
+{"id": "qc18", "question": "大耳朵热线的电话是多少？", "relevant_chunk_ids": [1623]}
+{"id": "qc19", "question": "餐费补贴是怎么核算的？", "relevant_chunk_ids": [1615]}
+{"id": "qc20", "question": "京东的薪酬福利体系包括哪些部分？", "relevant_chunk_ids": [1605]}
+{"id": "qc21", "question": "入职需要携带哪些证件材料？", "relevant_chunk_ids": [1573]}
+{"id": "qc22", "question": "什么样的设备允许连接公司办公内网？", "relevant_chunk_ids": [1670]}
+{"id": "qc23", "question": "京东在2016年推出了哪些反腐举措？", "relevant_chunk_ids": [1550]}
+{"id": "qc24", "question": "员工对不公平对待可以向哪里申诉？", "relevant_chunk_ids": [1621]}

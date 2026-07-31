@@ -10,6 +10,7 @@ __pycache__/
 .pytest_cache_local/
 .pytest_tmp/
 .ruff_cache/
+.coverage
 
 # Node / frontend
 node_modules/

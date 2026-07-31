@@ -12,5 +12,16 @@ export default defineConfig({
   },
   server: {
     port: 5173
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vue: ['vue'],
+          markdown: ['markdown-it', 'highlight.js'],
+          icons: ['lucide-vue-next'],
+        },
+      },
+    },
   }
 })

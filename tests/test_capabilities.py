@@ -273,9 +273,26 @@ class TestKnowledgeCapability:
 
         assert "answer" in result
 
-    def test_knowledge_agent_integration(self):
+    def test_knowledge_agent_integration(self, monkeypatch, tmp_path):
         """KnowledgeAgent searches store and returns structured results."""
         from agentflow.agents.knowledge.agent import KnowledgeAgent
+        from agentflow.database.sqlite import SQLiteStore
+        from agentflow.knowledge.index import QdrantIndex
+        from agentflow.knowledge.store import KnowledgeStore
+        from tests.test_knowledge_retrieval import FakeEmbedder
+
+        # In-memory store — never touches the on-disk Qdrant folder, so the
+        # test stays hermetic even while a dev server holds the folder lock.
+        db = SQLiteStore(tmp_path / "knowledge_cap.db")
+        store = KnowledgeStore(
+            db=db,
+            qdrant_index=QdrantIndex.in_memory(collection_name="knowledge_cap_test"),
+            embedder=FakeEmbedder(),
+        )
+        monkeypatch.setattr(
+            "agentflow.agents.knowledge.agent._shared_knowledge_store",
+            lambda: store,
+        )
 
         agent = KnowledgeAgent()
         state = {
@@ -288,3 +305,4 @@ class TestKnowledgeCapability:
         assert "knowledge_results" in result
         # KnowledgeAgent should return results (empty or populated)
         assert isinstance(result.get("knowledge_results"), list)
+        db.close()

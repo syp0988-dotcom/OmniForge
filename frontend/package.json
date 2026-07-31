@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview"
   },
@@ -23,6 +24,7 @@
     "tailwindcss": "^3.4.0",
     "postcss": "^8.4.0",
     "autoprefixer": "^10.4.0",
-    "@types/markdown-it": "^14.0.0"
+    "@types/markdown-it": "^14.0.0",
+    "vitest": "^1.6.0"
   }
 }

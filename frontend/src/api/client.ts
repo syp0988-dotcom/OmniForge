@@ -1,5 +1,6 @@
 import axios from 'axios'
 
+import { readSseStream } from '@/api/sse'
 import type { AgentInfo, CreatedFile, FilePreview, Session, ToolInfo, ToolCapability, ToolExecutorSummary, SourceMode } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
@@ -77,56 +78,19 @@ export async function postChatStream(
   const reader = response.body?.getReader()
   if (!reader) throw new Error('No response body')
 
-  const decoder = new TextDecoder()
-  let buffer = ''
   let finalAnswer = ''
   let finalSessionId: number | undefined
   let finalDegraded: boolean | undefined
   let finalDegradedReason: string | undefined
-  let currentEvent = ''
-  let currentData = ''
-
-  const dispatchEvent = () => {
-    if (!currentEvent) return
-    try {
-      const parsed = JSON.parse(currentData) as Record<string, unknown>
-      onEvent(currentEvent, parsed)
-      if (currentEvent === 'done') {
-        finalAnswer = (parsed.answer as string) || ''
-        finalSessionId = parsed.session_id as number | undefined
-        finalDegraded = parsed.degraded as boolean | undefined
-        finalDegradedReason = parsed.degraded_reason as string | undefined
-      }
-    } catch {
-      // Ignore malformed/incomplete events; the next chunk can still recover.
-    } finally {
-      currentEvent = ''
-      currentData = ''
+  await readSseStream(reader, (event, data) => {
+    onEvent(event, data)
+    if (event === 'done') {
+      finalAnswer = (data.answer as string) || ''
+      finalSessionId = data.session_id as number | undefined
+      finalDegraded = data.degraded as boolean | undefined
+      finalDegradedReason = data.degraded_reason as string | undefined
     }
-  }
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-
-    // Parse SSE events from buffer
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || '' // keep incomplete line
-
-    for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        currentEvent = line.slice(7).trim()
-      } else if (line.startsWith('data: ')) {
-        currentData += currentData ? `\n${line.slice(6).trim()}` : line.slice(6).trim()
-      } else if (line === '' && currentEvent) {
-        dispatchEvent()
-      }
-    }
-  }
-
-  dispatchEvent()
+  })
 
   return { answer: finalAnswer, session_id: finalSessionId, degraded: finalDegraded, degraded_reason: finalDegradedReason }
 }

@@ -4,8 +4,40 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
-import MarkdownIt from 'markdown-it'
-import hljs from 'highlight.js'
+
+// Load the heavy markdown/highlighting stack on demand (first render),
+// keeping it out of the initial page bundle.
+const { default: MarkdownIt } = await import('markdown-it')
+const { default: hljs } = await import('highlight.js/lib/core')
+// Register only the languages most likely to appear in generated code.
+const { default: langPython } = await import('highlight.js/lib/languages/python')
+const { default: langJs } = await import('highlight.js/lib/languages/javascript')
+const { default: langTs } = await import('highlight.js/lib/languages/typescript')
+const { default: langJava } = await import('highlight.js/lib/languages/java')
+const { default: langGo } = await import('highlight.js/lib/languages/go')
+const { default: langBash } = await import('highlight.js/lib/languages/bash')
+const { default: langJson } = await import('highlight.js/lib/languages/json')
+const { default: langXml } = await import('highlight.js/lib/languages/xml')
+const { default: langCss } = await import('highlight.js/lib/languages/css')
+const { default: langSql } = await import('highlight.js/lib/languages/sql')
+import type { LanguageFn } from 'highlight.js'
+const { default: langYaml } = await import('highlight.js/lib/languages/yaml')
+const languages: Array<[string, LanguageFn]> = [
+  ['python', langPython],
+  ['javascript', langJs],
+  ['typescript', langTs],
+  ['java', langJava],
+  ['go', langGo],
+  ['bash', langBash],
+  ['json', langJson],
+  ['xml', langXml],
+  ['css', langCss],
+  ['sql', langSql],
+  ['yaml', langYaml],
+]
+for (const [name, lang] of languages) {
+  hljs.registerLanguage(name, lang)
+}
 
 const props = defineProps<{
   content: string

@@ -26,7 +26,7 @@ jobs:
       - name: Run test suite
         env:
           PYTHONPATH: .
-        run: python -m pytest tests -q
+        run: python -m pytest tests -q --cov=agentflow --cov-report=term --cov-fail-under=50
 
   lint:
     name: Ruff lint
@@ -58,5 +58,7 @@ jobs:
         run: npm ci
       - name: Typecheck
         run: npm run typecheck
+      - name: Unit tests
+        run: npm run test
       - name: Build
         run: npm run build

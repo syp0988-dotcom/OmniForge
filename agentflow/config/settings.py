@@ -30,7 +30,19 @@ class Settings(BaseSettings):
     knowledge_chunk_size: int = Field(default=500, alias="KNOWLEDGE_CHUNK_SIZE")
     knowledge_chunk_overlap: int = Field(default=50, alias="KNOWLEDGE_CHUNK_OVERLAP")
     knowledge_top_k: int = Field(default=5, alias="KNOWLEDGE_TOP_K")
-    knowledge_min_score: float = Field(default=0.05, alias="KNOWLEDGE_MIN_SCORE")
+    # Hybrid-score floor. 0.05 admitted pure-lexical noise (vector_score=0,
+    # score ~0.06); 0.10 keeps semantically relevant chunks while filtering
+    # keyword-only matches. Tune via agentflow.knowledge.eval.tune.
+    knowledge_min_score: float = Field(default=0.10, alias="KNOWLEDGE_MIN_SCORE")
+    # Post-retrieval reranking: "none" (default) or "llm".
+    # When "llm", top candidates are re-ranked by the LLM before answering.
+    knowledge_reranker: str = Field(default="none", alias="KNOWLEDGE_RERANKER")
+    knowledge_rerank_candidates: int = Field(
+        default=10, alias="KNOWLEDGE_RERANK_CANDIDATES",
+    )
+    knowledge_rerank_top_k: int = Field(
+        default=3, alias="KNOWLEDGE_RERANK_TOP_K",
+    )
 
     # -- Embedding API settings (DashScope / OpenAI-compatible) --
     embedding_api_key: str = Field(default="", alias="EMBEDDING_API_KEY")
@@ -41,6 +53,8 @@ class Settings(BaseSettings):
     embedding_model_name: str = Field(
         default="text-embedding-v3", alias="EMBEDDING_MODEL_NAME"
     )
+    embedding_cache_enabled: bool = Field(default=True, alias="EMBEDDING_CACHE_ENABLED")
+    embedding_cache_path: str = Field(default="", alias="EMBEDDING_CACHE_PATH")
 
     # -- Qdrant settings --
     qdrant_url: str = Field(default="http://localhost:6333", alias="QDRANT_URL")
@@ -62,6 +76,28 @@ class Settings(BaseSettings):
 
     # -- Tool safety settings --
     allow_unsafe_python_tool: bool = Field(default=False, alias="ALLOW_UNSAFE_PYTHON_TOOL")
+
+    # -- Request / upload limits --
+    # Safety net for the whole chat request (streaming included). Default 300s
+    # is generous for multi-step workflows; single LLM calls have their own 60s
+    # client timeout plus retries.
+    max_request_seconds: int = Field(default=300, alias="MAX_REQUEST_SECONDS")
+    max_upload_bytes: int = Field(
+        default=50 * 1024 * 1024, alias="MAX_UPLOAD_BYTES",
+    )
+    max_zip_entries: int = Field(default=200, alias="MAX_ZIP_ENTRIES")
+    max_zip_uncompressed_bytes: int = Field(
+        default=500 * 1024 * 1024, alias="MAX_ZIP_UNCOMPRESSED_BYTES",
+    )
+
+    # -- Deployment security --
+    # When AUTH_TOKEN is set, every endpoint except /health requires
+    # "Authorization: Bearer <token>". Leave empty for local-only use.
+    auth_token: str = Field(default="", alias="AUTH_TOKEN")
+    # Comma-separated list of allowed CORS origins, e.g.
+    # "https://app.example.com,https://admin.example.com".
+    # Empty → default localhost-only regex (safe for local dev).
+    cors_origins: str = Field(default="", alias="CORS_ORIGINS")
 
     # -- HTTP proxy settings (for search providers behind GFW) --
     http_proxy: str = Field(default="", alias="HTTP_PROXY")

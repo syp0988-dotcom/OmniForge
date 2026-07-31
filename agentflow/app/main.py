@@ -8,10 +8,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
 
 from agentflow.api.routes import get_store, router
 from agentflow.config.settings import settings
 from agentflow.graph.workflow import get_executor, reset_workflow_cache
+from agentflow.utils.metrics import inc, observe_duration, render
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("agentflow")
@@ -48,6 +50,26 @@ async def _cleanup_loop() -> None:
 _cleanup_task: asyncio.Task[None] | None = None
 
 
+class DynamicCORSMiddleware(CORSMiddleware):
+    """CORS middleware that reads ``CORS_ORIGINS`` at request time.
+
+    The default build uses the localhost-only regex; when ``CORS_ORIGINS`` is
+    set (comma-separated), exactly those origins are allowed.  Reading the
+    setting per-request keeps the behaviour testable and restart-free.
+    """
+
+    def is_allowed_origin(self, origin: str) -> bool:
+        configured = settings.cors_origins
+        if configured:
+            allowed = [
+                item.strip()
+                for item in configured.split(",")
+                if item.strip()
+            ]
+            return origin in allowed
+        return super().is_allowed_origin(origin)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> None:
     """Manage startup/shutdown lifecycle."""
@@ -63,10 +85,10 @@ async def lifespan(app: FastAPI) -> None:
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
 
-# Enable CORS for local frontend development (Vite ports).
-# In production you should restrict origins appropriately.
+# Enable CORS for local frontend development (Vite ports) by default.
+# Set CORS_ORIGINS for a deployed origin allow-list (see DynamicCORSMiddleware).
 app.add_middleware(
-    CORSMiddleware,
+    DynamicCORSMiddleware,
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["*"],
@@ -83,13 +105,34 @@ app.include_router(router)
 async def log_http_requests(request: Request, call_next: object) -> object:
     """Log method, path, status code, and duration for every HTTP request."""
     start = time.perf_counter()
+    # Optional bearer-token auth for non-local deployments. /health stays open
+    # so load-balancer probes keep working.
+    if settings.auth_token:
+        path = request.url.path
+        if path != "/health":
+            auth = request.headers.get("authorization", "")
+            if auth != f"Bearer {settings.auth_token}":
+                return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     response = await call_next(request)  # type: ignore[operator]
     duration = time.perf_counter() - start
+    inc("http_requests_total", method=request.method, path=request.url.path,
+        status=str(response.status_code))
+    observe_duration("http_request_duration_seconds", duration,
+                     method=request.method, path=request.url.path)
     logger.info(
         "HTTP %s %s → %d (%.2fs)",
         request.method, request.url.path, response.status_code, duration,
     )
     return response
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    """Prometheus text-format metrics for the running process."""
+    return Response(
+        content=render(),
+        media_type="text/plain; version=0.0.4",
+    )
 
 
 @app.get("/health")

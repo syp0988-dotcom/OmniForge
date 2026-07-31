@@ -70,8 +70,21 @@ class HybridRetriever:
         query: str,
         top_k: int | None = None,
         min_score: float | None = None,
+        document_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
         """Hybrid vector + lexical search.
+
+        Parameters
+        ----------
+        query : str
+            The search query.
+        top_k : int | None
+            Maximum number of results (default from settings).
+        min_score : float | None
+            Minimum hybrid score threshold (default from settings).
+        document_ids : list[int] | None
+            When provided, only chunks belonging to these documents are
+            returned (post-filter after fusion).
 
         Returns
         -------
@@ -92,14 +105,19 @@ class HybridRetriever:
         if not vector_results and not lexical_results:
             return []
         if not vector_results:
-            return self._format_lexical_only(lexical_results, top_k, min_score)
+            return self._format_lexical_only(
+                lexical_results, top_k, min_score, document_ids
+            )
         if not lexical_results:
-            return self._format_vector_only(vector_results, top_k, min_score)
+            return self._format_vector_only(
+                vector_results, top_k, min_score, document_ids
+            )
 
         # 3. Hybrid fusion via RRF
         merged = self._rrf_fusion(vector_results, lexical_results, top_k, alpha=self.alpha, beta=self.beta)
 
         # 4. Augment with metadata and filter by score (batch fetch, no N+1)
+        doc_filter = set(document_ids) if document_ids else None
         chunk_ids = [cid for cid, score, _, _ in merged if score >= min_score]
         chunk_map = self.db.get_chunks_with_documents_batch(chunk_ids)
         results: list[dict[str, Any]] = []
@@ -108,6 +126,8 @@ class HybridRetriever:
                 continue
             chunk_info = chunk_map.get(chunk_id)
             if not chunk_info:
+                continue
+            if doc_filter is not None and chunk_info["document_id"] not in doc_filter:
                 continue
             results.append({
                 "chunk_id": chunk_id,
@@ -250,12 +270,21 @@ class HybridRetriever:
         vector_results: list[tuple[int, float]],
         top_k: int,
         min_score: float,
+        document_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
+        doc_filter = set(document_ids) if document_ids else None
         # Filter and collect IDs first, then batch-fetch metadata
-        qualified = [
-            (cid, score) for cid, score in vector_results
-            if score >= min_score
-        ][:top_k]
+        qualified: list[tuple[int, float]] = []
+        for cid, score in vector_results:
+            if score < min_score:
+                continue
+            if doc_filter is not None:
+                info = self.db.get_chunk_with_document(cid)
+                if info is None or info["document_id"] not in doc_filter:
+                    continue
+            qualified.append((cid, score))
+            if len(qualified) >= top_k:
+                break
         if not qualified:
             return []
         chunk_ids = [cid for cid, _ in qualified]
@@ -281,11 +310,20 @@ class HybridRetriever:
         lexical_results: list[tuple[int, float]],
         top_k: int,
         min_score: float,
+        document_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
-        qualified = [
-            (cid, score) for cid, score in lexical_results
-            if score >= min_score
-        ][:top_k]
+        doc_filter = set(document_ids) if document_ids else None
+        qualified: list[tuple[int, float]] = []
+        for cid, score in lexical_results:
+            if score < min_score:
+                continue
+            if doc_filter is not None:
+                info = self.db.get_chunk_with_document(cid)
+                if info is None or info["document_id"] not in doc_filter:
+                    continue
+            qualified.append((cid, score))
+            if len(qualified) >= top_k:
+                break
         if not qualified:
             return []
         chunk_ids = [cid for cid, _ in qualified]

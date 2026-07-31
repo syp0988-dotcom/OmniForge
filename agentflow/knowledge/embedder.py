@@ -65,12 +65,20 @@ class QwenEmbedder(BaseEmbedder):
         api_key: str | None = None,
         base_url: str | None = None,
         model_name: str | None = None,
+        cache: object | None = None,
     ) -> None:
         self._api_key = api_key or settings.embedding_api_key
         self._base_url = base_url or settings.embedding_base_url
         self._model_name = model_name or settings.embedding_model_name
         self._client = None
         self._dim: int | None = None
+        self._cache = cache
+        if self._cache is None:
+            try:
+                from agentflow.knowledge.embedding_cache import get_shared_cache
+                self._cache = get_shared_cache()
+            except Exception:
+                self._cache = None
 
     def _get_client(self):
         if self._client is None:
@@ -89,6 +97,29 @@ class QwenEmbedder(BaseEmbedder):
 
     def embed(self, texts: list[str], batch_size: int = 20) -> list[np.ndarray]:
         """Embed texts in batches via the API."""
+        if not texts:
+            return []
+
+        cache = self._cache
+        if cache is not None:
+            try:
+                cached, missing_indices, missing_texts = cache.lookup(
+                    self._model_name, texts,
+                )
+                if not missing_texts:
+                    return [v for v in cached if v is not None]
+                new_vectors = self._embed_api(missing_texts, batch_size)
+                cache.store(self._model_name, missing_texts, new_vectors)
+                return cache.merge(cached, missing_indices, new_vectors)
+            except Exception:
+                # Cache failure must never break embedding itself.
+                pass
+        return self._embed_api(texts, batch_size)
+
+    def _embed_api(
+        self, texts: list[str], batch_size: int = 20,
+    ) -> list[np.ndarray]:
+        """Call the remote embedding API for the given texts."""
         client = self._get_client()
         all_embeddings: list[np.ndarray] = []
         for i in range(0, len(texts), batch_size):
@@ -117,3 +148,8 @@ class QwenEmbedder(BaseEmbedder):
     @property
     def name(self) -> str:
         return "qwen"
+
+    @property
+    def model_name(self) -> str:
+        """The concrete embedding model (e.g. ``text-embedding-v3``)."""
+        return self._model_name

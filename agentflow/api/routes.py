@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from agentflow.agents.registry import get_all as get_all_agents
 from agentflow.utils.trace_context import set_trace_id
+from agentflow.config.settings import settings
 from agentflow.database.sqlite import SQLiteStore
 from agentflow.graph.workflow import build_workflow
 from agentflow.knowledge.store import KnowledgeStore
@@ -28,6 +29,25 @@ router = APIRouter()
 logger = build_logger("api")
 
 # -- Lazy-initialised store accessors (decoupled for testability) -------------
+
+
+async def _read_upload_limited(
+    file: UploadFile, max_bytes: int | None = None,
+) -> bytes:
+    """Read an UploadFile fully while enforcing the configured size limit."""
+    limit = settings.max_upload_bytes if max_bytes is None else max_bytes
+    content = bytearray()
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        content.extend(chunk)
+        if len(content) > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File exceeds the {limit} byte upload limit",
+            )
+    return bytes(content)
 # Replace module-level globals with lazy accessors so tests can swap
 # implementations by calling set_store(mock_store) before routes are hit.
 
@@ -161,7 +181,16 @@ async def chat(request: ChatRequest):
     # the latest output from each node as the graph progresses.
     try:
         final_state: dict | None = None
-        async for event in workflow.astream(initial_state):
+        stream = workflow.astream(initial_state)
+        deadline = asyncio.get_running_loop().time() + settings.max_request_seconds
+        while True:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise TimeoutError
+            try:
+                event = await asyncio.wait_for(stream.__anext__(), timeout=remaining)
+            except StopAsyncIteration:
+                break
             for node_name, state_update in event.items():
                 # Each node returns the full state dict — capture the latest.
                 final_state = dict(state_update)
@@ -212,6 +241,9 @@ async def chat(request: ChatRequest):
             debug=debug_data,
             proposed_files=propose_files(answer),
         )
+    except TimeoutError:
+        logger.error("Chat request timed out after %ds", settings.max_request_seconds)
+        raise HTTPException(status_code=504, detail="Request timed out") from None
     except Exception as exc:
         logger.exception("Chat error")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -293,7 +325,16 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
         did_stream_answer = False
         cancelled: bool = False
         try:
-            async for event in workflow.astream(initial_state):
+            stream = workflow.astream(initial_state)
+            deadline = asyncio.get_running_loop().time() + settings.max_request_seconds
+            while True:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError
+                try:
+                    event = await asyncio.wait_for(stream.__anext__(), timeout=remaining)
+                except StopAsyncIteration:
+                    break
                 # Check for client disconnect between nodes
                 if await _is_disconnected():
                     cancelled = True
@@ -348,6 +389,10 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
                         final_state = dict(state_update)
                 if cancelled:
                     break
+        except TimeoutError:
+            logger.error("Stream timed out after %ds", settings.max_request_seconds)
+            yield _sse_event("error", {"error": "请求超时，请重试"})
+            return
         except Exception as exc:
             logger.exception("Streaming workflow failed")
             yield _sse_event("error", {"error": str(exc)})
@@ -520,9 +565,25 @@ async def upload_file(file: UploadFile = File(...)) -> JSONResponse:
     safe_filename = Path(file.filename).name
     temp_path = UPLOAD_DIR / safe_filename
     try:
-        content = await file.read()
+        content = await _read_upload_limited(file)
         temp_path.write_bytes(content)
         logger.info("Saved uploaded file: %s (%d bytes)", safe_filename, len(content))
+
+        # Content-based dedup: identical bytes → reuse the existing document.
+        existing_id = get_knowledge_store().find_duplicate(temp_path)
+        if existing_id is not None:
+            logger.info(
+                "Upload dedup: '%s' already indexed as document #%d",
+                safe_filename, existing_id,
+            )
+            return JSONResponse(
+                content={
+                    "status": "duplicate",
+                    "document_id": existing_id,
+                    "filename": safe_filename,
+                    "size": len(content),
+                }
+            )
 
         # Ingest into knowledge base
         doc_id = get_knowledge_store().add_document(temp_path, safe_filename)
@@ -543,6 +604,8 @@ async def upload_file(file: UploadFile = File(...)) -> JSONResponse:
                 "size": len(content),
             }
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Upload ingestion failed for %s", safe_filename)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -557,7 +620,20 @@ async def _handle_zip_upload(file: UploadFile) -> JSONResponse:
     import zipfile
     from agentflow.knowledge.parser import _read_raw_from_bytes
 
-    content = await file.read()
+    content = await _read_upload_limited(file)
+    with zipfile.ZipFile(io.BytesIO(content)) as probe:
+        entries = probe.infolist()
+        if len(entries) > settings.max_zip_entries:
+            raise HTTPException(
+                status_code=413,
+                detail=f"ZIP contains {len(entries)} entries "
+                       f"(limit {settings.max_zip_entries})",
+            )
+        if sum(info.file_size for info in entries) > settings.max_zip_uncompressed_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail="ZIP uncompressed size exceeds the configured limit",
+            )
     total = 0
     success = 0
     failed: list[str] = []
@@ -586,6 +662,13 @@ async def _handle_zip_upload(file: UploadFile) -> JSONResponse:
                 temp_path = UPLOAD_DIR / fname.name
                 temp_path.write_bytes(raw)
                 try:
+                    existing_id = get_knowledge_store().find_duplicate(temp_path)
+                    if existing_id is not None:
+                        logger.info(
+                            "ZIP dedup: '%s' already indexed as document #%d",
+                            fname.name, existing_id,
+                        )
+                        continue
                     doc_id = get_knowledge_store().add_document(temp_path, fname.name)
                     # Move to permanent storage
                     perm_path = KNOWLEDGE_FILES_DIR / f"{doc_id}_{fname.name}"
@@ -637,9 +720,25 @@ def delete_document(doc_id: int) -> JSONResponse:
 
 
 @router.post("/knowledge/search")
-def search_knowledge(query: str, top_k: int = 5) -> list[dict[str, object]]:
+def search_knowledge(
+    query: str,
+    top_k: int = 5,
+    document_id: int | None = None,
+) -> list[dict[str, object]]:
     """Search the knowledge base for relevant chunks."""
-    return get_knowledge_store().search(query, top_k=top_k)
+    doc_ids = [document_id] if document_id is not None else None
+    return get_knowledge_store().search(query, top_k=top_k, document_ids=doc_ids)
+
+
+@router.post("/knowledge/rebuild")
+def rebuild_knowledge() -> JSONResponse:
+    """Rebuild the whole knowledge index with the current embedding model."""
+    try:
+        result = get_knowledge_store().rebuild()
+        return JSONResponse(content={"status": "ok", **result})
+    except Exception as exc:
+        logger.exception("Knowledge rebuild failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/knowledge/documents/{doc_id}/read")
