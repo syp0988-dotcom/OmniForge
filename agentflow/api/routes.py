@@ -374,7 +374,10 @@ async def chat_stream(body: ChatRequest, raw_request: Request):
                             from agentflow.services.llm_service import get_llm_service
 
                             did_stream_answer = True
-                            for token in get_llm_service().complete_stream(messages=stream_messages):
+                            for token in get_llm_service().complete_stream(
+                                messages=stream_messages,
+                                max_tokens=settings.answer_max_tokens,
+                            ):
                                 if await _is_disconnected():
                                     cancelled = True
                                     logger.info("Client disconnected during LLM streaming")

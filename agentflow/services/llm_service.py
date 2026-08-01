@@ -302,7 +302,10 @@ class LLMService:
         return self._client
 
     def _call_with_retry(
-        self, messages: list[dict[str, str]], node_name: str = "default",
+        self,
+        messages: list[dict[str, str]],
+        node_name: str = "default",
+        max_tokens: int | None = None,
     ) -> str:
         """Call the LLM with circuit breaker + exponential backoff retry.
 
@@ -311,12 +314,14 @@ class LLMService:
         retries during extended outages. Each *node_name* gets its own
         breaker so one agent's failures don't affect others.
         """
+        effective_max_tokens = max_tokens or self._max_tokens
+
         def _do_call() -> str:
             response = self.client.chat.completions.create(
                 model=self._model_name,
                 messages=messages,
                 temperature=self._temperature,
-                max_tokens=self._max_tokens,
+                max_tokens=effective_max_tokens,
             )
             return response.choices[0].message.content or ""
 
@@ -347,6 +352,7 @@ class LLMService:
         messages: list[dict[str, str]] | None = None,
         session_state: object | None = None,
         node_name: str = "default",
+        max_tokens: int | None = None,
     ) -> str:
         """Generate a completion using the configured model or a deterministic fallback.
 
@@ -383,7 +389,9 @@ class LLMService:
 
         try:
             _start = time.perf_counter()
-            result = self._call_with_retry(messages, node_name=node_name)
+            result = self._call_with_retry(
+                messages, node_name=node_name, max_tokens=max_tokens,
+            )
             observe_duration("llm_call_duration_seconds",
                              time.perf_counter() - _start, node=node_name)
             inc("llm_calls_total", node=node_name)
@@ -408,6 +416,7 @@ class LLMService:
         messages: list[dict[str, str]] | None = None,
         session_state: object | None = None,
         node_name: str = "answer",
+        max_tokens: int | None = None,
     ) -> Iterator[str]:
         """Stream a completion token-by-token when the provider supports it."""
         if messages is None:
@@ -435,12 +444,14 @@ class LLMService:
         collected: list[str] = []
         try:
             # Circuit breaker check for streaming calls
+            effective_max_tokens = max_tokens or self._max_tokens
+
             def _do_stream():
                 return self.client.chat.completions.create(
                     model=self._model_name,
                     messages=messages,
                     temperature=self._temperature,
-                    max_tokens=self._max_tokens,
+                    max_tokens=effective_max_tokens,
                     stream=True,
                 )
 
@@ -482,6 +493,7 @@ class LLMService:
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict[str, Any] | None = "auto",
         node_name: str = "planner",
+        max_tokens: int | None = None,
     ) -> LLMResponse:
         """Call the LLM with OpenAI-compatible function definitions.
 
@@ -503,7 +515,7 @@ class LLMService:
             "model": self._model_name,
             "messages": messages,
             "temperature": self._temperature,
-            "max_tokens": self._max_tokens,
+            "max_tokens": max_tokens or self._max_tokens,
         }
         if tools:
             kwargs["tools"] = tools

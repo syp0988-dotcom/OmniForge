@@ -1,9 +1,11 @@
-"""Offline-first embedding-based intent matching.
+"""Embedding-based intent matching (fast path before the LLM).
 
 The goal analyzer uses this as a cheap fast path before falling back to the
-LLM.  It deliberately defaults to the local TF-IDF embedder so tests and normal
-startup never try to download sentence-transformers models.  Set
-``AGENTFLOW_INTENT_EMBEDDER=semantic`` to opt into the semantic embedder.
+LLM. Anchors are embedded once with the configured Qwen embedder (results are
+cached by the embedding cache); each query is compared against the anchors
+with cosine similarity.  When the embedder is unavailable (e.g. no API key),
+``available`` is False and callers should fall back to the LLM explicitly
+rather than silently degrading.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from agentflow.config.settings import settings
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("intent_index")
@@ -22,6 +25,10 @@ INTENT_LABEL_TO_GOAL_TYPE: dict[str, str] = {
     "search": "search",
     "tool": "tool_use",
     "chat": "other",
+    "analysis": "analysis",
+    "document": "document",
+    "translation": "translation",
+    "editing": "editing",
 }
 
 INTENT_DESCRIPTIONS: dict[str, str] = {
@@ -49,10 +56,21 @@ INTENT_DESCRIPTIONS: dict[str, str] = {
         "闲聊 打招呼 问候 自我介绍 测试对话连接 没有明确技术目标 你好 谢谢 "
         "好的 简单确认"
     ),
+    "analysis": (
+        "分析问题 评估方案 对比优缺点 分析数据 解读结果 原因分析 影响分析 "
+        "趋势分析 可行性分析 利弊分析 数据解读 总结分析"
+    ),
+    "document": (
+        "整理文档 生成报告 撰写文档 输出 word 制作表格 整理笔记 会议纪要 "
+        "项目文档 论文 简历 文档模板"
+    ),
+    "translation": (
+        "翻译成英文 翻译成中文 中译英 英译中 翻译这段文字 翻译一下"
+    ),
+    "editing": (
+        "润色 改写 修改措辞 调整语气 语法检查 校正文案 编辑文章 优化文案"
+    ),
 }
-
-CONFIDENCE_RATIO = 1.5
-MIN_SCORE_FLOOR = 0.20
 
 
 class IntentIndex:
@@ -80,21 +98,21 @@ class IntentIndex:
 
         best_label, best_score = scores[0]
         second_score = scores[1][1] if len(scores) > 1 else 0.0
-        if best_score < MIN_SCORE_FLOOR:
+        if best_score < settings.intent_min_score_floor:
             logger.info(
                 "Score below floor (%.3f < %.2f) for '%s'; fallback to LLM",
                 best_score,
-                MIN_SCORE_FLOOR,
+                settings.intent_min_score_floor,
                 question[:60],
             )
             return None
 
         ratio = best_score / second_score if second_score > 0 else 999.0
-        if ratio < CONFIDENCE_RATIO:
+        if ratio < settings.intent_confidence_ratio:
             logger.info(
                 "Low ratio (%.2fx < %.1fx, best=%.3f, second=%.3f) for '%s'; fallback to LLM",
                 ratio,
-                CONFIDENCE_RATIO,
+                settings.intent_confidence_ratio,
                 best_score,
                 second_score,
                 question[:60],
@@ -111,6 +129,11 @@ class IntentIndex:
             question[:60],
         )
         return best_label, goal_type, best_score
+
+    @property
+    def available(self) -> bool:
+        """True when the embedding fast path is usable."""
+        return self._ready
 
     def _ensure_ready(self) -> None:
         """Build the tiny anchor index on first use."""

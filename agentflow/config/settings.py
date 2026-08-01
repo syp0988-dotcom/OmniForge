@@ -56,6 +56,29 @@ class Settings(BaseSettings):
     embedding_cache_enabled: bool = Field(default=True, alias="EMBEDDING_CACHE_ENABLED")
     embedding_cache_path: str = Field(default="", alias="EMBEDDING_CACHE_PATH")
 
+    # -- Intent analysis settings --
+    # Embedding fast-path thresholds (see IntentIndex). Tune from eval data.
+    intent_confidence_ratio: float = Field(default=1.5, alias="INTENT_CONFIDENCE_RATIO")
+    intent_min_score_floor: float = Field(default=0.20, alias="INTENT_MIN_SCORE_FLOOR")
+    # Default knowledge source for embedding-matched "question" intents.
+    # "general" = answer from LLM only; "hybrid" = RAG + LLM; "local" = RAG only.
+    intent_question_source: str = Field(default="hybrid", alias="INTENT_QUESTION_SOURCE")
+
+    # -- Per-node LLM token budgets (override the global MAX_TOKENS) --
+    planner_max_tokens: int = Field(default=4000, alias="PLANNER_MAX_TOKENS")
+    codegen_max_tokens: int = Field(default=8000, alias="CODEGEN_MAX_TOKENS")
+    answer_max_tokens: int = Field(default=2000, alias="ANSWER_MAX_TOKENS")
+    goal_analyzer_max_tokens: int = Field(
+        default=600, alias="GOAL_ANALYZER_MAX_TOKENS",
+    )
+
+    # -- Tool-call repair --
+    # When a tool call fails, allow one LLM pass to fix the arguments before
+    # routing to reflection. Disable to save cost on failure-heavy workloads.
+    tool_call_repair_enabled: bool = Field(
+        default=True, alias="TOOL_CALL_REPAIR_ENABLED",
+    )
+
     # -- Qdrant settings --
     qdrant_url: str = Field(default="http://localhost:6333", alias="QDRANT_URL")
     qdrant_api_key: str = Field(default="", alias="QDRANT_API_KEY")

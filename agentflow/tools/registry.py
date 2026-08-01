@@ -126,9 +126,13 @@ class ToolRegistry:
 
         This replaces the hardcoded SEARCH_FUNCTIONS, FILESYSTEM_FUNCTIONS,
         etc. lists in schemas.py.  Always current with registered tools.
+        Interface-only placeholders (``metadata().status == "interface_only"``)
+        are excluded so the LLM never plans calls that are guaranteed to fail.
         """
         all_schemas: list[dict] = []
         for tool in self._tools.values():
+            if not _tool_is_usable(tool):
+                continue
             try:
                 all_schemas.extend(tool.tool_schemas())
             except Exception as exc:
@@ -139,6 +143,8 @@ class ToolRegistry:
         """Aggregate capabilities from all registered tools (sorted)."""
         caps: list[str] = []
         for tool in self._tools.values():
+            if not _tool_is_usable(tool):
+                continue
             caps.extend(tool.capabilities())
         return sorted(set(caps))
 
@@ -155,6 +161,8 @@ class ToolRegistry:
         lines: list[str] = []
         for name in sorted(self._tools.keys()):
             tool = self._tools[name]
+            if not _tool_is_usable(tool):
+                continue
             actions_list = list(tool.actions().keys())
             if actions_list:
                 lines.append(f"  - {name}: {', '.join(actions_list)}")
@@ -170,6 +178,8 @@ class ToolRegistry:
         lines: list[str] = []
         for name in sorted(self._tools.keys()):
             tool = self._tools[name]
+            if not _tool_is_usable(tool):
+                continue
             for action_name, action_def in tool.actions().items():
                 desc = action_def.get("description", "")
                 lines.append(f"  - {name}.{action_name}  —  {desc}")
@@ -403,3 +413,11 @@ def _summarise(d: dict[str, Any], max_len: int = 120) -> str:
     if len(s) > max_len:
         s = s[: max_len - 3] + "..."
     return s
+
+
+def _tool_is_usable(tool: BaseTool) -> bool:
+    """Return False for interface-only placeholder tools (never executable)."""
+    try:
+        return tool.metadata().get("status") != "interface_only"
+    except Exception:
+        return True

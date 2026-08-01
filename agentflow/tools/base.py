@@ -146,6 +146,7 @@ class BaseTool(ABC):
                     "parameters": {
                         "type": "object",
                         "properties": properties,
+                        "additionalProperties": False,
                     },
                 },
             }

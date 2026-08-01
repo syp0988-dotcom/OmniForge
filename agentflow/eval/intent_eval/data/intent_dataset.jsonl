@@ -35,3 +35,23 @@
 {"id": "intent_edge_001", "question": "", "expected_goal_type": "other", "note": "empty question, default goal immediately"}
 {"id": "intent_edge_002", "question": "How do I implement a binary search tree in Java?", "expected_goal_type": "coding", "note": "English coding query"}
 {"id": "intent_edge_003", "question": "什么是Kubernetes", "expected_goal_type": "question", "note": "short concept question"}
+{"id": "intent_confuse_001", "question": "今天上海天气怎么样", "expected_goal_type": "search", "note": "confusable: looks like a question but needs live data"}
+{"id": "intent_confuse_002", "question": "帮我查一下最新的AI新闻", "expected_goal_type": "search", "note": "confusable: query vs search"}
+{"id": "intent_confuse_003", "question": "写一个登录页面的前后端接口", "expected_goal_type": "coding", "note": "confusable: login page vs full project"}
+{"id": "intent_confuse_004", "question": "帮我搭建一个博客系统，包含前后端", "expected_goal_type": "project", "note": "confusable: multi-file system"}
+{"id": "intent_confuse_005", "question": "帮我把这段文字翻译成日语", "expected_goal_type": "translation", "note": "translation intent"}
+{"id": "intent_confuse_006", "question": "帮我润色一下这段自我介绍", "expected_goal_type": "editing", "note": "editing/rewrite intent"}
+{"id": "intent_confuse_007", "question": "分析一下这两个方案各自的优缺点", "expected_goal_type": "analysis", "note": "analysis vs question"}
+{"id": "intent_confuse_008", "question": "整理一下上周的会议纪要", "expected_goal_type": "document", "note": "document generation"}
+{"id": "intent_confuse_009", "question": "为什么我的代码跑不起来", "expected_goal_type": "coding", "note": "debug intent maps to coding"}
+{"id": "intent_confuse_010", "question": "今天有什么热点新闻", "expected_goal_type": "search", "note": "recency keyword -> search"}
+{"id": "intent_confuse_011", "question": "你好，在吗", "expected_goal_type": "other", "note": "chat greeting vs other"}
+{"id": "intent_confuse_012", "question": "帮我写一份项目周报", "expected_goal_type": "document", "note": "report document"}
+{"id": "intent_confuse_013", "question": "用Python写一个爬虫抓取网页", "expected_goal_type": "coding", "note": "single script coding, not project"}
+{"id": "intent_confuse_014", "question": "创建一个Python爬虫项目，包含多个模块", "expected_goal_type": "project", "note": "multi-module project"}
+{"id": "intent_confuse_015", "question": "git status显示什么", "expected_goal_type": "tool_use", "note": "tool operation intent"}
+{"id": "intent_confuse_016", "question": "把这段英文翻译一下并润色", "expected_goal_type": "translation", "note": "mixed translation intent"}
+{"id": "intent_confuse_017", "question": "这份数据报告帮我分析一下趋势", "expected_goal_type": "analysis", "note": "analysis with document context"}
+{"id": "intent_confuse_018", "question": "帮我把这几段话改得更正式一些", "expected_goal_type": "editing", "note": "style editing"}
+{"id": "intent_confuse_019", "question": "运行一下这个脚本看看结果", "expected_goal_type": "tool_use", "note": "execute command intent"}
+{"id": "intent_confuse_020", "question": "解释一下什么是微服务架构", "expected_goal_type": "question", "note": "pure concept question vs analysis"}

@@ -28,6 +28,7 @@ from typing import Any
 
 from agentflow.agents.base import AgentProtocol
 from agentflow.agents.planner.capability import resolve as resolve_capability
+from agentflow.config.settings import settings
 from agentflow.utils.errors import record_error as _record_error
 from agentflow.agents.planner.prompt import (
     build_codegen_prompt,
@@ -567,7 +568,10 @@ class PlannerAgent(AgentProtocol):
 
         try:
             resp: LLMResponse = self._llm.complete_with_tools(
-                messages=messages, tools=tools, tool_choice="auto",
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+                max_tokens=settings.planner_max_tokens,
             )
         except Exception as exc:
             logger.warning("FC planner LLM call failed: %s", exc)
@@ -613,7 +617,11 @@ class PlannerAgent(AgentProtocol):
                 context_str=context_str, replan_context=replan_context,
                 registry=self.registry,
             )
-            raw = self._llm.complete(messages=messages)
+            raw = self._llm.complete(
+                messages=messages,
+                node_name="planner",
+                max_tokens=settings.planner_max_tokens,
+            )
         except Exception as exc:
             logger.warning("LLM planner call failed: %s", exc)
             return None
@@ -852,7 +860,11 @@ class PlannerAgent(AgentProtocol):
             return ""
         messages = build_codegen_prompt(code_prompt, language)
         try:
-            raw = self._llm.complete(messages=messages)
+            raw = self._llm.complete(
+                messages=messages,
+                node_name="planner",
+                max_tokens=settings.codegen_max_tokens,
+            )
             if raw and raw.strip():
                 logger.info(
                     "CodeGen: generated %d chars for '%s' (%s)",

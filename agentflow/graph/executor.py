@@ -351,10 +351,7 @@ class Executor:
 
     def get_capabilities(self) -> list[str]:
         """Aggregate capabilities from all registered tools."""
-        caps: list[str] = []
-        for tool in self.registry._tools.values():
-            caps.extend(tool.capabilities())
-        return sorted(set(caps))
+        return self.registry.get_all_capabilities()
 
     @property
     def summary(self) -> str:

@@ -14,6 +14,7 @@ In the goal-driven architecture, AnswerAgent has two modes:
 from __future__ import annotations
 
 from agentflow.agents.base import AgentProtocol
+from agentflow.config.settings import settings
 from agentflow.config.prompts import answer_system_prompt
 from agentflow.graph.context_builder import ContextBuilder
 from agentflow.services.llm_service import get_llm_service
@@ -122,7 +123,11 @@ class AnswerAgent(AgentProtocol):
             logger.info("Answer: prepared stream messages, skipping blocking LLM call")
             return state
 
-        answer = llm_service.complete(messages=messages)
+        answer = llm_service.complete(
+            messages=messages,
+            node_name="answer",
+            max_tokens=settings.answer_max_tokens,
+        )
         logger.info("Answer: LLM returned %d chars: %s", len(answer), answer[:100])
         state["answer"] = self.clean_answer(answer)
         return state

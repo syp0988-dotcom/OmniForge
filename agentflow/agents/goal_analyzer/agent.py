@@ -24,6 +24,7 @@ from agentflow.utils.errors import record_error as _record_error
 from agentflow.agents.goal_analyzer.intent_index import (
     IntentIndex,
 )
+from agentflow.config.settings import settings
 from agentflow.config.prompts import GOAL_ANALYZER_SYSTEM_PROMPT
 from agentflow.services.llm_service import get_llm_service
 from agentflow.utils.decorators import safe_run
@@ -54,6 +55,10 @@ _LABEL_KNOWLEDGE_SOURCE: dict[str, str] = {
     "search": "general",
     "tool": "general",
     "chat": "general",
+    "analysis": "hybrid",
+    "document": "hybrid",
+    "translation": "general",
+    "editing": "general",
 }
 
 # -- Mapping from intent label to expected_outputs ---------------------------
@@ -64,6 +69,10 @@ _LABEL_EXPECTED_OUTPUTS: dict[str, list[str]] = {
     "search": ["answer"],
     "tool": ["answer"],
     "chat": ["answer"],
+    "analysis": ["answer"],
+    "document": ["document", "answer"],
+    "translation": ["answer"],
+    "editing": ["answer"],
 }
 
 # -- Mapping from intent label to priority -----------------------------------
@@ -74,6 +83,10 @@ _LABEL_PRIORITY: dict[str, str] = {
     "search": "normal",
     "tool": "normal",
     "chat": "low",
+    "analysis": "normal",
+    "document": "normal",
+    "translation": "normal",
+    "editing": "normal",
 }
 
 # -- Compact LLM fallback prompt (only used for low-confidence queries) ------
@@ -113,6 +126,16 @@ class GoalAnalyzer(AgentProtocol):
             existing_goal=existing_goal,
         )
         goal = _apply_source_mode(goal, str(state.get("source_mode", "auto") or "auto"))
+
+        intent_index = _get_intent_index()
+        if not intent_index.available:
+            _record_error(
+                state,
+                "goal_analyzer",
+                "embedding_unavailable",
+                "意图嵌入索引不可用（缺少 EMBEDDING_API_KEY 或初始化失败），"
+                "所有查询将走 LLM 路径",
+            )
 
         state["goal_analysis"] = goal
         state["category"] = goal.get("goal_type", "other")
@@ -162,14 +185,7 @@ class GoalAnalyzer(AgentProtocol):
                     confidence=confidence,
                 )
 
-        # ── Path 2: Continue mode with existing goal ──
-        if continue_mode and existing_goal:
-            # Re-use the existing goal type — the user is still on the same task.
-            # But we still need to understand the new sub-intent, so let the LLM
-            # decide (it has the full conversation context).
-            pass
-
-        # ── Path 3: LLM fallback (ambiguous / mixed / continue-mode queries) ─
+        # ── Path 2: LLM fallback (ambiguous / mixed / continue-mode queries) ─
         return self._llm_analyze(question, conversation_context, continue_mode, existing_goal)
 
     # ------------------------------------------------------------------
@@ -184,10 +200,13 @@ class GoalAnalyzer(AgentProtocol):
         confidence: float,
     ) -> dict[str, Any]:
         """Build a ``goal_analysis`` dict from an embedding match."""
+        knowledge_source = _LABEL_KNOWLEDGE_SOURCE.get(label, "general")
+        if label == "question":
+            knowledge_source = settings.intent_question_source
         return {
             "goal": question,
             "goal_type": goal_type,
-            "knowledge_source": _LABEL_KNOWLEDGE_SOURCE.get(label, "general"),
+            "knowledge_source": knowledge_source,
             "expected_outputs": _LABEL_EXPECTED_OUTPUTS.get(label, ["answer"]),
             "priority": _LABEL_PRIORITY.get(label, "normal"),
             "confidence": round(confidence, 2),
@@ -238,7 +257,11 @@ class GoalAnalyzer(AgentProtocol):
         ]
 
         try:
-            raw = self._llm.complete(messages=messages)
+            raw = self._llm.complete(
+                messages=messages,
+                node_name="goal_analyzer",
+                max_tokens=settings.goal_analyzer_max_tokens,
+            )
             parsed = self._parse_goal_json(raw)
             if parsed:
                 return parsed

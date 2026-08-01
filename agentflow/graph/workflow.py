@@ -49,6 +49,7 @@ from agentflow.agents.search.agent import SearchAgent
 from agentflow.agents.search.query_rewriter import QueryRewriter
 from agentflow.conversation.manager import ConversationManager
 from agentflow.conversation.session_state import SessionState
+from agentflow.config.settings import settings
 from agentflow.graph.context import WorkflowContext
 from agentflow.graph.executor import Executor
 from agentflow.services.long_term_memory import LongTermMemory
@@ -738,7 +739,7 @@ def _make_tool_executor_node(executor: Executor) -> object:
     def _node(state: WorkflowState) -> dict[str, object]:
         queue = list(state.get("task_queue", []) or [])
 
-        parallel_tasks = _select_parallel_filesystem_tasks(queue)
+        parallel_tasks = _select_parallel_tasks(queue)
         if len(parallel_tasks) > 1:
             for task in parallel_tasks:
                 task["status"] = "running"
@@ -778,6 +779,14 @@ def _make_tool_executor_node(executor: Executor) -> object:
         try:
             ctx = WorkflowContext(dict(state))
             result = executor.execute_task_dict(next_task, ctx=ctx)
+            if result is not None and not result.success:
+                repaired = _repair_tool_task(next_task, result)
+                if repaired is not None:
+                    logger.info(
+                        "Tool repair: task '%s' repaired and re-executed",
+                        next_task.get("task_id", "?"),
+                    )
+                    result = executor.execute_task_dict(repaired, ctx=ctx)
         except Exception as exc:
             logger.error("Tool executor crashed: %s", exc)
             next_task["status"] = "failed"
@@ -813,20 +822,143 @@ def _make_tool_executor_node(executor: Executor) -> object:
     return _node
 
 
-def _select_parallel_filesystem_tasks(queue: list[dict]) -> list[dict]:
-    """Select independent filesystem write tasks that can safely run together."""
-    candidates = []
+# Tools whose arguments an LLM can plausibly fix after a failure. Python and
+# search failures are usually not argument issues, so they are left to the
+# reflection/replan loop instead of spending an extra LLM call.
+_REPAIRABLE_TOOLS = frozenset({
+    "filesystem", "docx", "git", "database", "browser", "mcp", "composio",
+})
+
+
+def _repair_tool_task(
+    task_dict: dict,
+    result: object,
+    llm: object | None = None,
+) -> dict | None:
+    """Attempt one LLM pass to fix a failed tool call's arguments.
+
+    Returns a copy of *task_dict* with repaired ``input`` (marked with
+    ``_repair_count=1``) or ``None`` when repair is disabled, unavailable,
+    not applicable, or fails to parse.  The caller re-executes the task.
+    """
+    if not settings.tool_call_repair_enabled:
+        return None
+    tool = str(task_dict.get("tool", ""))
+    if tool not in _REPAIRABLE_TOOLS:
+        return None
+    if int(task_dict.get("_repair_count", 0) or 0) >= 1:
+        return None
+    if result is None or getattr(result, "success", True):
+        return None
+    error = str(getattr(result, "error", "") or getattr(result, "message", "") or "")
+    if not error:
+        return None
+
+    if llm is None:
+        try:
+            from agentflow.services.llm_service import get_llm_service
+            llm = get_llm_service()
+        except Exception:
+            return None
+
+    import json as _json
+
+    action = str(task_dict.get("action", task_dict.get("goal", "")))
+    original_input = _json.dumps(
+        task_dict.get("input", {}), ensure_ascii=False,
+    )
+    prompt = (
+        "工具调用失败，请修正参数后重新给出完整的 input JSON。\n\n"
+        f"工具：{tool}\n动作：{action}\n"
+        f"原参数：{original_input}\n失败原因：{error}\n\n"
+        "只输出 JSON：{\"input\": {修正后的完整参数}}。不要修改工具/动作名。"
+    )
+    try:
+        raw = llm.complete(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是工具调用参数修复器，只输出 JSON。",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            node_name="tool_repair",
+            max_tokens=1000,
+        )
+    except Exception:
+        return None
+
+    parsed = _parse_repair_json(raw)
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("input"), dict):
+        logger.info("Tool repair: unparseable LLM output for '%s'", tool)
+        return None
+
+    repaired = dict(task_dict)
+    repaired["input"] = parsed["input"]
+    repaired["_repair_count"] = 1
+    return repaired
+
+
+def _parse_repair_json(raw: str) -> dict | None:
+    """Parse ``{"input": {...}}`` (or a bare object) from LLM output."""
+    import json as _json
+    import re as _re
+
+    text = (raw or "").strip()
+    if not text:
+        return None
+    for candidate in (text, _re.sub(r"```(?:json)?\s*|\s*```", "", text)):
+        try:
+            parsed = _json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except (ValueError, TypeError):
+            continue
+    m = _re.search(r"\{.*\}", text, _re.DOTALL)
+    if m:
+        try:
+            parsed = _json.loads(m.group(0))
+            if isinstance(parsed, dict):
+                return parsed
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+_PARALLEL_READONLY_ACTIONS = frozenset({
+    "read_file", "list_directory", "tree", "exists",
+    "search_file", "search_content",
+})
+_PARALLEL_WRITE_ACTIONS = frozenset({
+    "write_file", "create_file", "append_file",
+})
+
+
+def _select_parallel_tasks(queue: list[dict]) -> list[dict]:
+    """Select independent tasks that can safely run together.
+
+    Conservative rules:
+      - filesystem writes to distinct paths (existing behaviour);
+      - filesystem read-only operations on distinct paths;
+      - web ``search`` tasks (read-only external calls).
+    Python execution, git mutations, and other stateful tools stay serial.
+    """
+    candidates: list[dict] = []
     seen_paths: set[str] = set()
     for task in queue:
         if not isinstance(task, dict) or task.get("status", "") != "todo":
             continue
-        if task.get("tool") != "filesystem":
+        tool = str(task.get("tool", ""))
+        if tool == "search":
+            candidates.append(task)
+            continue
+        if tool != "filesystem":
             continue
         inp = task.get("input", {}) or {}
         if not isinstance(inp, dict):
             continue
         action = str(inp.get("action", task.get("action", "")))
-        if action not in ("write_file", "create_file", "append_file"):
+        if action not in _PARALLEL_WRITE_ACTIONS | _PARALLEL_READONLY_ACTIONS:
             continue
         path = str(inp.get("path", "")).strip()
         if not path or path in seen_paths:
