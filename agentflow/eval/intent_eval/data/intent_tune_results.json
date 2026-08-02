@@ -1,0 +1,691 @@
+{
+  "dataset": "G:\\multi_agent\\agentflow\\eval\\intent_eval\\data\\intent_dataset.jsonl",
+  "samples": 57,
+  "best": {
+    "variant": "single",
+    "floor": 0.35,
+    "ratio": 1.2,
+    "coverage": 0.649,
+    "hit_rate": 0.649,
+    "accuracy": 1.0,
+    "matched": 37,
+    "correct": 37,
+    "mismatches": []
+  },
+  "results": [
+    {
+      "variant": "single",
+      "floor": 0.15,
+      "ratio": 1.2,
+      "coverage": 0.754,
+      "hit_rate": 0.702,
+      "accuracy": 0.93,
+      "matched": 43,
+      "correct": 40,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.28
+        },
+        {
+          "id": "intent_llm_004",
+          "question": "帮我把这个做好",
+          "expected": "other",
+          "got": "document",
+          "score": 0.309
+        },
+        {
+          "id": "intent_degraded_001",
+          "question": "xyzzy123 gibberish nonsense text AB",
+          "expected": "other",
+          "got": "translation",
+          "score": 0.253
+        }
+      ]
+    },
+    {
+      "variant": "single",
+      "floor": 0.15,
+      "ratio": 1.5,
+      "coverage": 0.491,
+      "hit_rate": 0.491,
+      "accuracy": 1.0,
+      "matched": 28,
+      "correct": 28,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.15,
+      "ratio": 1.8,
+      "coverage": 0.316,
+      "hit_rate": 0.316,
+      "accuracy": 1.0,
+      "matched": 18,
+      "correct": 18,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.15,
+      "ratio": 2.0,
+      "coverage": 0.228,
+      "hit_rate": 0.228,
+      "accuracy": 1.0,
+      "matched": 13,
+      "correct": 13,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.2,
+      "ratio": 1.2,
+      "coverage": 0.754,
+      "hit_rate": 0.702,
+      "accuracy": 0.93,
+      "matched": 43,
+      "correct": 40,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.28
+        },
+        {
+          "id": "intent_llm_004",
+          "question": "帮我把这个做好",
+          "expected": "other",
+          "got": "document",
+          "score": 0.309
+        },
+        {
+          "id": "intent_degraded_001",
+          "question": "xyzzy123 gibberish nonsense text AB",
+          "expected": "other",
+          "got": "translation",
+          "score": 0.253
+        }
+      ]
+    },
+    {
+      "variant": "single",
+      "floor": 0.2,
+      "ratio": 1.5,
+      "coverage": 0.491,
+      "hit_rate": 0.491,
+      "accuracy": 1.0,
+      "matched": 28,
+      "correct": 28,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.2,
+      "ratio": 1.8,
+      "coverage": 0.316,
+      "hit_rate": 0.316,
+      "accuracy": 1.0,
+      "matched": 18,
+      "correct": 18,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.2,
+      "ratio": 2.0,
+      "coverage": 0.228,
+      "hit_rate": 0.228,
+      "accuracy": 1.0,
+      "matched": 13,
+      "correct": 13,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.25,
+      "ratio": 1.2,
+      "coverage": 0.754,
+      "hit_rate": 0.702,
+      "accuracy": 0.93,
+      "matched": 43,
+      "correct": 40,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.28
+        },
+        {
+          "id": "intent_llm_004",
+          "question": "帮我把这个做好",
+          "expected": "other",
+          "got": "document",
+          "score": 0.309
+        },
+        {
+          "id": "intent_degraded_001",
+          "question": "xyzzy123 gibberish nonsense text AB",
+          "expected": "other",
+          "got": "translation",
+          "score": 0.253
+        }
+      ]
+    },
+    {
+      "variant": "single",
+      "floor": 0.25,
+      "ratio": 1.5,
+      "coverage": 0.491,
+      "hit_rate": 0.491,
+      "accuracy": 1.0,
+      "matched": 28,
+      "correct": 28,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.25,
+      "ratio": 1.8,
+      "coverage": 0.316,
+      "hit_rate": 0.316,
+      "accuracy": 1.0,
+      "matched": 18,
+      "correct": 18,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.25,
+      "ratio": 2.0,
+      "coverage": 0.228,
+      "hit_rate": 0.228,
+      "accuracy": 1.0,
+      "matched": 13,
+      "correct": 13,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.3,
+      "ratio": 1.2,
+      "coverage": 0.684,
+      "hit_rate": 0.667,
+      "accuracy": 0.974,
+      "matched": 39,
+      "correct": 38,
+      "mismatches": [
+        {
+          "id": "intent_llm_004",
+          "question": "帮我把这个做好",
+          "expected": "other",
+          "got": "document",
+          "score": 0.309
+        }
+      ]
+    },
+    {
+      "variant": "single",
+      "floor": 0.3,
+      "ratio": 1.5,
+      "coverage": 0.491,
+      "hit_rate": 0.491,
+      "accuracy": 1.0,
+      "matched": 28,
+      "correct": 28,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.3,
+      "ratio": 1.8,
+      "coverage": 0.316,
+      "hit_rate": 0.316,
+      "accuracy": 1.0,
+      "matched": 18,
+      "correct": 18,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.3,
+      "ratio": 2.0,
+      "coverage": 0.228,
+      "hit_rate": 0.228,
+      "accuracy": 1.0,
+      "matched": 13,
+      "correct": 13,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.35,
+      "ratio": 1.2,
+      "coverage": 0.649,
+      "hit_rate": 0.649,
+      "accuracy": 1.0,
+      "matched": 37,
+      "correct": 37,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.35,
+      "ratio": 1.5,
+      "coverage": 0.491,
+      "hit_rate": 0.491,
+      "accuracy": 1.0,
+      "matched": 28,
+      "correct": 28,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.35,
+      "ratio": 1.8,
+      "coverage": 0.316,
+      "hit_rate": 0.316,
+      "accuracy": 1.0,
+      "matched": 18,
+      "correct": 18,
+      "mismatches": []
+    },
+    {
+      "variant": "single",
+      "floor": 0.35,
+      "ratio": 2.0,
+      "coverage": 0.228,
+      "hit_rate": 0.228,
+      "accuracy": 1.0,
+      "matched": 13,
+      "correct": 13,
+      "mismatches": []
+    },
+    {
+      "variant": "multi",
+      "floor": 0.15,
+      "ratio": 1.2,
+      "coverage": 0.789,
+      "hit_rate": 0.772,
+      "accuracy": 0.978,
+      "matched": 45,
+      "correct": 44,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.15,
+      "ratio": 1.5,
+      "coverage": 0.649,
+      "hit_rate": 0.632,
+      "accuracy": 0.973,
+      "matched": 37,
+      "correct": 36,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.15,
+      "ratio": 1.8,
+      "coverage": 0.491,
+      "hit_rate": 0.474,
+      "accuracy": 0.964,
+      "matched": 28,
+      "correct": 27,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.15,
+      "ratio": 2.0,
+      "coverage": 0.456,
+      "hit_rate": 0.439,
+      "accuracy": 0.962,
+      "matched": 26,
+      "correct": 25,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.2,
+      "ratio": 1.2,
+      "coverage": 0.789,
+      "hit_rate": 0.772,
+      "accuracy": 0.978,
+      "matched": 45,
+      "correct": 44,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.2,
+      "ratio": 1.5,
+      "coverage": 0.649,
+      "hit_rate": 0.632,
+      "accuracy": 0.973,
+      "matched": 37,
+      "correct": 36,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.2,
+      "ratio": 1.8,
+      "coverage": 0.491,
+      "hit_rate": 0.474,
+      "accuracy": 0.964,
+      "matched": 28,
+      "correct": 27,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.2,
+      "ratio": 2.0,
+      "coverage": 0.456,
+      "hit_rate": 0.439,
+      "accuracy": 0.962,
+      "matched": 26,
+      "correct": 25,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.25,
+      "ratio": 1.2,
+      "coverage": 0.789,
+      "hit_rate": 0.772,
+      "accuracy": 0.978,
+      "matched": 45,
+      "correct": 44,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.25,
+      "ratio": 1.5,
+      "coverage": 0.649,
+      "hit_rate": 0.632,
+      "accuracy": 0.973,
+      "matched": 37,
+      "correct": 36,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.25,
+      "ratio": 1.8,
+      "coverage": 0.491,
+      "hit_rate": 0.474,
+      "accuracy": 0.964,
+      "matched": 28,
+      "correct": 27,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.25,
+      "ratio": 2.0,
+      "coverage": 0.456,
+      "hit_rate": 0.439,
+      "accuracy": 0.962,
+      "matched": 26,
+      "correct": 25,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.3,
+      "ratio": 1.2,
+      "coverage": 0.789,
+      "hit_rate": 0.772,
+      "accuracy": 0.978,
+      "matched": 45,
+      "correct": 44,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.3,
+      "ratio": 1.5,
+      "coverage": 0.649,
+      "hit_rate": 0.632,
+      "accuracy": 0.973,
+      "matched": 37,
+      "correct": 36,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.3,
+      "ratio": 1.8,
+      "coverage": 0.491,
+      "hit_rate": 0.474,
+      "accuracy": 0.964,
+      "matched": 28,
+      "correct": 27,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.3,
+      "ratio": 2.0,
+      "coverage": 0.456,
+      "hit_rate": 0.439,
+      "accuracy": 0.962,
+      "matched": 26,
+      "correct": 25,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.35,
+      "ratio": 1.2,
+      "coverage": 0.789,
+      "hit_rate": 0.772,
+      "accuracy": 0.978,
+      "matched": 45,
+      "correct": 44,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.35,
+      "ratio": 1.5,
+      "coverage": 0.649,
+      "hit_rate": 0.632,
+      "accuracy": 0.973,
+      "matched": 37,
+      "correct": 36,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.35,
+      "ratio": 1.8,
+      "coverage": 0.491,
+      "hit_rate": 0.474,
+      "accuracy": 0.964,
+      "matched": 28,
+      "correct": 27,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    },
+    {
+      "variant": "multi",
+      "floor": 0.35,
+      "ratio": 2.0,
+      "coverage": 0.456,
+      "hit_rate": 0.439,
+      "accuracy": 0.962,
+      "matched": 26,
+      "correct": 25,
+      "mismatches": [
+        {
+          "id": "intent_llm_003",
+          "question": "那个功能做得怎么样了",
+          "expected": "other",
+          "got": "coding",
+          "score": 0.626
+        }
+      ]
+    }
+  ]
+}

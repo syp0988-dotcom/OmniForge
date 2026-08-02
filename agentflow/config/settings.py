@@ -57,8 +57,10 @@ class Settings(BaseSettings):
     embedding_cache_path: str = Field(default="", alias="EMBEDDING_CACHE_PATH")
 
     # -- Intent analysis settings --
-    # Embedding fast-path thresholds (see IntentIndex). Tune from eval data.
-    intent_confidence_ratio: float = Field(default=1.5, alias="INTENT_CONFIDENCE_RATIO")
+    # Embedding fast-path thresholds (see IntentIndex). Tuned on the intent
+    # eval dataset: multi-anchor matching at ratio=1.2 / floor=0.20 reaches
+    # 77% hit rate at 97.8% fast-path accuracy (57 samples).
+    intent_confidence_ratio: float = Field(default=1.2, alias="INTENT_CONFIDENCE_RATIO")
     intent_min_score_floor: float = Field(default=0.20, alias="INTENT_MIN_SCORE_FLOOR")
     # Default knowledge source for embedding-matched "question" intents.
     # "general" = answer from LLM only; "hybrid" = RAG + LLM; "local" = RAG only.

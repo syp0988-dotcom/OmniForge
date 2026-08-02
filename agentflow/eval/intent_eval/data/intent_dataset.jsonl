@@ -12,7 +12,7 @@
 {"id": "intent_question_002", "question": "什么是Docker容器，怎么理解它的原理", "expected_goal_type": "question", "note": "concept explanation"}
 {"id": "intent_question_003", "question": "请解释一下RESTful API的设计原则", "expected_goal_type": "question", "note": "design principles question"}
 {"id": "intent_question_004", "question": "帮我分析一下微服务和单体架构的优缺点", "expected_goal_type": "question", "note": "analysis question"}
-{"id": "intent_question_005", "question": "这段英文帮我翻译成中文", "expected_goal_type": "question", "note": "translation request"}
+{"id": "intent_question_005", "question": "这段英文帮我翻译成中文", "expected_goal_type": "translation", "note": "translation request"}
 {"id": "intent_search_001", "question": "今天最新的AI新闻有哪些", "expected_goal_type": "search", "note": "search latest news"}
 {"id": "intent_search_002", "question": "杭州明天天气怎么样", "expected_goal_type": "search", "note": "weather search"}
 {"id": "intent_search_003", "question": "现在以太坊价格是多少", "expected_goal_type": "search", "note": "price search"}

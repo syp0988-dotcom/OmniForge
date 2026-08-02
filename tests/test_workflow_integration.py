@@ -160,18 +160,27 @@ class TestWorkflowHappyPath:
 class TestWorkflowFailurePaths:
     """Tests that verify graceful handling of LLM failures."""
 
-    def test_goal_analyzer_llm_timeout_falls_back(self):
+    def test_goal_analyzer_llm_timeout_falls_back(self, monkeypatch):
         """When GoalAnalyzer's LLM call fails, it should produce a degraded answer."""
+        from agentflow.agents.goal_analyzer import agent as goal_agent
         from tests.mock_llm import MockLLMService
 
-        # For the llm timeout path: GoalAnalyzer will catch the error
-        # and use _default_goal() which sets fallback=True.
-        # But the IntentIndex embedding might match first.
-        # Use a query unlikely to match any intent.
+        # Deterministically disable the embedding fast path so the test always
+        # exercises the LLM-timeout fallback, independent of anchor/threshold
+        # tuning.
+        class _UnavailableIndex:
+            available = False
+
+            def match(self, query: str):
+                return None
+
+        monkeypatch.setattr(
+            goal_agent, "_get_intent_index", lambda: _UnavailableIndex(),
+        )
         with MockLLMService.as_default(raise_on_call=TimeoutError("LLM timed out")):
             graph = build_workflow()
             initial_state = {
-                "question": "xyz789_nonexistent_query_avoiding_embedding_match",
+                "question": "测试 LLM 超时降级",
                 "history": [],
             }
             result = graph.invoke(initial_state)
