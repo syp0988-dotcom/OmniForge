@@ -96,8 +96,34 @@ class Settings(BaseSettings):
     cleanup_interval_minutes: int = Field(default=60, alias="CLEANUP_INTERVAL_MINUTES")
     memory_ttl_days: int = Field(default=30, alias="MEMORY_TTL_DAYS")
 
+    # -- Layered memory (history compression) --
+    # Conversation history is kept as a recent window (verbatim) plus a
+    # rolling summary of older turns. When the raw history exceeds the token
+    # budget, older messages are compressed (LLM summary with a deterministic
+    # fallback) instead of being dropped silently.
+    enable_history_compression: bool = Field(
+        default=True, alias="ENABLE_HISTORY_COMPRESSION",
+    )
+    history_token_budget: int = Field(
+        default=8000, alias="HISTORY_TOKEN_BUDGET",
+    )
+    history_min_keep_messages: int = Field(
+        default=6, alias="HISTORY_MIN_KEEP_MESSAGES",
+    )
+
     # -- Token budget settings --
     max_session_tokens: int = Field(default=50000, alias="MAX_SESSION_TOKENS")
+
+    # -- Workflow termination policy --
+    # Loop guards that stop infinite planner/reflector cycles. Centralized in
+    # agentflow.config.termination.TerminationPolicy and consumed by the
+    # workflow routers (see tests/test_termination_policy.py).
+    max_planner_cycles: int = Field(default=5, alias="MAX_PLANNER_CYCLES")
+    max_replan_count: int = Field(default=3, alias="MAX_REPLAN_COUNT")
+    max_stuck_rounds: int = Field(default=3, alias="MAX_STUCK_ROUNDS")
+    reflector_planner_cycle_cap: int = Field(
+        default=4, alias="REFLECTOR_PLANNER_CYCLE_CAP",
+    )
 
     # -- Tool safety settings --
     allow_unsafe_python_tool: bool = Field(default=False, alias="ALLOW_UNSAFE_PYTHON_TOOL")

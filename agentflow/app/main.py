@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from contextlib import asynccontextmanager
 
@@ -10,7 +11,17 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
-from agentflow.api.routes import get_store, router
+from agentflow.api import (
+    chat,
+    executions,
+    files_workspace,
+    knowledge,
+    memory,
+    models,
+    sessions,
+    system,
+)
+from agentflow.api.routes import get_store
 from agentflow.config.settings import settings
 from agentflow.graph.workflow import get_executor, reset_workflow_cache
 from agentflow.utils.metrics import inc, observe_duration, render
@@ -75,6 +86,7 @@ async def lifespan(app: FastAPI) -> None:
     """Manage startup/shutdown lifecycle."""
     global _cleanup_task
     reset_workflow_cache()
+    _log_capability_status()
     _cleanup_task = asyncio.create_task(_cleanup_loop())
     logger.info("%s started (debug=%s)", settings.app_name, settings.debug)
     yield
@@ -82,6 +94,32 @@ async def lifespan(app: FastAPI) -> None:
         _cleanup_task.cancel()
         logger.info("Cleanup task stopped")
 
+
+def _log_capability_status() -> None:
+    """Log which optional capabilities are configured.
+
+    The system degrades gracefully when keys are missing (embedding intent
+    matching falls back to the LLM, knowledge retrieval to lexical-only,
+    web search to DuckDuckGo).  Logging the gaps at startup makes demo-day
+    configuration mistakes visible immediately.
+    """
+    missing: list[str] = []
+    if not settings.deepseek_api_key:
+        missing.append("DEEPSEEK_API_KEY (核心 LLM 未配置)")
+    if not settings.embedding_api_key:
+        missing.append("EMBEDDING_API_KEY (向量检索与意图 embedding 快路径走降级)")
+    if not os.environ.get("TAVILY_API_KEY", ""):
+        missing.append("TAVILY_API_KEY (网页搜索仅剩 DuckDuckGo 降级)")
+    if not os.environ.get("COMPOSIO_API_KEY", ""):
+        missing.append("COMPOSIO_API_KEY (Composio 集成不可用)")
+
+    if missing:
+        logger.warning(
+            "Capability check: %d optional capability(ies) not configured -> %s",
+            len(missing), "；".join(missing),
+        )
+    else:
+        logger.info("Capability check: all optional capabilities configured")
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
 
@@ -95,7 +133,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(router)
+app.include_router(chat.router)
+app.include_router(executions.router)
+app.include_router(files_workspace.router)
+app.include_router(knowledge.router)
+app.include_router(memory.router)
+app.include_router(models.router)
+app.include_router(sessions.router)
+app.include_router(system.router)
 
 
 # ── HTTP request logging middleware ──

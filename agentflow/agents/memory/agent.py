@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from agentflow.agents.base import AgentProtocol
+from agentflow.config.settings import settings
+from agentflow.conversation.compression import compress_history
 from agentflow.conversation.session_state import SessionState
-from agentflow.services.long_term_memory import LongTermMemory
+from agentflow.services.long_term_memory import get_long_term_memory
 from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
 
@@ -28,7 +30,7 @@ class MemoryAgent(AgentProtocol):
 
     def __init__(self, max_turns: int = 10) -> None:
         self.max_turns = max_turns
-        self._long_term = LongTermMemory()
+        self._long_term = get_long_term_memory()
 
     @safe_run
     def run(self, state: dict[str, object]) -> dict[str, object]:
@@ -55,6 +57,16 @@ class MemoryAgent(AgentProtocol):
         if len(history) > self.max_turns * 2:
             history = history[-(self.max_turns * 2) :]
 
+        # Layered memory: keep a recent window verbatim and compress older
+        # turns into a rolling summary when the history exceeds the budget.
+        rolling_summary = ""
+        if settings.enable_history_compression:
+            history, rolling_summary = compress_history(
+                history,
+                budget_tokens=settings.history_token_budget,
+                min_keep_messages=settings.history_min_keep_messages,
+            )
+
         # Build formatted string for LLM prompt injection
         context_lines = []
         for msg in history:
@@ -69,6 +81,12 @@ class MemoryAgent(AgentProtocol):
 
         # -- Enhanced memory: summary, goals, topic tracking ---------------
         self._update_memory_meta(state["memory"], state, question, answer, history)
+        if rolling_summary:
+            existing = str(state["memory"].get("summary", "") or "").strip()
+            state["memory"]["rolled_summary"] = rolling_summary
+            state["memory"]["summary"] = (
+                f"{rolling_summary}\n\n{existing}" if existing else rolling_summary
+            ).strip()
 
         # -- Cross-session long-term memory extraction ---------------
         if answer:

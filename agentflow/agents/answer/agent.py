@@ -14,6 +14,13 @@ In the goal-driven architecture, AnswerAgent has two modes:
 from __future__ import annotations
 
 from agentflow.agents.base import AgentProtocol
+from agentflow.graph.state_utils import (
+    get_goal,
+    get_goal_type,
+    get_knowledge_source,
+    get_plan_tasks,
+    get_source_mode,
+)
 from agentflow.config.settings import settings
 from agentflow.config.prompts import answer_system_prompt
 from agentflow.graph.context_builder import ContextBuilder
@@ -46,23 +53,14 @@ class AnswerAgent(AgentProtocol):
           - ``"hybrid"``  → fuse RAG context + LLM own knowledge
         """
         is_continue = bool(state.get("_continue_mode", False))
-        goal_analysis = state.get("goal_analysis", {})
         _degraded_set: set = state.get("_degraded", set()) or set()
         degraded = "_answer" in _degraded_set or bool(_degraded_set)
         llm_error = str(state.get("_llm_error", ""))
 
-        if isinstance(goal_analysis, dict):
-            goal_type = goal_analysis.get("goal_type", "other")
-            goal = goal_analysis.get("goal", state.get("question", ""))
-            knowledge_source = goal_analysis.get("knowledge_source", "hybrid")
-            source_mode = goal_analysis.get("source_mode", state.get("source_mode", "auto"))
-        else:
-            goal_type = "other"
-            goal = state.get("question", "")
-            knowledge_source = "hybrid"
-            source_mode = state.get("source_mode", "auto")
-
-        source_mode = str(source_mode or "auto")
+        goal = get_goal(state)
+        goal_type = get_goal_type(state)
+        knowledge_source = get_knowledge_source(state)
+        source_mode = get_source_mode(state)
         if source_mode == "knowledge":
             knowledge_source = "local"
 
@@ -211,7 +209,6 @@ class AnswerAgent(AgentProtocol):
         goal_type: str,
     ) -> str:
         """Build a completion summary for project/coding/refactor goals."""
-        plan = state.get("plan", {})
         reflection_msg = str(state.get("_reflection_message", ""))
 
         # Generation failed -> show the specific failure reason
@@ -240,12 +237,11 @@ class AnswerAgent(AgentProtocol):
             total_count = len(task_queue)
         else:
             # Fallback to plan tasks when task_queue is not set
-            if isinstance(plan, dict):
-                plan_tasks = plan.get("tasks", [])
-            else:
-                plan_tasks = getattr(plan, "tasks", [])
-            done_count = sum(1 for t in plan_tasks if isinstance(t, dict) and t.get("status") == "completed"
-                            or not isinstance(t, dict) and hasattr(t, "is_finished") and t.is_finished)
+            plan_tasks = get_plan_tasks(state)
+            done_count = sum(
+                1 for t in plan_tasks
+                if t.get("status") in ("completed", "done")
+            )
             total_count = len(plan_tasks)
 
         # Collect created paths from completed tasks in the queue

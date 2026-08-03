@@ -49,10 +49,18 @@ from agentflow.agents.search.agent import SearchAgent
 from agentflow.agents.search.query_rewriter import QueryRewriter
 from agentflow.conversation.manager import ConversationManager
 from agentflow.conversation.session_state import SessionState
+from agentflow.config.termination import TerminationPolicy, get_termination_policy
 from agentflow.config.settings import settings
 from agentflow.graph.context import WorkflowContext
 from agentflow.graph.executor import Executor
-from agentflow.services.long_term_memory import LongTermMemory
+from agentflow.graph.state_utils import (
+    get_goal_analysis,
+    get_plan_field,
+    get_source_mode,
+    is_plan_completed,
+    plan_flag,
+)
+from agentflow.services.long_term_memory import get_long_term_memory
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("workflow")
@@ -317,12 +325,10 @@ def _route_after_goal_analyzer(state: WorkflowState) -> str:
       - ``question`` → use knowledge_source (general → answer, local/hybrid → RAG)
       - ``coding / project / search / tool_use`` → planner (skip knowledge)
     """
-    goal = state.get("goal_analysis", {})
-    goal_type = goal.get("goal_type", "") if isinstance(goal, dict) else ""
-    knowledge_source = goal.get("knowledge_source", "") if isinstance(goal, dict) else ""
-    source_mode = str(state.get("source_mode", "") or "")
-    if not source_mode and isinstance(goal, dict):
-        source_mode = str(goal.get("source_mode", "") or "")
+    goal = get_goal_analysis(state)
+    goal_type = goal.get("goal_type", "")
+    knowledge_source = goal.get("knowledge_source", "")
+    source_mode = get_source_mode(state)
 
     # Manual source selection is an explicit user command. When the user
     # chooses Knowledge Base, always retrieve local references first; "auto"
@@ -419,13 +425,7 @@ def _route_after_planner(state: WorkflowState) -> str:
         logger.info("Router: planner forced completion -> answer")
         return "answer"
 
-    plan = state.get("plan", {})
-    if isinstance(plan, dict):
-        plan_completed = plan.get("goal_completed") or plan.get("direct_answer")
-    else:
-        plan_completed = plan.goal_completed or plan.direct_answer
-
-    if plan_completed:
+    if is_plan_completed(state):
         logger.info("Router: plan completed -> answer")
         return "answer"
 
@@ -463,16 +463,20 @@ def _route_after_reflector(state: WorkflowState) -> str:
     """
     result = state.get("_reflection_result", "done")
     replan_count = int(state.get("_replan_count", 0))
+    policy = get_termination_policy()
 
     if result == "done":
         logger.info("Reflector -> answer (goal completed)")
         return "answer"
 
     if result == "replan":
-        if replan_count >= 3:
+        if policy.reflector_should_force_answer_on_replan(replan_count):
             logger.warning("Reflector: max re-plans (%d) reached, forcing answer", replan_count)
             return "answer"
-        logger.info("Reflector -> re-plan (attempt %d/3)", replan_count)
+        logger.info(
+            "Reflector -> re-plan (attempt %d/%d)",
+            replan_count, policy.max_replan_count,
+        )
         return "planner"
 
     if result == "retry":
@@ -500,11 +504,17 @@ def _route_after_reflector(state: WorkflowState) -> str:
     cycle_count = int(state.get("_planner_cycle_count", 0))
     stuck_rounds = int(state.get("_stuck_rounds", 0)) + 1
     state["_stuck_rounds"] = stuck_rounds
-    if stuck_rounds >= 3:
-        logger.warning("Reflector: %d stuck rounds without TODO, forcing answer", stuck_rounds)
-        return "answer"
-    if cycle_count >= 4:
-        logger.warning("Reflector: %d planner cycles without progress, forcing answer", cycle_count)
+    if policy.reflector_should_force_answer_when_stuck(stuck_rounds, cycle_count):
+        if stuck_rounds >= policy.max_stuck_rounds:
+            logger.warning(
+                "Reflector: %d stuck rounds without TODO, forcing answer",
+                stuck_rounds,
+            )
+        else:
+            logger.warning(
+                "Reflector: %d planner cycles without progress, forcing answer",
+                cycle_count,
+            )
         return "answer"
     logger.info("Reflector -> planner (need more tasks, cycle %d, stuck=%d)", cycle_count, stuck_rounds)
     return "planner"
@@ -545,20 +555,6 @@ def _find_highest_priority_todo(queue: list[dict]) -> dict | None:
     return max(todo, key=lambda t: t.get("priority", 0))
 
 
-def _get_plan_tasks(plan: Any) -> list[dict[str, Any]]:
-    """Extract task dicts from a Plan object or dict."""
-    if isinstance(plan, dict):
-        tasks = plan.get("tasks", [])
-    else:
-        tasks = getattr(plan, "tasks", [])
-    return [
-        t if isinstance(t, dict)
-        else t.to_dict() if hasattr(t, "to_dict")
-        else {}
-        for t in tasks
-    ]
-
-
 # =========================================================================
 # Node factories
 # =========================================================================
@@ -567,7 +563,7 @@ def _get_plan_tasks(plan: Any) -> list[dict[str, Any]]:
 def _make_planner_node(planner: PlannerAgent) -> object:
     """Factory: creates a planner node with cycle-count tracking to prevent infinite loops."""
 
-    MAX_PLANNER_CYCLES = 5
+    policy: TerminationPolicy = get_termination_policy()
 
     def _node(state: WorkflowState) -> dict[str, object]:
         count = int(state.get("_planner_cycle_count", 0)) + 1
@@ -576,12 +572,9 @@ def _make_planner_node(planner: PlannerAgent) -> object:
         # tasks, force goal_completed to break the planner↔reflector loop.
         task_queue = result.get("task_queue", []) or []
         has_todo = any(t.get("status", "") == "todo" for t in task_queue if isinstance(t, dict))
-        plan = result.get("plan", {})
-        if isinstance(plan, dict):
-            plan_completed = plan.get("goal_completed") or plan.get("direct_answer")
-        else:
-            plan_completed = getattr(plan, "goal_completed", False) or getattr(plan, "direct_answer", False)
-        if not plan_completed and not has_todo and count >= MAX_PLANNER_CYCLES:
+        plan = result.get("plan")
+        plan_completed = plan_flag(plan, "goal_completed", "direct_answer")
+        if policy.planner_should_force_complete(count, has_todo, plan_completed):
             logger.warning("Planner: %d invocations without progress, forcing goal_completed", count)
             if isinstance(plan, dict):
                 plan["goal_completed"] = True
@@ -662,11 +655,7 @@ def _make_query_rewriter_node(qr: QueryRewriter) -> object:
         session_state = state.get("session_state")
         history = state.get("history", None)
 
-        plan = state.get("plan", {})
-        if isinstance(plan, dict):
-            intent = plan.get("intent", "")
-        else:
-            intent = getattr(plan, "intent", "")
+        intent = get_plan_field(state, "intent", "")
 
         # Mark the first TODO search task as running
         queue = list(state.get("task_queue", []) or [])
@@ -981,7 +970,7 @@ def _select_parallel_tasks(queue: list[dict]) -> list[dict]:
 def _recall_long_term_memories(question: str, session_context: str) -> str:
     """Append relevant long-term memories to the session context."""
     try:
-        ltm = LongTermMemory()
+        ltm = get_long_term_memory()
         memory_text = ltm.recall_for_question(question)
         if memory_text:
             return (

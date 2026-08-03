@@ -37,6 +37,7 @@ from typing import Any
 from agentflow.agents.base import AgentProtocol
 from agentflow.utils.errors import record_error as _record_error
 from agentflow.agents.planner.task_queue import TaskQueue
+from agentflow.agents.reflection.schemas import ReflectionOutput
 from agentflow.agents.planner.special_goals import (
     go_snake_content,
     java_snake_content,
@@ -50,6 +51,7 @@ from agentflow.agents.planner.templates import (
     match_template,
 )
 from agentflow.graph.task import Task, TaskStatus
+from agentflow.graph.state_utils import get_goal, get_goal_type
 from agentflow.services.llm_service import get_llm_service
 from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
@@ -113,13 +115,8 @@ class ReflectionAgent(AgentProtocol):
         decisions: failures (replan/retry) or goal-completion confirmation.
         This eliminates ~1 LLM call per task for routine success flows.
         """
-        goal_analysis = state.get("goal_analysis", {})
-        if isinstance(goal_analysis, dict):
-            goal = goal_analysis.get("goal", state.get("question", ""))
-            goal_type = goal_analysis.get("goal_type", "other")
-        else:
-            goal = state.get("question", "")
-            goal_type = "other"
+        goal = get_goal(state)
+        goal_type = get_goal_type(state)
 
         tool_results = state.get("tool_results", [])
         current_queue = TaskQueue.from_dict_list(
@@ -458,7 +455,32 @@ class ReflectionAgent(AgentProtocol):
                     parsed.get("goal_completed"),
                     len(parsed.get("new_tasks", [])),
                 )
-                return parsed
+                validated = self._validate_reflection(parsed)
+                if validated is not None:
+                    return validated
+
+                # One corrective retry: tell the LLM exactly what was wrong and
+                # ask for a strictly valid JSON payload.
+                logger.warning(
+                    "Reflection LLM: output failed schema validation, retrying once",
+                )
+                retry_messages = list(messages) + [
+                    {"role": "assistant", "content": (raw or "")[:500]},
+                    {
+                        "role": "user",
+                        "content": (
+                            "??????????? JSON ????????"
+                            "???? system ???? JSON ???????"
+                            "??? JSON??????????"
+                        ),
+                    },
+                ]
+                raw2 = self._llm.complete(messages=retry_messages)
+                validated2 = self._validate_reflection(self._parse_json(raw2))
+                if validated2 is not None:
+                    logger.info("Reflection LLM: retry produced valid output")
+                    return validated2
+
             else:
                 logger.warning("Reflection LLM: parse FAILED, raw=%s", raw[:300])
         except Exception as exc:
@@ -466,6 +488,25 @@ class ReflectionAgent(AgentProtocol):
 
         # Fallback: rule-based evaluation
         return self._rule_evaluation(queue, tool_results, goal, goal_type)
+
+    @staticmethod
+    def _validate_reflection(parsed: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Validate raw LLM output against the ReflectionOutput schema.
+
+        Returns a normalized plain dict, or ``None`` when the payload is not a
+        dict / fails schema validation.  Invalid entries are dropped by
+        Pydantic (``extra="ignore"``) rather than mutating the queue with
+        malformed fields.
+        """
+        if not isinstance(parsed, dict):
+            return None
+        try:
+            model = ReflectionOutput.model_validate(parsed)
+        except Exception as exc:
+            logger.warning("Reflection output validation failed: %s", exc)
+            return None
+        return model.to_dict()
+
 
     def _rule_evaluation(
         self,

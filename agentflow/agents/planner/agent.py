@@ -52,6 +52,7 @@ from agentflow.agents.planner.templates import (
 from agentflow.blueprints import BlueprintLoader, FileSpec, ProjectConfig, ProjectConfigurator
 from agentflow.graph.context_builder import ContextBuilder
 from agentflow.graph.plan import Plan
+from agentflow.graph.state_utils import get_goal, get_goal_type
 from agentflow.graph.task import Task, TaskStatus
 from agentflow.services.llm_service import LLMResponse, ToolCall, get_llm_service
 from agentflow.utils.decorators import safe_run
@@ -85,13 +86,8 @@ class PlannerAgent(AgentProtocol):
           state["workflow"]    -> list[str] (backward compat)
         """
         # -- Extract goal -------------------------------------------------
-        goal_analysis = state.get("goal_analysis", {})
-        if isinstance(goal_analysis, dict):
-            goal = goal_analysis.get("goal", state.get("question", ""))
-            goal_type = goal_analysis.get("goal_type", "other")
-        else:
-            goal = state.get("question", "")
-            goal_type = "other"
+        goal = get_goal(state)
+        goal_type = get_goal_type(state)
 
         # Goal types that never need task planning — conversational or simple
         if is_snake_game_goal(str(goal)):

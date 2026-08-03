@@ -88,12 +88,15 @@ All tools follow a plugin architecture — extend `BaseTool`, register in the au
 ```
 agentflow/
   agents/          Agent implementations (9 agents + base protocol)
-  api/             FastAPI route handlers
+  api/             FastAPI route handlers (split by domain: chat, knowledge,
+                   sessions, files/workspace, models, memory, executions, system)
   app/             Application entry point (FastAPI app, CORS, startup tasks)
   blueprints/      YAML-based project scaffolding (Jinja2 templates)
-  config/          Pydantic settings (.env) and prompt templates
-  conversation/    Session state, context rewrite, conversation manager
+  config/          Pydantic settings (.env), prompt templates, termination policy
+  conversation/    Session state, context rewrite, conversation manager,
+                   layered-memory compression
   database/        SQLite persistence (sessions, chats, documents, FTS5)
+  eval/            Offline eval suites + runtime feedback collection (eval loop)
   knowledge/       RAG pipeline (parser, chunker, embedder, index, retriever, eval)
   models/          Pydantic models (chat, model_config)
   services/        LLM service, search, memory, file proposer
@@ -147,9 +150,43 @@ canonical API image (the frontend is served separately via Vite). The
 ## Development
 
 ```bash
-python -m pytest -q                         # full suite
-python -m pytest tests/test_workflow.py -q  # single file
+uv sync --dev                               # install runtime + dev dependencies (pytest, ruff)
+uv run python -m pytest -q                  # full suite
+uv run python -m pytest tests/test_workflow.py -q  # single file
+uv run ruff check agentflow tests           # lint
 ```
+
+## Runtime Feedback Loop
+
+Every chat turn is a potential evaluation example. The chat endpoints append
+structured records (outcome, goal type, errors, question/answer) to
+`data/feedback/feedback.jsonl` — failures always, successful project/coding
+completions as well. Export and review them with:
+
+```bash
+python scripts/export_feedback.py --out data/feedback/failure_cases.json
+```
+
+Feed reviewed cases back into the offline eval datasets
+(`agentflow/eval/*`) so tuning decisions are backed by real usage, not just
+hand-written fixtures.
+
+## Key Configuration
+
+The system degrades gracefully when optional API keys are missing (a startup
+log lists exactly which capabilities are affected):
+
+| Env var | Enables | When missing |
+|---|---|---|
+| `DEEPSEEK_API_KEY` | Core LLM | Everything degrades |
+| `EMBEDDING_API_KEY` | RAG vector search, intent fast path | Lexical-only retrieval + LLM intent |
+| `TAVILY_API_KEY` | Structured web search | DuckDuckGo fallback |
+| `COMPOSIO_API_KEY` | 500+ app integrations | Tool reports "not configured" |
+
+Agent loop guards are tunable via `MAX_PLANNER_CYCLES`, `MAX_REPLAN_COUNT`,
+`MAX_STUCK_ROUNDS`, `REFLECTOR_PLANNER_CYCLE_CAP`; layered memory via
+`ENABLE_HISTORY_COMPRESSION`, `HISTORY_TOKEN_BUDGET`,
+`HISTORY_MIN_KEEP_MESSAGES`. See [.env.example](.env.example) for all options.
 
 ## Screenshots
 

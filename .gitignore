@@ -28,6 +28,9 @@ uploads/
 knowledge_files/
 omniforge/
 
+# Runtime feedback / eval artifacts
+data/feedback/
+
 # Generated / lock files
 package-lock.json
 uv.lock

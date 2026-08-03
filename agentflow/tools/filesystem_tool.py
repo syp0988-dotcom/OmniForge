@@ -227,24 +227,33 @@ class FileSystemTool(BaseTool):
 
     def validate(self, **kwargs: Any) -> tuple[bool, str]:
         """Reject dangerous paths before execution."""
-        # Extract the path argument (many different keys possible)
-        path = kwargs.get("path") or kwargs.get("src") or kwargs.get("source") or ""
-        if not path:
+        # Check every path-like argument (path, src/source, dst/destination)
+        # so move/copy destinations are validated too, not just the source.
+        candidates = [
+            kwargs.get(key)
+            for key in ("path", "src", "source", "dst", "destination")
+            if kwargs.get(key)
+        ]
+        if not candidates:
             return True, ""
 
-        # --- Block path traversal ----------------------------------------------
-        if isinstance(path, str) and _TRAVERSAL_PATTERNS.search(path):
-            return False, f"Path traversal detected: '{path}' is not allowed"
+        for path in candidates:
+            if not isinstance(path, str):
+                continue
 
-        # --- Block dangerous system directories --------------------------------
-        resolved = self._resolve(path)
-        if resolved is None:
-            return False, f"Path '{path}' resolves outside the workspace"
+            # --- Block path traversal -----------------------------------------
+            if _TRAVERSAL_PATTERNS.search(path):
+                return False, f"Path traversal detected: '{path}' is not allowed"
 
-        resolved_str = str(resolved)
-        for dangerous in _DANGEROUS_DIRS:
-            if resolved_str.startswith(dangerous):
-                return False, f"Access to system directory '{dangerous}' is forbidden"
+            # --- Block dangerous system directories ----------------------------
+            resolved = self._resolve(path)
+            if resolved is None:
+                return False, f"Path '{path}' resolves outside the workspace"
+
+            resolved_str = str(resolved)
+            for dangerous in _DANGEROUS_DIRS:
+                if resolved_str.startswith(dangerous):
+                    return False, f"Access to system directory '{dangerous}' is forbidden"
 
         return True, ""
 
@@ -623,6 +632,16 @@ class FileSystemTool(BaseTool):
         """
         if not raw:
             return None
+        # Block NUL bytes and NTFS alternate-data-stream syntax
+        # (e.g. "file.txt:evil").  A colon is only allowed as a drive letter.
+        if "\x00" in raw:
+            return None
+        colon = raw.find(":")
+        if colon != -1:
+            # Only a drive-letter colon ("C:\...") is allowed; anything else
+            # is an alternate-data-stream or scheme-looking path attempt.
+            if raw.count(":") > 1 or colon != 1 or not raw[0].isalpha():
+                return None
         p = Path(raw)
         if p.is_absolute():
             resolved = p.resolve()

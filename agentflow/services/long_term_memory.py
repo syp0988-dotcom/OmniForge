@@ -147,3 +147,21 @@ class LongTermMemory:
         """Clear all memories (optionally filtered by category)."""
         self.db.clear_long_term_memories(category=category)
         logger.info("Cleared long-term memories (category='%s')", category)
+
+
+# -- Shared instance ---------------------------------------------------------
+
+_ltm_instance: LongTermMemory | None = None
+
+
+def get_long_term_memory() -> LongTermMemory:
+    """Return a shared ``LongTermMemory`` instance.
+
+    ``LongTermMemory`` wraps a ``SQLiteStore`` connection; creating one per
+    request wastes a connection handle.  Use this factory for long-lived
+    components (workflow nodes, agents) instead of ``LongTermMemory()``.
+    """
+    global _ltm_instance
+    if _ltm_instance is None:
+        _ltm_instance = LongTermMemory()
+    return _ltm_instance
