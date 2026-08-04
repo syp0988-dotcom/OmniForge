@@ -1,4 +1,4 @@
-import { postChatStream, createSession, deleteSession, renameSession, getSessionMessages } from '@/api/client'
+import { postChatStream, postChat, createSession, deleteSession, renameSession, getSessionMessages } from '@/api/client'
 import type { Msg, ExecutionTask } from '@/types'
 import {
   messages, sessions, currentSessionId, thinking, activeSection, abortController,
@@ -34,12 +34,22 @@ export function useChatActions() {
 
     try {
       // Streaming-only — no blocking fallback
-      const result = await postChatStream(
+      let receivedAnyEvent = false
+      let watchdogFired = false
+      let streamResult: Awaited<ReturnType<typeof postChatStream>> | null = null
+      const watchdog = window.setTimeout(() => {
+        watchdogFired = true
+        abortController.value?.abort()
+      }, 10000)
+
+      try {
+        streamResult = await postChatStream(
         text,
         history,
         currentSessionId.value ?? undefined,
         sourceMode.value,
         (event, data) => {
+          receivedAnyEvent = true
           if (event === 'start') {
             streamingPhase.value = (data.phase as string) || '正在处理...'
           } else if (event === 'thinking') {
@@ -87,7 +97,29 @@ export function useChatActions() {
           }
         },
         signal,
-      )
+        )
+      } catch (streamErr) {
+        const isAbort = streamErr instanceof DOMException && streamErr.name === 'AbortError'
+        if (!isAbort || watchdogFired) {
+          console.warn('[ChatState] SSE stream failed; falling back to non-streaming:', streamErr)
+        } else {
+          throw streamErr // user cancelled the stream
+        }
+      } finally {
+        window.clearTimeout(watchdog)
+      }
+
+      const result = streamResult && receivedAnyEvent
+        ? streamResult
+        : await (async () => {
+            streamingPhase.value = '流式连接不可用，改用普通请求...'
+            const fb = await postChat(text, history, currentSessionId.value ?? undefined)
+            return {
+              answer: fb.reply || '',
+              session_id: fb.metadata?.session_id as number | undefined,
+              degraded: fb.metadata?.status !== 'ok',
+            }
+          })()
 
       // Finalize: apply answer from done event if text events didn't deliver it
       const idx = messages.value.findIndex((m) => m.id === agentMsgId)

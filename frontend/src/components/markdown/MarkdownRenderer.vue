@@ -5,23 +5,25 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 
-// Load the heavy markdown/highlighting stack on demand (first render),
-// keeping it out of the initial page bundle.
-const { default: MarkdownIt } = await import('markdown-it')
-const { default: hljs } = await import('highlight.js/lib/core')
-// Register only the languages most likely to appear in generated code.
-const { default: langPython } = await import('highlight.js/lib/languages/python')
-const { default: langJs } = await import('highlight.js/lib/languages/javascript')
-const { default: langTs } = await import('highlight.js/lib/languages/typescript')
-const { default: langJava } = await import('highlight.js/lib/languages/java')
-const { default: langGo } = await import('highlight.js/lib/languages/go')
-const { default: langBash } = await import('highlight.js/lib/languages/bash')
-const { default: langJson } = await import('highlight.js/lib/languages/json')
-const { default: langXml } = await import('highlight.js/lib/languages/xml')
-const { default: langCss } = await import('highlight.js/lib/languages/css')
-const { default: langSql } = await import('highlight.js/lib/languages/sql')
+// Imported eagerly (synchronously): an async <script setup> (top-level await)
+// returns a promise that cannot be rendered without a <Suspense> boundary,
+// which silently prevents every AI reply from appearing. Bundle size is a
+// reasonable trade-off for a chat reply renderer that must always display.
+import MarkdownIt from 'markdown-it'
+import hljs from 'highlight.js/lib/core'
+import langPython from 'highlight.js/lib/languages/python'
+import langJs from 'highlight.js/lib/languages/javascript'
+import langTs from 'highlight.js/lib/languages/typescript'
+import langJava from 'highlight.js/lib/languages/java'
+import langGo from 'highlight.js/lib/languages/go'
+import langBash from 'highlight.js/lib/languages/bash'
+import langJson from 'highlight.js/lib/languages/json'
+import langXml from 'highlight.js/lib/languages/xml'
+import langCss from 'highlight.js/lib/languages/css'
+import langSql from 'highlight.js/lib/languages/sql'
+import langYaml from 'highlight.js/lib/languages/yaml'
 import type { LanguageFn } from 'highlight.js'
-const { default: langYaml } = await import('highlight.js/lib/languages/yaml')
+
 const languages: Array<[string, LanguageFn]> = [
   ['python', langPython],
   ['javascript', langJs],
