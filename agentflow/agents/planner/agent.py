@@ -21,6 +21,7 @@ Architecture::
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -34,6 +35,7 @@ from agentflow.agents.planner.prompt import (
     build_codegen_prompt,
     build_fc_planner_prompt,
     build_planner_prompt,
+    build_project_design_prompt,
 )
 from agentflow.agents.planner.schemas import get_tool_schemas, parse_function_name
 from agentflow.agents.planner.special_goals import (
@@ -173,8 +175,16 @@ class PlannerAgent(AgentProtocol):
                 goal, goal_type, state, current_queue
             )
 
+        # Design-first: one shared project design for all codegen calls,
+        # so every generated file follows the same data model / API list.
+        project_brief = self._generate_project_design(goal, plan)
+        if not project_brief:
+            project_brief = self._build_project_brief(plan, goal)
+
         # Fill code content for tasks that need it (CodeGenerator)
-        self._fill_code_content(plan)
+        codegen_errors = self._fill_code_content(plan, project_brief)
+        for err in codegen_errors:
+            _record_error(state, "planner", "codegen_invalid", err)
 
         # Merge plan tasks into the queue
         merged = self._merge_into_queue(current_queue, plan)
@@ -846,20 +856,26 @@ class PlannerAgent(AgentProtocol):
     # CodeGenerator — plain-text LLM call, zero JSON
     # ------------------------------------------------------------------
 
-    def _call_codegen(self, code_prompt: str, language: str = "") -> str:
+    def _call_codegen(
+        self,
+        code_prompt: str,
+        language: str = "",
+        project_brief: str = "",
+    ) -> str:
         """Generate code via a plain-text LLM completion (no JSON, no tools).
 
-        Returns the LLM's raw output (typically markdown code blocks).
-        Content is extracted by filesystem_tool at write time.
+        *project_brief* carries the shared project design so every generated
+        file stays consistent with the rest of the project.
         """
         if not code_prompt.strip():
             return ""
-        messages = build_codegen_prompt(code_prompt, language)
+        messages = build_codegen_prompt(code_prompt, language, project_brief)
         try:
             raw = self._llm.complete(
                 messages=messages,
                 node_name="planner",
                 max_tokens=settings.codegen_max_tokens,
+                model=settings.codegen_model or None,
             )
             if raw and raw.strip():
                 logger.info(
@@ -871,14 +887,92 @@ class PlannerAgent(AgentProtocol):
             logger.warning("CodeGen LLM call failed: %s", exc)
         return ""
 
-    def _fill_code_content(self, plan: Plan) -> Plan:
+    def _build_project_brief(self, plan: Plan, goal: str) -> str:
+        """Deterministic project brief (used when the design call is unavailable)."""
+        files = sorted({
+            str(t.input.get("path", ""))
+            for t in plan.tasks
+            if str(t.input.get("path", ""))
+        })
+        role_lines = []
+        for f in files:
+            role_lines.append(f"  - {f}：{_infer_file_role(f)}")
+        lines = [f"用户目标：{goal}"]
+        if files:
+            lines.append("计划创建的文件及职责：")
+            lines.extend(role_lines)
+        return "\n".join(lines)
+
+    def _generate_project_design(self, goal: str, plan: Plan) -> str:
+        """One-shot LLM design pass shared by every codegen call in this plan.
+
+        Asks the LLM to design the tech stack, data model, API list and module
+        responsibilities up-front, so later per-file codegen calls all follow
+        the same design instead of inventing isolated, incoherent files.
+        Returns a compact design text, or "" on any failure (caller falls back
+        to the deterministic brief).
+        """
+        files = sorted({
+            str(t.input.get("path", ""))
+            for t in plan.tasks
+            if str(t.input.get("path", ""))
+        })
+        try:
+            messages = build_project_design_prompt(goal, files)
+            raw = self._llm.complete(
+                messages=messages,
+                node_name="planner",
+                max_tokens=2000,
+                model=settings.codegen_model or None,
+            )
+            parsed = self._parse_json(raw or "")
+            if not isinstance(parsed, dict):
+                return ""
+            lines: list[str] = []
+            ts = parsed.get("tech_stack")
+            if ts:
+                lines.append(f"技术栈：{ts}")
+            for req in (parsed.get("key_requirements") or []):
+                if req:
+                    lines.append(f"核心需求：{req}")
+            dm = parsed.get("data_model") or []
+            if dm:
+                lines.append("数据模型：")
+                for t in dm:
+                    if isinstance(t, dict):
+                        fields = "；".join(str(f) for f in (t.get("fields") or []))
+                        lines.append(f"  - {t.get('table', '')}: {fields}")
+            eps = parsed.get("api_endpoints") or []
+            if eps:
+                lines.append("接口列表：")
+                for e in eps:
+                    lines.append(f"  - {e}")
+            mods = parsed.get("modules") or []
+            if mods:
+                lines.append("模块职责：")
+                for m in mods:
+                    if isinstance(m, dict):
+                        lines.append(f"  - {m.get('file', '')}: {m.get('responsibility', '')}")
+            brief = "\n".join(lines)[:1500]
+            if brief.strip():
+                logger.info("Project design generated (%d chars)", len(brief))
+                return brief
+        except Exception as exc:
+            logger.warning("Project design call failed: %s", exc)
+        return ""
+
+    def _fill_code_content(self, plan: Plan, project_brief: str = "") -> list[str]:
         """Post-process: fill code content for tasks that need it.
 
         For each write_file/create_file task targeting a code file:
         - If content is already set (template or inline), skip.
-        - If code_prompt is set, generate code from it.
-        - Otherwise, derive code_prompt from the task goal.
+        - Otherwise generate code from the task prompt + the shared project
+          brief, validate syntax, and retry once when the first attempt is
+          invalid (the retry prompt includes the syntax error for feedback).
+
+        Returns a list of validation error messages for the caller to record.
         """
+        errors: list[str] = []
         for task in plan.tasks:
             inp = task.input
             action = str(inp.get("action", "") or task.goal or "")
@@ -887,27 +981,25 @@ class PlannerAgent(AgentProtocol):
             # Only handle write operations on code files
             if action not in ("write_file", "create_file"):
                 continue
-            if not _is_code_file(path):
+            if not _is_code_file(path) and not _is_fillable_text_file(path):
                 continue
 
             # Skip if content is already present and substantial
             existing = str(inp.get("content", ""))
-            if existing and len(existing) > 10:
+            if existing and _looks_substantial(existing, path):
                 continue
 
             # Determine code prompt
             code_prompt = str(inp.get("code_prompt", "")).strip()
             if not code_prompt:
                 code_prompt = str(task.goal or "")
-            # If the goal is just an action name (e.g. "write_file"), derive from path + plan goal
+            # If the goal is just an action name, derive from path + role
             _ACTION_NAMES = frozenset({
                 "write_file", "create_file", "mkdir", "append_file", "edit_file",
             })
             if not code_prompt or code_prompt in _ACTION_NAMES:
-                # Derive a meaningful prompt from file path and plan goal
-                filename = Path(path).stem.replace("_", " ").replace("-", " ")
-                plan_goal = str(plan.goal or "")
-                code_prompt = f"编写 {filename}。上下文：{plan_goal}"
+                role = _infer_file_role(path)
+                code_prompt = f"编写 {path}。它在项目中的职责：{role}。"
             if not code_prompt or len(code_prompt) < 3:
                 continue
 
@@ -916,15 +1008,32 @@ class PlannerAgent(AgentProtocol):
                 "CodeGen: filling content for '%s' (lang=%s, prompt='%s')",
                 path, language, code_prompt[:80],
             )
-            code = self._call_codegen(code_prompt, language)
+            code = self._call_codegen(code_prompt, language, project_brief)
             if code:
+                ok, detail = _validate_generated_code(path, code)
+                if not ok:
+                    retry_prompt = (
+                        f"{code_prompt}\n\n"
+                        f"上次生成的代码存在语法错误：{detail}\n"
+                        "请修复后输出完整代码。"
+                    )
+                    code2 = self._call_codegen(retry_prompt, language, project_brief)
+                    if code2:
+                        ok2, detail2 = _validate_generated_code(path, code2)
+                        if ok2:
+                            code = code2
+                        else:
+                            errors.append(f"{path}: {detail2}")
+                            logger.warning("CodeGen retry still invalid: %s", detail2)
+                    else:
+                        errors.append(f"{path}: retry produced no code")
                 inp["content"] = code
                 # Remove code_prompt now that it's been fulfilled
                 inp.pop("code_prompt", None)
             else:
                 logger.warning("CodeGen: failed to generate code for '%s'", path)
-
-        return plan
+                errors.append(f"{path}: no code generated")
+        return errors
 
     # ------------------------------------------------------------------
     # JSON parser
@@ -1172,6 +1281,80 @@ def _guess_language(path: str) -> str:
 
 # Helpers
 # ------------------------------------------------------------------
+
+
+def _infer_file_role(path: str) -> str:
+    """Infer a file's role in the project from its name/extension."""
+    name = Path(path).name.lower()
+    stem = Path(path).stem.lower()
+    if name in ("app.py", "main.py"):
+        return "应用入口（启动、注册路由）"
+    if "route" in stem or name == "urls.py":
+        return "API 路由/控制器"
+    if "model" in stem:
+        return "数据模型定义"
+    if name.endswith(".sql"):
+        return "数据库表结构（schema）"
+    if "schema" in stem:
+        return "数据库结构"
+    if "test" in stem:
+        return "单元测试"
+    if "config" in stem or name == "settings.py":
+        return "配置"
+    if name.endswith(".html"):
+        return "前端页面"
+    if name.endswith((".css", ".js", ".ts", ".vue")):
+        return "前端资源/交互"
+    if name == "dockerfile" or "docker" in stem or name.endswith((".yml", ".yaml")):
+        return "部署/容器配置"
+    if name == "readme.md":
+        return "项目说明文档"
+    if name in ("requirements.txt", "pyproject.toml"):
+        return "依赖声明"
+    return "项目组件"
+
+
+def _looks_substantial(content: str, path: str) -> bool:
+    """Heuristic: is this real code, or just a template stub?
+
+    Templates seed code files with a short header comment (e.g. ``# 项目名``)
+    which is long enough to pass a naive "len > 10" check but contains no
+    logic.  Such stubs must NOT suppress code generation, otherwise files like
+    ``models.py`` stay empty while ``routes.py`` imports their functions.
+    """
+    if len(content) >= 500:
+        return True
+    if path.lower().endswith(".py"):
+        code_lines = [
+            line for line in content.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        has_import = any(
+            line.startswith(("import ", "from "))
+            for line in code_lines
+        )
+        return has_import and len(code_lines) >= 4
+    return len(content) >= 200
+
+
+_FILLABLE_TEXT_FILES = {"requirements.txt", "pyproject.toml"}
+
+
+def _is_fillable_text_file(path: str) -> bool:
+    """Dependency-declaration files are also generated (not left as stubs)."""
+    return Path(path).name.lower() in _FILLABLE_TEXT_FILES
+
+
+def _validate_generated_code(path: str, code: str) -> tuple[bool, str]:
+    """Lightweight syntax validation for generated code files."""
+    if not path.lower().endswith(".py"):
+        return True, ""
+    source = _extract_code_from_markdown(code)
+    try:
+        ast.parse(source)
+        return True, ""
+    except SyntaxError as exc:
+        return False, f"{exc.msg} (line {exc.lineno})"
 
 
 def _plan_to_workflow(plan: Plan, goal_type: str, registry=None) -> list[str]:

@@ -274,18 +274,71 @@ CODEGEN_SYSTEM_PROMPT = """你是一个代码生成器。根据需求描述生�
 2. 代码用 Markdown 代码块包裹（```语言名\\n代码\\n```）
 3. 代码必须完整可用，包含所有必要的导入语句
 4. 根据用户描述推断最合适的技术方案
-5. 如果用户指定了技术栈，严格遵循"""
+5. 如果用户指定了技术栈，严格遵循
+6. 只能 import 标准库或本项目计划创建的文件，别文件的导入必须与其他文件接口一致
+7. 必须与「项目背景」中的数据模型、接口列表保持一致"""
 
 
-def build_codegen_prompt(code_prompt: str, language: str = "") -> list[dict[str, str]]:
+def build_codegen_prompt(
+    code_prompt: str,
+    language: str = "",
+    project_brief: str = "",
+) -> list[dict[str, str]]:
     """Build messages for the CodeGenerator LLM call.
 
-    This is a plain-text completion — no JSON, no function calling.
+    This is a plain-text completion \u2014 no JSON, no function calling.
     The LLM outputs markdown code blocks which are stripped by filesystem_tool.
+
+    When *project_brief* is provided (a compact project design: goal, tech
+    stack, data model, API list, sibling files), it is injected ahead of the
+    per-file prompt so every generated file is consistent with the project
+    instead of being invented in isolation.
     """
-    lang_hint = f"，使用 {language}" if language else ""
-    user = f"请生成代码{lang_hint}：\n\n{code_prompt}"
+    lang_hint = f"\uff08\u4f7f\u7528 {language}\uff09" if language else ""
+    user = f"\u8bf7\u751f\u6210\u4ee3\u7801{lang_hint}\uff1a\n\n{code_prompt}"
+    if project_brief:
+        user = (
+            "## \u9879\u76ee\u80cc\u666f\uff08\u6240\u6709\u6587\u4ef6\u5fc5\u987b\u4e0e\u6b64\u4fdd\u6301\u4e00\u81f4\uff0c\u4e25\u683c\u9075\u5b88\uff09\n"
+            f"{project_brief}\n\n"
+            "## \u672c\u6587\u4ef6\u4efb\u52a1\n"
+            f"{user}"
+        )
     return [
         {"role": "system", "content": CODEGEN_SYSTEM_PROMPT},
+        {"role": "user", "content": user},
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Project design prompt \u2014 one LLM call per project, shared by all files
+# ---------------------------------------------------------------------------
+
+PROJECT_DESIGN_SYSTEM_PROMPT = (
+    "\u4f60\u662f\u8f6f\u4ef6\u67b6\u6784\u5e08\u3002\u6839\u636e\u7528\u6237\u76ee\u6807\u548c\u8ba1\u5212\u521b\u5efa\u7684\u6587\u4ef6\u6e05\u5355\uff0c\u8f93\u51fa\u4e00\u4efd\u7d27\u51d1\u7684\u9879\u76ee\u8bbe\u8ba1\u3002"
+    "\u53ea\u8f93\u51fa JSON\uff0c\u4e0d\u8981\u8f93\u51fa\u5176\u4ed6\u6587\u5b57\u3002JSON \u7ed3\u6784\uff1a\n"
+    "{\n"
+    '  "tech_stack": "\u540e\u7aef\u6846\u67b6/\u8bed\u8a00/\u6570\u636e\u5e93\u7b80\u8ff0",\n'
+    '  "data_model": [{"table": "\u8868\u540d", "fields": ["\u5b57\u6bb5:\u7c7b\u578b:\u8bf4\u660e"]}],\n'
+    '  "api_endpoints": ["\u65b9\u6cd5 \u8def\u5f84 - \u8bf4\u660e"],\n'
+    '  "modules": [{"file": "\u6587\u4ef6\u540d", "responsibility": "\u804c\u8d23"}]\uff0c\n'
+    '  "key_requirements": ["\u6838\u5fc3\u4e1a\u52a1\u89c4\u5219"]\n'
+    "}\n"
+    "\u8981\u6c42\uff1adata_model \u548c api_endpoints \u5fc5\u987b\u7d27\u6263\u7528\u6237\u76ee\u6807\uff1bmodules \u8986\u76d6\u6587\u4ef6\u6e05\u5355\u4e2d\u6bcf\u4e2a\u4ee3\u7801\u6587\u4ef6\u3002"
+)
+
+
+def build_project_design_prompt(
+    goal: str,
+    files: list[str],
+) -> list[dict[str, str]]:
+    """Build messages for the one-shot project design call."""
+    file_list = "\n".join(f"  - {f}" for f in files) or "  (\u65e0\u4ee3\u7801\u6587\u4ef6)"
+    user = (
+        f"\u7528\u6237\u76ee\u6807\uff1a{goal}\n\n"
+        f"\u8ba1\u5212\u521b\u5efa\u7684\u6587\u4ef6\uff1a\n{file_list}\n\n"
+        "\u8bf7\u8f93\u51fa\u9879\u76ee\u8bbe\u8ba1 JSON\u3002"
+    )
+    return [
+        {"role": "system", "content": PROJECT_DESIGN_SYSTEM_PROMPT},
         {"role": "user", "content": user},
     ]

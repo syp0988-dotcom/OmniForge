@@ -306,6 +306,7 @@ class LLMService:
         messages: list[dict[str, str]],
         node_name: str = "default",
         max_tokens: int | None = None,
+        model: str | None = None,
     ) -> str:
         """Call the LLM with circuit breaker + exponential backoff retry.
 
@@ -315,10 +316,11 @@ class LLMService:
         breaker so one agent's failures don't affect others.
         """
         effective_max_tokens = max_tokens or self._max_tokens
+        effective_model = model or self._model_name
 
         def _do_call() -> str:
             response = self.client.chat.completions.create(
-                model=self._model_name,
+                model=effective_model,
                 messages=messages,
                 temperature=self._temperature,
                 max_tokens=effective_max_tokens,
@@ -353,6 +355,7 @@ class LLMService:
         session_state: object | None = None,
         node_name: str = "default",
         max_tokens: int | None = None,
+        model: str | None = None,
     ) -> str:
         """Generate a completion using the configured model or a deterministic fallback.
 
@@ -361,6 +364,9 @@ class LLMService:
 
         Retries transient failures with exponential backoff before falling back.
         The *node_name* selects which circuit breaker to use.
+        *model* optionally overrides the active model for this call (used by
+        the code generator to run a stronger model without changing the chat
+        model).
         """
         if not self.client:
             logger.warning("No API key configured; using fallback response")
@@ -391,6 +397,7 @@ class LLMService:
             _start = time.perf_counter()
             result = self._call_with_retry(
                 messages, node_name=node_name, max_tokens=max_tokens,
+                model=model,
             )
             observe_duration("llm_call_duration_seconds",
                              time.perf_counter() - _start, node=node_name)

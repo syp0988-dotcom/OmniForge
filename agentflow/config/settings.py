@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # -- Per-node LLM token budgets (override the global MAX_TOKENS) --
     planner_max_tokens: int = Field(default=4000, alias="PLANNER_MAX_TOKENS")
     codegen_max_tokens: int = Field(default=8000, alias="CODEGEN_MAX_TOKENS")
+    # Optional stronger model for code generation. Empty = use the global
+    # MODEL_NAME. Example: deepseek-v4-pro (if available on your provider).
+    codegen_model: str = Field(default="", alias="CODEGEN_MODEL")
     answer_max_tokens: int = Field(default=2000, alias="ANSWER_MAX_TOKENS")
     goal_analyzer_max_tokens: int = Field(
         default=600, alias="GOAL_ANALYZER_MAX_TOKENS",
