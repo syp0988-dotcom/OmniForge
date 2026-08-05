@@ -24,7 +24,7 @@ def avg_turns_taken(results: list[dict]) -> float:
     return sum(r.get("turns_taken", 0) for r in results) / len(results)
 
 
-def min_task_达标率(results: list[dict], samples: list[dict]) -> float:
+def min_tasks_done_rate(results: list[dict], samples: list[dict]) -> float:
     """min_expected_tasks_done 达标率。"""
     if not results:
         return 0.0
@@ -52,7 +52,7 @@ def compute_all(results: list[dict], samples: list[dict]) -> dict:
         "completion_rate": completion_rate(results),
         "avg_tasks_done": avg_tasks_done(results),
         "avg_turns_taken": avg_turns_taken(results),
-        "min_task_达标率": min_task_达标率(results, samples),
+        "min_tasks_done_rate": min_tasks_done_rate(results, samples),
         "completion_match_rate": completion_match_rate(results, samples),
     }
 

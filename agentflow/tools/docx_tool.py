@@ -31,16 +31,24 @@ _SCRIPTS_PATH_ADDED = False
 
 
 def _ensure_skill_path() -> None:
-    """Add skill scripts to sys.path once."""
+    """Add skill scripts to sys.path once (only when the directory exists).
+
+    The validation action depends on an optional external skill bundle
+    (``%USERPROFILE%/.claude/skills/docx/scripts``).  In production /
+    containers that directory usually does not exist, so this is a
+    best-effort hook; callers must handle the ImportError gracefully.
+    """
     global _SCRIPTS_PATH_ADDED
-    if not _SCRIPTS_PATH_ADDED:
+    if _SCRIPTS_PATH_ADDED:
+        return
+    if _SKILL_SCRIPTS.exists():
         sp = str(_SKILL_SCRIPTS)
         if sp not in sys.path:
             sys.path.insert(0, sp)
         office_sp = str(_SKILL_SCRIPTS / "office")
         if office_sp not in sys.path:
             sys.path.insert(0, office_sp)
-        _SCRIPTS_PATH_ADDED = True
+    _SCRIPTS_PATH_ADDED = True
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +411,13 @@ class DocxTool(BaseTool):
 
     def _cmd_validate(self, path: str = "", **kwargs: Any) -> ToolResult:
         _ensure_skill_path()
-        from office.validate import main as validate_main
+        try:
+            from office.validate import main as validate_main
+        except ImportError as exc:
+            return ToolResult.fail(
+                self.name, "validate",
+                f"Validation dependency unavailable (office.validate): {exc}",
+            )
 
         filepath = self._resolve(path)
         if not filepath.exists():

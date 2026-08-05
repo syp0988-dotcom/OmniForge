@@ -41,6 +41,17 @@ def parse_document(
     if file_type is None:
         file_type = path.suffix.lstrip(".").lower()
 
+    # ZIP bundles: read each entry and join into one markdown-ish text so the
+    # content is chunkable (instead of trying to read the archive as text).
+    if file_type == "zip":
+        entries = _read_zip(path)
+        raw_text = "\n\n".join(
+            f"# {name}\n{text}" for name, text in entries
+        )
+        return chunk_document(
+            raw_text, "md", chunk_size=chunk_size, overlap=chunk_overlap,
+        )
+
     raw_text = _read_raw(path, file_type)
     return chunk_document(raw_text, file_type, chunk_size=chunk_size, overlap=chunk_overlap)
 
@@ -307,10 +318,16 @@ def _fallback_read(path: Path) -> str:
 
 def _strip_frontmatter(text: str) -> str:
     """Strip YAML/TOML frontmatter delimited by --- or +++."""
-    if re.match(r"^(---|\+\+\+)\s*$", text.splitlines()[0] if text else ""):
-        parts = re.split(r"^(---|\+\+\+)\s*$", text, maxsplit=2, flags=re.MULTILINE)
-        if len(parts) >= 4:
-            return parts[3].strip()
+    if not text:
+        return text
+    lines = text.splitlines(keepends=True)
+    if not re.match(r"^(---|\+\+\+)\s*$", lines[0].strip()):
+        return text
+    delimiter = lines[0].strip()
+    # Find the closing delimiter line and return everything after it.
+    for i in range(1, len(lines)):
+        if lines[i].strip() == delimiter:
+            return "".join(lines[i + 1:]).strip()
     return text
 
 

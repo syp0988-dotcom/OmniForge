@@ -450,39 +450,38 @@ class ReflectionAgent(AgentProtocol):
             raw = self._llm.complete(messages=messages)
             logger.info("Reflection LLM: raw output (first 300) = %s", raw[:300])
             parsed = self._parse_json(raw)
-            if parsed:
-                logger.info("Reflection LLM: parsed OK — goal_completed=%s, new_tasks=%d",
-                    parsed.get("goal_completed"),
-                    len(parsed.get("new_tasks", [])),
+            validated = self._validate_reflection(parsed)
+            if validated is not None:
+                logger.info(
+                    "Reflection LLM: parsed OK — goal_completed=%s, new_tasks=%d",
+                    validated.get("goal_completed"),
+                    len(validated.get("new_tasks", [])),
                 )
-                validated = self._validate_reflection(parsed)
-                if validated is not None:
-                    return validated
+                return validated
 
-                # One corrective retry: tell the LLM exactly what was wrong and
-                # ask for a strictly valid JSON payload.
-                logger.warning(
-                    "Reflection LLM: output failed schema validation, retrying once",
-                )
-                retry_messages = list(messages) + [
-                    {"role": "assistant", "content": (raw or "")[:500]},
-                    {
-                        "role": "user",
-                        "content": (
-                            "??????????? JSON ????????"
-                            "???? system ???? JSON ???????"
-                            "??? JSON??????????"
-                        ),
-                    },
-                ]
-                raw2 = self._llm.complete(messages=retry_messages)
-                validated2 = self._validate_reflection(self._parse_json(raw2))
-                if validated2 is not None:
-                    logger.info("Reflection LLM: retry produced valid output")
-                    return validated2
-
-            else:
-                logger.warning("Reflection LLM: parse FAILED, raw=%s", raw[:300])
+            # One corrective retry for both parse failures and schema
+            # validation failures: tell the LLM exactly what was wrong and
+            # ask for a strictly valid JSON payload.
+            logger.warning(
+                "Reflection LLM: parse/validation failed, retrying once (raw=%s)",
+                raw[:300],
+            )
+            retry_messages = list(messages) + [
+                {"role": "assistant", "content": (raw or "")[:500]},
+                {
+                    "role": "user",
+                    "content": (
+                        "\u4f60\u4e0a\u6b21\u7684\u8f93\u51fa\u4e0d\u662f\u5408\u6cd5\u7684 JSON \u6216\u7f3a\u5c11\u5fc5\u8981\u5b57\u6bb5\u3002"
+                        "\u8bf7\u4e25\u683c\u6309 system \u63d0\u793a\u4e2d\u7684 JSON \u7ed3\u6784\u91cd\u65b0\u8f93\u51fa\uff0c"
+                        "\u53ea\u8f93\u51fa JSON\uff0c\u4e0d\u8981\u5305\u542b\u5176\u4ed6\u6587\u5b57\u3002"
+                    ),
+                },
+            ]
+            raw2 = self._llm.complete(messages=retry_messages)
+            validated2 = self._validate_reflection(self._parse_json(raw2))
+            if validated2 is not None:
+                logger.info("Reflection LLM: retry produced valid output")
+                return validated2
         except Exception as exc:
             logger.warning("ReflectionAgent LLM call failed: %s", exc)
 
