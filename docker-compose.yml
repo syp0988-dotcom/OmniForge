@@ -1,0 +1,56 @@
+# Production Docker Compose: API + Nginx (static frontend + reverse proxy).
+#
+# Usage:
+#   docker compose up --build -d
+#
+# HTTPS requires certificates in deploy/nginx/certs (see README there). For a
+# no-certificate test, build web with NGINX_CONF=nginx-http.conf:
+#   docker compose build --build-arg NGINX_CONF=nginx-http.conf web
+version: '3.9'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: omniforge-api:latest
+    env_file: .env
+    environment:
+      APP_ENV: production
+      ENFORCE_REQUIRED_ENV: "true"
+    # Persistent data: RAG (Qdrant local + embedding cache), SQLite DB,
+    # uploaded/knowledge documents and logs survive container recreation.
+    volumes:
+      - app-data:/app/data
+      - app-db:/app/agentflow/database
+      - knowledge-files:/app/knowledge_files
+      - uploads:/app/uploads
+      - app-logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/nginx/Dockerfile
+    image: omniforge-web:latest
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  app-data:
+  app-db:
+  knowledge-files:
+  uploads:
+  app-logs:

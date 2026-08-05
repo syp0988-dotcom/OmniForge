@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentflow-config
+data:
+  APP_ENV: "production"
+  ENFORCE_REQUIRED_ENV: "true"
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+  LOG_ROTATION_WHEN: "midnight"
+  LOG_ROTATION_BACKUP_COUNT: "14"
+  MODEL_NAME: "deepseek-v4-flash"
+  TEMPERATURE: "0.2"
+  # Empty QDRANT_URL = local on-disk vector index (data/qdrant, persisted via PVC)
+  QDRANT_URL: ""
+  QDRANT_COLLECTION: "knowledge_chunks"
+  KNOWLEDGE_TOP_K: "5"
+  MAX_REQUEST_SECONDS: "300"
+  # Secret material (API keys) lives in the agentflow-secrets Secret, not here.

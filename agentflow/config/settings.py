@@ -16,8 +16,23 @@ class Settings(BaseSettings):
 
     app_name: str = Field(default="OmniForge", alias="APP_NAME")
     debug: bool = Field(default=False, alias="DEBUG")
+    # Runtime environment: "development" (default) or "production".
+    # In production, missing required API keys fail startup instead of
+    # silently degrading (see agentflow.app.main._validate_required_env).
+    app_env: str = Field(default="development", alias="APP_ENV")
+    enforce_required_env: bool = Field(
+        default=False, alias="ENFORCE_REQUIRED_ENV",
+    )
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_format: str = Field(default="text", alias="LOG_FORMAT")  # "text" | "json"
+
+    # -- Log rotation --
+    # Log files are rotated daily (TimedRotatingFileHandler) and old files are
+    # pruned after *log_rotation_backup_count* days.
+    log_rotation_when: str = Field(default="midnight", alias="LOG_ROTATION_WHEN")
+    log_rotation_backup_count: int = Field(
+        default=14, alias="LOG_ROTATION_BACKUP_COUNT",
+    )
     deepseek_api_key: str = Field(default="", alias="DEEPSEEK_API_KEY")
     deepseek_base_url: str = Field(default="https://api.deepseek.com", alias="DEEPSEEK_BASE_URL")
     model_name: str = Field(default="deepseek-chat", alias="MODEL_NAME")

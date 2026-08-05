@@ -85,6 +85,7 @@ class DynamicCORSMiddleware(CORSMiddleware):
 async def lifespan(app: FastAPI) -> None:
     """Manage startup/shutdown lifecycle."""
     global _cleanup_task
+    _validate_required_env()
     reset_workflow_cache()
     _log_capability_status()
     _cleanup_task = asyncio.create_task(_cleanup_loop())
@@ -120,6 +121,28 @@ def _log_capability_status() -> None:
         )
     else:
         logger.info("Capability check: all optional capabilities configured")
+
+
+def _validate_required_env() -> None:
+    """Fail fast in production when required credentials are missing.
+
+    In development the app keeps its graceful-degradation behavior; in
+    production (``APP_ENV=production`` or ``ENFORCE_REQUIRED_ENV=true``)
+    a missing core API key is a deployment error, not a runtime fallback.
+    """
+    if not (settings.enforce_required_env or settings.app_env == "production"):
+        return
+
+    missing: list[str] = []
+    if not settings.deepseek_api_key:
+        missing.append("DEEPSEEK_API_KEY")
+    if not settings.embedding_api_key:
+        missing.append("EMBEDDING_API_KEY")
+    if missing:
+        raise RuntimeError(
+            "Refusing to start in production: missing required environment "
+            f"variable(s): {', '.join(missing)}"
+        )
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
 

@@ -3,7 +3,13 @@ import axios from 'axios'
 import { readSseStream } from '@/api/sse'
 import type { AgentInfo, CreatedFile, FilePreview, Session, ToolInfo, ToolCapability, ToolExecutorSummary, SourceMode } from '@/types'
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
+const _rawApiBase = import.meta.env.VITE_API_BASE
+// Unset -> local dev default; set (even to an empty string) -> same-origin
+// relative URLs (the production nginx serves the SPA and proxies /chat,
+// /knowledge, ... on the same host, so absolute localhost URLs would break).
+const API_BASE = _rawApiBase === undefined || _rawApiBase === null
+  ? 'http://127.0.0.1:8000'
+  : String(_rawApiBase).replace(/\/+$/, '')
 
 /** Retry a fetch on network errors with exponential backoff.
  *

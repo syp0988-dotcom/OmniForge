@@ -96,9 +96,18 @@ class HybridRetriever:
         """
         top_k, min_score = search_defaults() if top_k is None else (top_k, min_score or 0.0)
 
-        # 1. Run both searches
-        query_vec = self.embedder.embed_query(query)
-        vector_results = self._vector_search(query_vec, top_k * 2)
+        # 1. Run both searches. The vector side is optional: when the embedder
+        #    or Qdrant is unavailable, degrade to lexical-only retrieval
+        #    instead of failing the whole request.
+        vector_results: list[tuple[int, float]] = []
+        try:
+            query_vec = self.embedder.embed_query(query)
+            vector_results = self._vector_search(query_vec, top_k * 2)
+        except Exception as exc:
+            logger.warning(
+                "Vector search degraded to lexical-only: %s",
+                exc,
+            )
         lexical_results = self._lexical_search(query, top_k * 2)
 
         # 2. If only one side has results, return that

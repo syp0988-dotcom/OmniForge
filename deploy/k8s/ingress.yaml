@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agentflow
+  annotations:
+    # Terminate TLS at the ingress. Provide a TLS secret (see below) or use
+    # your cloud LB / cert-manager for automatic certificates.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+spec:
+  tls:
+    - hosts:
+        - omniforge.example.com
+      secretName: agentflow-tls
+  rules:
+    - host: omniforge.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agentflow-web
+                port:
+                  number: 80

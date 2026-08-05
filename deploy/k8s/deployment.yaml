@@ -5,7 +5,9 @@ metadata:
   labels:
     app: agentflow
 spec:
-  replicas: 2
+  # SQLite + a ReadWriteOnce PVC means a single writable replica. Scale out
+  # only after moving to a shared database (e.g. Postgres) and RWX storage.
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -25,16 +27,31 @@ spec:
         image: agentflow:latest
         ports:
         - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: agentflow-config
         env:
         - name: DEEPSEEK_API_KEY
           valueFrom:
             secretKeyRef:
               name: agentflow-secrets
               key: deepseek_api_key
-        - name: LOG_LEVEL
-          value: "INFO"
-        - name: LOG_FORMAT
-          value: "json"
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+          subPath: data
+        - name: data
+          mountPath: /app/agentflow/database
+          subPath: database
+        - name: data
+          mountPath: /app/knowledge_files
+          subPath: knowledge_files
+        - name: data
+          mountPath: /app/uploads
+          subPath: uploads
+        - name: data
+          mountPath: /app/logs
+          subPath: logs
         resources:
           requests:
             cpu: "250m"
@@ -54,3 +71,7 @@ spec:
             port: 8000
           initialDelaySeconds: 5
           periodSeconds: 10
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: agentflow-data

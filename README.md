@@ -139,13 +139,35 @@ cd frontend && npm install && npm run dev
 ## Docker Deployment
 
 ```bash
-docker compose -f agentflow/docker/docker-compose.yml up --build
+docker compose up --build -d
 ```
 
-For a single-service container, the root [`Dockerfile`](Dockerfile) is the
-canonical API image (the frontend is served separately via Vite). The
-`deploy/k8s/` manifests are the Kubernetes reference for the same image;
-`agentflow/docker/` is the older compose layout kept for local testing.
+The root [`docker-compose.yml`](docker-compose.yml) runs two services:
+
+- **app** — the API (root [`Dockerfile`](Dockerfile), non-root user,
+  healthcheck). Persistent volumes keep the SQLite database, local Qdrant
+  index, embedding cache, uploaded/knowledge documents and logs across
+  container recreation.
+- **web** — nginx serving the built Vue SPA and reverse-proxying the API
+  (`/chat`, `/chat/stream` with SSE, `/knowledge`, ...). HTTPS on port 443
+  requires certificates in `deploy/nginx/certs/`
+  (see [certs/README.md](deploy/nginx/certs/README.md)); for a no-certificate
+  test build use `docker compose build --build-arg NGINX_CONF=nginx-http.conf web`.
+
+`agentflow/docker/` is the older single-service compose layout kept for local
+testing. The `deploy/k8s/` manifests are the Kubernetes reference:
+`configmap.yaml` (non-secret settings), `pvc.yaml` + volume mounts (persistent
+RAG/database data), `ingress.yaml` (TLS termination), and the `agentflow-web`
+nginx deployment for the frontend.
+
+### Production environment checks
+
+- Set `APP_ENV=production` (or `ENFORCE_REQUIRED_ENV=true`): startup then fails
+  fast when `DEEPSEEK_API_KEY` / `EMBEDDING_API_KEY` are missing.
+- Logs are JSON-formatted with `trace_id` and rotate daily
+  (`LOG_ROTATION_WHEN`, `LOG_ROTATION_BACKUP_COUNT`).
+- If Qdrant or the embedding API is unavailable at runtime, knowledge
+  retrieval automatically degrades to lexical (FTS5) search.
 
 ## Development
 

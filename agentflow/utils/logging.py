@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from logging.handlers import TimedRotatingFileHandler
 
 from agentflow.config.settings import settings
 
@@ -67,7 +68,12 @@ def build_logger(name: str) -> logging.Logger:
     if not logger.handlers:
         formatter = _build_formatter()
 
-        file_handler = logging.FileHandler(settings.logs_dir / f"{name}.log", encoding="utf-8")
+        file_handler = TimedRotatingFileHandler(
+            settings.logs_dir / f"{name}.log",
+            when=settings.log_rotation_when,
+            backupCount=settings.log_rotation_backup_count,
+            encoding="utf-8",
+        )
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
