@@ -104,7 +104,10 @@ agentflow/
   graph/           LangGraph workflow (nodes, edges, executor, context)
   utils/           Logging, decorators
 frontend/          Vue 3 + TypeScript + Vite SPA (TailwindCSS, markdown-it)
-tests/             Pytest suite (13+ test files)
+deploy/            Production deployment: nginx (frontend + HTTPS), k8s manifests
+scripts/           Utility scripts (backend/frontend launchers, feedback export)
+tests/             Pytest suite (25+ files, per-module dedicated tests)
+data/feedback/     Runtime feedback records for the eval loop (gitignored)
 ```
 
 ## API Endpoints
@@ -176,6 +179,28 @@ uv sync --dev                               # install runtime + dev dependencies
 uv run python -m pytest -q                  # full suite
 uv run python -m pytest tests/test_workflow.py -q  # single file
 uv run ruff check agentflow tests           # lint
+```
+
+## Testing
+
+The suite (500+ tests) covers every major module with a dedicated test file:
+
+| Module | Test file |
+|---|---|
+| Planner / Reflection | `tests/test_planner_agent.py`, `tests/test_reflection_agent.py` |
+| Answer / Memory agents | `tests/test_answer_agent.py`, `tests/test_memory_agent.py` |
+| Conversation & compression | `tests/test_conversation_runtime.py`, `tests/test_history_compression.py` |
+| RAG parser / chunker / retriever | `tests/test_parser_chunking.py`, `tests/test_knowledge_retrieval.py` |
+| SQLite store | `tests/test_sqlite_store.py` |
+| Tools (filesystem, git, docx, composio) | `tests/test_tool_framework.py`, `tests/test_git_tool.py`, `tests/test_docx_tool.py`, `tests/test_composio_tool.py` |
+| Workflow routing / termination | `tests/test_workflow_routing.py`, `tests/test_termination_policy.py` |
+| Eval framework / blueprints | `tests/test_eval_suite.py`, `tests/test_blueprints.py` |
+| Production readiness | `tests/test_production_readiness.py` |
+
+Run with coverage to see per-module numbers:
+
+```bash
+uv run python -m pytest -q --cov=agentflow --cov-report=term
 ```
 
 ## Runtime Feedback Loop
