@@ -35,6 +35,9 @@ logger = build_logger("goal_analyzer")
 # Lazily-initialised singleton — the SentenceTransformer model is loaded on
 # first use, so creating the index at import time is cheap.
 _intent_index: IntentIndex | None = None
+# Log the embedding-unavailable warning once per process instead of on every
+# request (avoids flooding the unified error channel).
+_embedding_unavailable_logged = False
 
 
 def _get_intent_index() -> IntentIndex:
@@ -128,7 +131,9 @@ class GoalAnalyzer(AgentProtocol):
         goal = _apply_source_mode(goal, str(state.get("source_mode", "auto") or "auto"))
 
         intent_index = _get_intent_index()
-        if not intent_index.available:
+        global _embedding_unavailable_logged
+        if not intent_index.available and not _embedding_unavailable_logged:
+            _embedding_unavailable_logged = True
             _record_error(
                 state,
                 "goal_analyzer",
@@ -296,7 +301,12 @@ class GoalAnalyzer(AgentProtocol):
 
     @staticmethod
     def _default_goal(question: str = "") -> dict[str, Any]:
-        """Fallback goal when LLM is unavailable."""
+        """Fallback goal when the LLM is unavailable.
+
+        ``fallback`` is only set when the LLM path was actually attempted
+        (non-empty question); an empty question is a no-op turn, not an LLM
+        failure, so it must not be flagged as ``llm_unavailable``.
+        """
         return {
             "goal": question or "处理用户请求",
             "goal_type": "other",
@@ -304,7 +314,7 @@ class GoalAnalyzer(AgentProtocol):
             "expected_outputs": ["answer"],
             "priority": "normal",
             "confidence": 0.1,
-            "fallback": True,
+            "fallback": bool(question),
         }
 
 

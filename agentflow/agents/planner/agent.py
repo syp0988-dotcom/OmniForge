@@ -40,9 +40,7 @@ from agentflow.agents.planner.prompt import (
 from agentflow.agents.planner.schemas import get_tool_schemas, parse_function_name
 from agentflow.agents.planner.special_goals import (
     build_docx_report_plan,
-    build_snake_game_files_plan,
     is_docx_report_goal,
-    is_snake_game_goal,
 )
 from agentflow.agents.planner.task_queue import TaskQueue
 from agentflow.agents.planner.templates import (
@@ -90,16 +88,6 @@ class PlannerAgent(AgentProtocol):
         # -- Extract goal -------------------------------------------------
         goal = get_goal(state)
         goal_type = get_goal_type(state)
-
-        # Goal types that never need task planning — conversational or simple
-        if is_snake_game_goal(str(goal)):
-            plan = build_snake_game_files_plan(str(goal))
-            state["plan"] = plan
-            state["category"] = "project"
-            state["task_queue"] = [t.to_dict() for t in plan.tasks]
-            state["workflow"] = _plan_to_workflow(plan, "project", self.registry)
-            logger.info("Snake game files template: initialized %d task(s)", len(plan.tasks))
-            return state
 
         if is_docx_report_goal(str(goal)):
             plan = build_docx_report_plan(str(goal), state)
@@ -434,8 +422,11 @@ class PlannerAgent(AgentProtocol):
         else:
             plan = self._generate_more_tasks(goal, goal_type, state, current_queue)
 
-        # Fill code content for tasks that need it (CodeGenerator)
-        self._fill_code_content(plan)
+        # Fill code content for tasks that need it (CodeGenerator); include
+        # the deterministic project brief so non-project code tasks still get
+        # project context.
+        project_brief = self._build_project_brief(plan, goal)
+        self._fill_code_content(plan, project_brief)
 
         merged = self._merge_into_queue(current_queue, plan)
         state["plan"] = plan

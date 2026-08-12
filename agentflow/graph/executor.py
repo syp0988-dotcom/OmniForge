@@ -57,7 +57,31 @@ _CHINESE_ACTION_MAP: dict[str, str] = {
     "执行脚本": "execute",
     "执行代码": "execute",
     "搜索": "search",
+    "查看文件": "read_file",
+    "列出目录": "list_directory",
+    "移动文件": "move_file",
+    "复制文件": "copy_file",
+    "重命名文件": "rename_file",
+    "删除目录": "delete_directory",
+    "查看配置": "show",
 }
+_KNOWN_ACTIONS = frozenset({
+    "mkdir", "write_file", "create_file", "edit_file", "append_file",
+    "read_file", "delete_file", "list_directory", "execute", "search",
+    "status", "diff", "add", "commit", "checkout", "branch", "log", "show",
+})
+
+
+def _translate_action(action: str) -> str:
+    """Translate Chinese action names to canonical English (LLM safety net)."""
+    if not action or action in _KNOWN_ACTIONS:
+        return action
+    translated = _CHINESE_ACTION_MAP.get(action)
+    if translated:
+        logger.info("Translated Chinese action '%s' -> '%s'", action, translated)
+        return translated
+    logger.warning("Unknown action '%s' (not a standard English action name)", action)
+    return action
 
 
 class Executor:
@@ -142,6 +166,7 @@ class Executor:
         # Use action from task.input if available, fall back to task.goal
         inputs = dict(task.input)
         tool_action = inputs.pop("action", None) or task.goal
+        tool_action = _translate_action(tool_action)
         tool_result = self.registry.execute_task(
             task.tool,
             action=tool_action,
@@ -189,18 +214,7 @@ class Executor:
         action = str(task_dict.get("action", ""))
         goal = str(task_dict.get("goal", ""))
 
-        # Translate Chinese action names → English (LLM safety net)
-        if action and action not in (
-            "mkdir", "write_file", "create_file", "edit_file", "append_file",
-            "read_file", "delete_file", "list_directory", "execute", "search",
-            "status", "diff", "add", "commit", "checkout", "branch", "log",
-        ):
-            translated = _CHINESE_ACTION_MAP.get(action)
-            if translated:
-                logger.info("Translated Chinese action '%s' → '%s'", action, translated)
-                action = translated
-            else:
-                logger.warning("Unknown action '%s' (not a standard English action name)", action)
+        action = _translate_action(action)
 
         # Unwrap nested "input" dict, or collect top-level keys as kwargs
         if "input" in task_dict:
@@ -264,6 +278,7 @@ class Executor:
         self,
         task_dicts: list[dict[str, Any]],
         max_workers: int = 6,
+        ctx: WorkflowContext | None = None,
     ) -> list[ToolResult]:
         """Execute independent task dicts concurrently.
 
@@ -278,7 +293,7 @@ class Executor:
 
         def _run(index: int, task_dict: dict[str, Any]) -> tuple[int, ToolResult]:
             try:
-                return index, self.execute_task_dict(task_dict, ctx=None)
+                return index, self.execute_task_dict(task_dict, ctx=ctx)
             except Exception as exc:
                 logger.error(
                     "Parallel task %s crashed: %s",

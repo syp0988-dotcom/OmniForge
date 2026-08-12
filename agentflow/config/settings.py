@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     # 77% hit rate at 97.8% fast-path accuracy (57 samples).
     intent_confidence_ratio: float = Field(default=1.2, alias="INTENT_CONFIDENCE_RATIO")
     intent_min_score_floor: float = Field(default=0.20, alias="INTENT_MIN_SCORE_FLOOR")
+    # After an embedding-index init failure, retry after this many seconds so a
+    # transient outage does not permanently disable the fast path.
+    intent_index_retry_seconds: int = Field(
+        default=300, alias="INTENT_INDEX_RETRY_SECONDS",
+    )
     # Default knowledge source for embedding-matched "question" intents.
     # "general" = answer from LLM only; "hybrid" = RAG + LLM; "local" = RAG only.
     intent_question_source: str = Field(default="hybrid", alias="INTENT_QUESTION_SOURCE")

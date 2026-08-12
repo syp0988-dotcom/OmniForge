@@ -10,7 +10,7 @@ rather than silently degrading.
 
 from __future__ import annotations
 
-
+import time
 import numpy as np
 
 from agentflow.config.settings import settings
@@ -54,8 +54,7 @@ INTENT_ANCHORS: dict[str, list[str]] = {
         "知识问答", "询问概念", "理解原理", "请求解释", "学习技术",
         "什么是 Kubernetes", "解释一下什么是微服务架构", "为什么 TCP 要三次握手",
         "Python 和 Java 有什么区别", "介绍一下 Transformer 模型",
-        "怎么理解依赖注入", "帮我写一篇关于 AI 的文章",
-        "what is Kubernetes", "explain microservices",
+        "怎么理解依赖注入",         "what is Kubernetes", "explain microservices",
         "what is the difference between Python and Java",
     ],
     "search": [
@@ -86,12 +85,16 @@ INTENT_ANCHORS: dict[str, list[str]] = {
         "为什么用户流失率上升", "评估一下这个方案的可行性",
     ],
     "document": [
-        "整理文档", "生成报告", "撰写文档", "制作表格", "整理笔记",
+        "整理文档", "帮我写一篇关于 AI 的文章", "生成报告", "撰写文档", "制作表格", "整理笔记",
         "会议纪要", "项目文档", "论文", "简历", "文档模板",
         "整理一下上周的会议纪要", "帮我写一份项目周报", "生成一份 Word 报告",
     ],
     "translation": [
         "翻译成英文", "翻译成中文", "中译英", "英译中", "翻译这段文字",
+        "把这个翻译成英文",
+        "帮我翻译这段文字",
+        "translate this into english",
+        "把这句话翻译成日语",
         "帮我把这段文字翻译成日语", "把标题翻译成英文", "翻译一下",
     ],
     "editing": [
@@ -120,6 +123,7 @@ class IntentIndex:
         self._embedder = embedder
         self._anchor_vectors: dict[str, list[np.ndarray]] = {}
         self._ready = False
+        self._last_failure_at: float | None = None
 
     def match(self, question: str) -> tuple[str, str, float] | None:
         """Return ``(label, goal_type, confidence)`` for confident matches."""
@@ -176,6 +180,12 @@ class IntentIndex:
         """Embed all anchor phrases and group vectors per label."""
         if self._ready:
             return
+        # After a failure, do not hammer the embedder on every request: retry
+        # only after a cooldown so a transient API outage can recover instead
+        # of permanently disabling the fast path for the process lifetime.
+        if self._last_failure_at is not None:
+            if time.monotonic() - self._last_failure_at < settings.intent_index_retry_seconds:
+                return
         try:
             from agentflow.knowledge.embedder import QwenEmbedder
 
@@ -201,6 +211,7 @@ class IntentIndex:
         except Exception as exc:
             logger.warning("IntentIndex init failed: %s; embedding match disabled", exc)
             self._ready = False
+            self._last_failure_at = time.monotonic()
 
     def _embed_query(self, question: str) -> np.ndarray:
         embedder: object = self._embedder

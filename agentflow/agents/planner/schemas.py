@@ -53,6 +53,11 @@ def parse_function_name(name: str) -> tuple[str, str]:
         ("search", "search")
     """
     sep = name.find("__")
-    if sep == -1:
-        return name, ""
-    return name[:sep], name[sep + 2:]
+    if sep != -1:
+        return name[:sep], name[sep + 2:]
+    # Dot fallback: some LLMs emit "filesystem.mkdir" instead of the
+    # canonical "filesystem__mkdir" separator.
+    dot = name.rfind(".")
+    if dot != -1:
+        return name[:dot], name[dot + 1:]
+    return name, ""

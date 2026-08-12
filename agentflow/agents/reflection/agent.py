@@ -38,11 +38,6 @@ from agentflow.agents.base import AgentProtocol
 from agentflow.utils.errors import record_error as _record_error
 from agentflow.agents.planner.task_queue import TaskQueue
 from agentflow.agents.reflection.schemas import ReflectionOutput
-from agentflow.agents.planner.special_goals import (
-    go_snake_content,
-    java_snake_content,
-    python_snake_content,
-)
 from agentflow.agents.planner.templates import (
     extract_project_name,
     get_existing_files,
@@ -720,9 +715,6 @@ def _fix_json_newlines(raw: str) -> str:
 
 def _fallback_project_dir(goal: str, project_name: str) -> str:
     """Return a stable directory for generated file fallbacks."""
-    text = (goal or "").lower()
-    if any(word in text for word in ("snake", "贪吃蛇")):
-        return "generated_files/snake_games"
     if project_name:
         cleaned = re.sub(r"[^\w\u4e00-\u9fff.-]+", "_", project_name).strip("._")
         if cleaned and len(cleaned) <= 48:
@@ -761,7 +753,6 @@ def _deterministic_file_fallback_tasks(
     wants_python = "python" in text or re.search(r"\bpy\b", text) is not None
     wants_java = "java" in text
     wants_go = "go" in text or "golang" in text or "go语言" in goal
-    wants_snake = "snake" in text or "贪吃蛇" in goal or "蛇" in goal
     wants_files = any(
         token in goal
         for token in ("文件", "创建", "新建", "生成", "写", "完成", "编写",
@@ -774,17 +765,6 @@ def _deterministic_file_fallback_tasks(
     dir_name = _fallback_project_dir(goal, project_name)
     existing = _existing_file_names(results, dir_name)
     specs: list[tuple[str, str]] = []
-
-    # Snake game templates — only generate requested language(s)
-    if wants_snake and wants_python:
-        specs.append(("snake_game.py", python_snake_content()))
-    if wants_snake and wants_java:
-        specs.append(("SnakeGame.java", java_snake_content()))
-    if wants_snake and wants_go:
-        specs.append(("snake.go", go_snake_content()))
-    # If snake but no language specified, default to Python
-    if wants_snake and not wants_python and not wants_java and not wants_go:
-        specs.append(("snake_game.py", python_snake_content()))
 
     if not specs:
         if wants_python:

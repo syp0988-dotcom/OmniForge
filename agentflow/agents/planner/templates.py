@@ -22,7 +22,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "keywords": [
             "web", "网站", "应用", "后台", "管理系统",
             "backend", "api", "server", "服务",
-            "管理", "平台",
+            
         ],
         "initial_tasks": [
             {
@@ -363,17 +363,35 @@ def get_existing_files(workspace_path: str | Path) -> set[str]:
 
 
 def extract_project_name(goal: str) -> str:
-    """Extract a project directory name from the goal string."""
+    """Extract a project directory name from the goal string.
+
+    Strips common conversational prefixes ("\u5e2e\u6211\u5199\u4e2a", "\u5f00\u53d1\u4e00\u4e2a", ...)
+    before capturing the name, so requests like "\u5e2e\u6211\u5199\u4e2a\u56fe\u4e66\u7ba1\u7406\u7cfb\u7edf"
+    yield a clean directory name ("\u56fe\u4e66\u7ba1\u7406") instead of the full sentence.
+    """
     goal_clean = goal.strip()
-    m = re.search(
-        r"(?:创建|开发|做|实现|搭建|构建)\s*(.*?)(?:系统|项目|应用|网站|平台)",
-        goal_clean,
-    )
-    if m:
-        raw = m.group(1).strip().replace("一个", "").replace("的", "").strip()
-        if raw:
-            return raw.replace(" ", "_").replace("-", "_").lower()
-    # Fallback: use first few chars
+
+    prefixes = [
+        "\u5e2e\u6211\u5199\u4e2a", "\u5e2e\u6211\u5199\u4e00\u4e2a",
+        "\u5e2e\u6211\u521b\u5efa\u4e00\u4e2a", "\u5e2e\u6211\u521b\u5efa\u4e2a",
+        "\u5e2e\u6211\u505a\u4e00\u4e2a", "\u5e2e\u6211\u505a\u4e2a",
+        "\u7ed9\u6211\u5199\u4e2a", "\u7ed9\u6211\u505a\u4e00\u4e2a", "\u7ed9\u6211\u505a\u4e2a",
+        "\u8bf7\u5e2e\u6211", "\u5e2e\u6211", "\u7ed9\u6211",
+        "\u5f00\u53d1\u4e00\u4e2a", "\u521b\u5efa\u4e00\u4e2a", "\u521b\u5efa\u4e2a",
+        "\u505a\u4e00\u4e2a", "\u505a\u4e2a", "\u642d\u5efa", "\u6784\u5efa",
+        "\u5b9e\u73b0", "\u751f\u6210", "\u5f00\u53d1", "\u521b\u5efa",
+        "\u5199\u4e00\u4e2a", "\u5199\u4e2a",
+    ]
+    for prefix in prefixes:
+        if goal_clean.startswith(prefix):
+            goal_clean = goal_clean[len(prefix):].lstrip()
+            break
+
+    m = re.match(r"^(.*?)(?:\u7cfb\u7edf|\u9879\u76ee|\u5e94\u7528|\u7f51\u7ad9|\u5e73\u53f0)", goal_clean)
+    raw = m.group(1).strip() if m else goal_clean
+    raw = raw.replace("\u4e00\u4e2a", "").replace("\u7684", "").strip()
+    if raw:
+        return raw.replace(" ", "_").replace("-", "_").lower()[:48]
     name = goal_clean[:20].replace(" ", "_").lower()
     return name
 
@@ -425,7 +443,7 @@ _DEFAULT_CONTENT: dict[str, str] = {
     "models.py": "# {project_name} 数据模型\n",
     "main.py": "# {project_name}\n\ndef main():\n    pass\n\nif __name__ == \"__main__\":\n    main()\n",
     "utils.py": "# {project_name} 工具函数\n",
-    "Dockerfile": "FROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nCMD [\"python\", \"main.py\"]\n",
+    "Dockerfile": "FROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nCMD [\"python\", \"app.py\"]\n",
 }
 
 

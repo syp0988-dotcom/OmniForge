@@ -730,14 +730,23 @@ def _make_tool_executor_node(executor: Executor) -> object:
 
         parallel_tasks = _select_parallel_tasks(queue)
         if len(parallel_tasks) > 1:
+            ctx = WorkflowContext(dict(state))
             for task in parallel_tasks:
                 task["status"] = "running"
-            results = executor.execute_batch_parallel(parallel_tasks)
-            result_by_index = {
-                index: result for index, result in enumerate(results)
-            }
+            results = executor.execute_batch_parallel(parallel_tasks, ctx=ctx)
+            final_results: list = []
             for index, task in enumerate(parallel_tasks):
-                result = result_by_index.get(index)
+                result = results[index] if index < len(results) else None
+                # Attempt one argument-repair pass for failed parallel tasks,
+                # matching the single-task path.
+                if result is not None and not result.success:
+                    repaired = _repair_tool_task(task, result)
+                    if repaired is not None:
+                        result2 = executor.execute_task_dict(repaired, ctx=ctx)
+                        if result2 is not None:
+                            result = result2
+                if result is not None:
+                    final_results.append(result)
                 if result and result.success:
                     task["status"] = "done"
                 elif result:
@@ -752,7 +761,7 @@ def _make_tool_executor_node(executor: Executor) -> object:
             )
             return {
                 "task_queue": queue,
-                "tool_results": [r.to_dict() for r in results],
+                "tool_results": [r.to_dict() for r in final_results],
             }
 
         # Find highest priority TODO
@@ -932,14 +941,14 @@ def _select_parallel_tasks(queue: list[dict]) -> list[dict]:
       - web ``search`` tasks (read-only external calls).
     Python execution, git mutations, and other stateful tools stay serial.
     """
-    candidates: list[dict] = []
+    candidates: list[tuple[dict, bool]] = []  # (task, is_write)
     seen_paths: set[str] = set()
     for task in queue:
         if not isinstance(task, dict) or task.get("status", "") != "todo":
             continue
         tool = str(task.get("tool", ""))
         if tool == "search":
-            candidates.append(task)
+            candidates.append((task, False))
             continue
         if tool != "filesystem":
             continue
@@ -953,12 +962,25 @@ def _select_parallel_tasks(queue: list[dict]) -> list[dict]:
         if not path or path in seen_paths:
             continue
         seen_paths.add(path)
-        candidates.append(task)
+        candidates.append((task, action in _PARALLEL_WRITE_ACTIONS))
 
     if len(candidates) < 2:
         return []
-    max_priority = max(int(t.get("priority", 0) or 0) for t in candidates)
-    selected = [t for t in candidates if int(t.get("priority", 0) or 0) == max_priority]
+    # Writes must share the top priority (order matters); read-only filesystem
+    # and search tasks are order-independent and may join regardless.
+    write_group = [t for t, is_write in candidates if is_write]
+    read_group = [t for t, is_write in candidates if not is_write]
+    max_write_priority = max(
+        (int(t.get("priority", 0) or 0) for t in write_group),
+        default=-1,
+    )
+    selected = [
+        t for t in write_group
+        if int(t.get("priority", 0) or 0) == max_write_priority
+    ]
+    selected.extend(read_group)
+    if len(selected) < 2:
+        return []
     return selected[:8]
 
 
