@@ -4,24 +4,24 @@ from agentflow.agents.reflection.agent import ReflectionAgent, _generate_stuck_t
 from agentflow.graph.workflow import _route_after_reflector
 
 
-def test_stuck_file_creation_generates_python_and_java_snake_tasks(tmp_path, monkeypatch):
+def test_stuck_file_creation_generates_language_files(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     tasks = _generate_stuck_tasks(
-        "创建两个文件，一个 python 贪吃蛇，一个 java 贪吃蛇",
+        "创建两个文件，一个 python 脚本，一个 java 脚本",
         "",
         [],
     )
 
     paths = [task["input"]["path"] for task in tasks]
     assert paths == [
-        "generated_files/snake_games/snake_game.py",
-        "generated_files/snake_games/SnakeGame.java",
+        "generated_files/main.py",
+        "generated_files/Main.java",
     ]
     assert all(task["tool"] == "filesystem" for task in tasks)
     assert all(task["input"]["action"] == "write_file" for task in tasks)
-    assert "tkinter" in tasks[0]["input"]["content"]
-    assert "javax.swing" in tasks[1]["input"]["content"]
+    assert "Hello from" in tasks[0]["input"]["content"]
+    assert "public class Main" in tasks[1]["input"]["content"]
 
 
 def test_empty_project_queue_gets_file_creation_fallback(tmp_path, monkeypatch):
@@ -29,9 +29,9 @@ def test_empty_project_queue_gets_file_creation_fallback(tmp_path, monkeypatch):
     agent = ReflectionAgent()
 
     state = agent.run({
-        "question": "创建两个文件，一个 python 贪吃蛇，一个 java 贪吃蛇",
+        "question": "创建两个文件，一个 python 脚本，一个 java 脚本",
         "goal_analysis": {
-            "goal": "创建两个文件，一个 python 贪吃蛇，一个 java 贪吃蛇",
+            "goal": "创建两个文件，一个 python 脚本，一个 java 脚本",
             "goal_type": "project",
         },
         "task_queue": [],
@@ -42,10 +42,11 @@ def test_empty_project_queue_gets_file_creation_fallback(tmp_path, monkeypatch):
     queue = state["task_queue"]
     assert len(queue) == 2
     assert {task["status"] for task in queue} == {"todo"}
-    assert {task["input"]["path"] for task in queue} == {
-        "generated_files/snake_games/snake_game.py",
-        "generated_files/snake_games/SnakeGame.java",
-    }
+    paths = {task["input"]["path"] for task in queue}
+    assert len(paths) == 2
+    assert all(p.startswith("generated_files/") for p in paths)
+    assert any(p.endswith("main.py") for p in paths)
+    assert any(p.endswith("Main.java") for p in paths)
 
 
 def test_reflector_routes_to_answer_after_stuck_round_limit():

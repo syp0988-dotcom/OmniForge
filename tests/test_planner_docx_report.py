@@ -31,23 +31,11 @@ def test_docx_report_goal_uses_docx_create_before_direct_answer():
     assert result["plan"].direct_answer is False
 
 
-def test_python_java_snake_goal_creates_two_files():
-    planner = PlannerAgent()
+def test_no_snake_game_special_case():
+    """Snake-game requests must go through the generic planner, not a
+    hard-coded shortcut (benchmark-era special case was removed)."""
+    import agentflow.agents.planner.special_goals as sg
 
-    result = planner.run({
-        "question": "创建两个文件一个python贪吃蛇一个java贪吃蛇",
-        "goal_analysis": {
-            "goal": "创建两个文件一个python贪吃蛇一个java贪吃蛇",
-            "goal_type": "project",
-            "knowledge_source": "general",
-        },
-    })
-
-    queue = result["task_queue"]
-    paths = [task["input"]["path"] for task in queue]
-
-    assert paths == ["snake_game/snake_game.py", "snake_game/SnakeGame.java"]
-    assert all(task["tool"] == "filesystem" for task in queue)
-    assert all(task["input"]["action"] == "write_file" for task in queue)
-    assert "tkinter" in queue[0]["input"]["content"]
-    assert "javax.swing" in queue[1]["input"]["content"]
+    assert not hasattr(sg, "is_snake_game_goal")
+    assert not hasattr(sg, "build_snake_game_files_plan")
+    assert not hasattr(sg, "python_snake_content")
