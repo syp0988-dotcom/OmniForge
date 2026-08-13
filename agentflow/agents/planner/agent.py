@@ -38,10 +38,6 @@ from agentflow.agents.planner.prompt import (
     build_project_design_prompt,
 )
 from agentflow.agents.planner.schemas import get_tool_schemas, parse_function_name
-from agentflow.agents.planner.special_goals import (
-    build_docx_report_plan,
-    is_docx_report_goal,
-)
 from agentflow.agents.planner.task_queue import TaskQueue
 from agentflow.agents.planner.templates import (
     extract_project_name,
@@ -88,15 +84,6 @@ class PlannerAgent(AgentProtocol):
         # -- Extract goal -------------------------------------------------
         goal = get_goal(state)
         goal_type = get_goal_type(state)
-
-        if is_docx_report_goal(str(goal)):
-            plan = build_docx_report_plan(str(goal), state)
-            state["plan"] = plan
-            state["category"] = "project"
-            state["task_queue"] = [t.to_dict() for t in plan.tasks]
-            state["workflow"] = _plan_to_workflow(plan, "project", self.registry)
-            logger.info("Docx report template: initialized %d task(s)", len(plan.tasks))
-            return state
 
         _DIRECT_ANSWER_TYPES = frozenset({"other", "translation", "editing", "question"})
         if goal_type in _DIRECT_ANSWER_TYPES:
