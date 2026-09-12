@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from agentflow.utils.logging import build_logger
 
 from agentflow.config.settings import settings
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from agentflow.api.routes import (
@@ -17,8 +17,8 @@ router = APIRouter()
 logger = build_logger("api.sessions")
 
 @router.get("/history")
-def history(limit: int = 20) -> list[dict[str, str]]:
-    """Fetch recent chat history."""
+def history(limit: int = Query(20, ge=1, le=200)) -> list[dict[str, str]]:
+    """Fetch recent chat history (1..200)."""
     return get_store().list_messages(limit=limit)
 
 
@@ -30,8 +30,8 @@ def create_session() -> JSONResponse:
 
 
 @router.get("/sessions")
-def list_sessions(limit: int = 50) -> list[dict[str, object]]:
-    """List all chat sessions, most recent first."""
+def list_sessions(limit: int = Query(50, ge=1, le=200)) -> list[dict[str, object]]:
+    """List chat sessions, most recent first (1..200)."""
     return get_store().list_sessions(limit=limit)
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +16,19 @@ _log = _build_logger("sqlite")
 # Schema version.  Bump this when adding a migration in ``_initialize``;
 # the migration chain runs in order from ``PRAGMA user_version``.
 _SCHEMA_VERSION = 1
+
+# Hard ceiling for caller-supplied row limits.  SQLite treats ``LIMIT -1`` as
+# "no limit", so a negative value used to dump an entire table.
+_MAX_ROWS = 500
+
+
+def clamp_limit(limit: int, default: int = 50, maximum: int = _MAX_ROWS) -> int:
+    """Return a safe row limit: 1..maximum, falling back to *default*."""
+    try:
+        value = int(limit)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(value, maximum))
 
 
 class SQLiteStore:
@@ -36,8 +49,8 @@ class SQLiteStore:
         """Get a cached thread-local connection (context manager).
 
         Reuses the same connection across all queries in a single request,
-        avoiding per-query ``sqlite3.connect()`` overhead.  Each call
-        still creates a new connection for simplicity of lifecycle.
+        avoiding per-query ``sqlite3.connect()`` overhead.  A connection is
+        only created on first use in a thread; :meth:`close` releases it.
         """
         conn = getattr(self._local, "connection", None)
         new = conn is None
@@ -62,7 +75,10 @@ class SQLiteStore:
             self._local.connection = None
 
     def _initialize(self) -> None:
-        with sqlite3.connect(str(self.db_path)) as connection:
+        # ``with sqlite3.connect(...)`` only commits/rolls back — it does NOT
+        # close the connection, so every SQLiteStore() leaked a file handle
+        # (ResourceWarning, and on Windows a locked database file).
+        with closing(sqlite3.connect(str(self.db_path))) as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA foreign_keys=ON")
 
@@ -315,6 +331,7 @@ class SQLiteStore:
         }
 
     def list_sessions(self, limit: int = 50) -> list[dict[str, Any]]:
+        limit = clamp_limit(limit, default=50)
         with self._connect() as connection:
             cursor = connection.execute(
                 "SELECT id, title, created_at, updated_at FROM sessions "
@@ -379,6 +396,7 @@ class SQLiteStore:
             return cursor.lastrowid  # type: ignore[return-value]
 
     def list_messages(self, limit: int = 20) -> list[dict[str, Any]]:
+        limit = clamp_limit(limit, default=20)
         with self._connect() as connection:
             cursor = connection.execute(
                 "SELECT role, content, created_at FROM chats ORDER BY id DESC LIMIT ?",
@@ -574,6 +592,7 @@ class SQLiteStore:
         Returns a list of dicts with keys: chunk_id, document_id, content,
         filename, rank.  Empty list if FTS5 is not available.
         """
+        limit = clamp_limit(limit, default=10)
         try:
             with self._connect() as connection:
                 cursor = connection.execute(
@@ -773,6 +792,7 @@ class SQLiteStore:
 
     def search_long_term_memory(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         """Search memories by key or value (simple LIKE match)."""
+        limit = clamp_limit(limit, default=10)
         pattern = f"%{query}%"
         with self._connect() as connection:
             cursor = connection.execute(
@@ -822,6 +842,7 @@ class SQLiteStore:
 
     def list_long_term_memories(self, category: str = "", limit: int = 50) -> list[dict[str, Any]]:
         """List all memories, optionally filtered by category."""
+        limit = clamp_limit(limit, default=50)
         if category:
             with self._connect() as connection:
                 cursor = connection.execute(
@@ -921,6 +942,7 @@ class SQLiteStore:
         self, session_id: int | None = None, limit: int = 20,
     ) -> list[dict[str, Any]]:
         """List execution records, optionally filtered by session."""
+        limit = clamp_limit(limit, default=20)
         if session_id is not None:
             with self._connect() as connection:
                 cursor = connection.execute(

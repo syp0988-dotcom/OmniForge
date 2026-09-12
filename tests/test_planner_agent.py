@@ -212,3 +212,34 @@ def test_initialize_from_blueprint_creates_tasks():
 def test_initialize_from_template_none_for_unknown_goal():
     p = _planner(MockLLMService())
     assert p._initialize_from_template("帮我写个员工考勤系统") is None
+
+
+# ---------------------------------------------------------------------------
+# TaskQueue status handling (backlog P1-QUEUE-1)
+# ---------------------------------------------------------------------------
+
+
+def test_queue_update_accepts_known_status():
+    queue = TaskQueue()
+    queue.add(Task(task_id="t1", title="task", tool="filesystem"))
+
+    assert queue.update("t1", status="done") is True
+    assert queue.get("t1").status == TaskStatus.DONE
+
+
+def test_queue_update_ignores_unknown_status():
+    """An unknown status must not raise (it used to abort the planner cycle)."""
+    queue = TaskQueue()
+    queue.add(Task(task_id="t1", title="task", tool="filesystem"))
+
+    assert queue.update("t1", status="not-a-status") is True
+    assert queue.get("t1").status == TaskStatus.TODO
+
+
+def test_queue_update_still_applies_other_fields():
+    queue = TaskQueue()
+    queue.add(Task(task_id="t1", title="task", tool="filesystem"))
+
+    queue.update("t1", status="bogus", title="renamed")
+
+    assert queue.get("t1").title == "renamed"

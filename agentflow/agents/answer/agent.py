@@ -66,8 +66,13 @@ class AnswerAgent(AgentProtocol):
 
         # ── Degraded mode: LLM unavailable, produce fallback message ──
         if degraded:
-            from agentflow.services.llm_service import classify_error, get_fallback_message
-            error_type = classify_error(Exception(llm_error)) if llm_error else "unknown"
+            from agentflow.services.llm_service import (
+                classify_error_message,
+                get_fallback_message,
+            )
+            # Workflow state keeps the error as text; classify that text rather
+            # than rebuilding an Exception (which always yielded "unknown").
+            error_type = classify_error_message(llm_error) if llm_error else "unknown"
             fallback = get_fallback_message(error_type, goal_type)
             state["answer"] = self._degraded_answer(goal, error_type, fallback, goal_type)
             logger.warning("Answer: degraded mode (error_type=%s)", error_type)
@@ -385,16 +390,3 @@ class AnswerAgent(AgentProtocol):
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
-    # Preserved backward compat interfaces
-    # ------------------------------------------------------------------
-
-    def build_prompt(
-        self, category: str, question: str,
-        search_results: object, knowledge_context: str = "",
-    ) -> str:
-        """Preserved interface for backward compatibility."""
-        return ""
-
-    def format_search_results(self, results: object) -> str:
-        """Preserved interface for backward compatibility."""
-        return ""

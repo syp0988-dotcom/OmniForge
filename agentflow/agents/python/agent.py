@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 
 from agentflow.agents.base import AgentProtocol
-from agentflow.config.settings import settings
 from agentflow.tools.python_tool import PythonTool
 from agentflow.utils.decorators import safe_run
 from agentflow.utils.logging import build_logger
@@ -18,6 +17,14 @@ logger = build_logger("python")
 
 _RE_PYTHON_BLOCK = r"```python\n?(.*?)```"
 _RE_PY_BLOCK = r"```py\n?(.*?)```"
+
+# Whole-text fallback guard: a plain sentence such as "写一个计算器" is also a
+# syntactically valid Python expression (a single identifier), so parsing alone
+# cannot tell code from prose — that mistake made ordinary questions "execute"
+# and fail with NameError.
+_LOOKS_LIKE_CODE = re.compile(
+    r"(?m)(\n|=|\(|\)|^\s*(?:import|from|print|def|class|for|while|if|return)\b)"
+)
 
 
 class PythonAgent(AgentProtocol):
@@ -28,25 +35,13 @@ class PythonAgent(AgentProtocol):
 
     @safe_run
     def run(self, state: dict[str, object]) -> dict[str, object]:
-        # Safety check: honour the ALLOW_UNSAFE_PYTHON_TOOL setting
-        if not settings.allow_unsafe_python_tool:
-            logger.warning("Python execution blocked by ALLOW_UNSAFE_PYTHON_TOOL=False")
-            state["python_result"] = {
-                "status": "blocked",
-                "stdout": "",
-                "stderr": "",
-                "return_code": 0,
-                "duration": 0.0,
-            }
-            state["tool_results"] = [{
-                "success": True,
-                "tool": "python",
-                "action": "execute",
-                "result": {"status": "blocked"},
-                "error": None,
-                "message": "Python execution blocked by safety policy (ALLOW_UNSAFE_PYTHON_TOOL=False)",
-            }]
-            return state
+        # ``ALLOW_UNSAFE_PYTHON_TOOL`` only controls whether PythonTool skips
+        # its AST validation layer (``settings.allow_unsafe_python_tool`` is
+        # read inside ``PythonTool.validate``).  This node previously refused
+        # to execute whenever the flag was *False* — i.e. by default — so code
+        # execution never ran unless the sandbox was switched off, which is the
+        # opposite of the documented meaning.  The sandbox is now always used,
+        # and the flag only ever relaxes it.
 
         # Find the python task in the task queue and mark it running
         task_queue: list[dict] = list(state.get("task_queue", []) or [])
@@ -55,7 +50,16 @@ class PythonAgent(AgentProtocol):
             task["status"] = "running"
 
         question = str(state.get("question", ""))
-        code = self._extract_code(question)
+        # The planner may attach the code to the task itself; that is the most
+        # explicit signal, so it wins over anything parsed out of the question
+        # (backlog P1-PY-1).
+        code = ""
+        if task:
+            task_input = task.get("input") or {}
+            if isinstance(task_input, dict):
+                code = str(task_input.get("code") or "")
+        if not code:
+            code = self._extract_code(question)
         success = False
         error_msg = ""
 
@@ -95,6 +99,9 @@ class PythonAgent(AgentProtocol):
                 "return_code": 0,
                 "duration": 0.0,
             }
+            # Nothing to execute is not a failure: marking it failed used to
+            # push a healthy run into replan (backlog P1-PY-1).
+            success = True
 
         # Update task status in queue and produce tool_result
         if task:
@@ -129,6 +136,8 @@ class PythonAgent(AgentProtocol):
             matches = re.findall(pattern, text, re.DOTALL)
             if matches:
                 return "\n".join(m.strip() for m in matches)
+        if not _LOOKS_LIKE_CODE.search(text):
+            return ""
         try:
             import ast
             ast.parse(text)

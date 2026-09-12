@@ -274,9 +274,3 @@ def _safe_result(result: Any) -> dict[str, Any]:
         return {k: v for k, v in result.__dict__.items() if not k.startswith("_")}
     return {"data": str(result)}
 
-
-# -- Action map (single "execute" action) ---------------------------------------
-
-_ACTION_MAP: dict[str, Any] = {
-    "execute": ComposioTool.execute,
-}

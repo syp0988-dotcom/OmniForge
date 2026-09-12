@@ -16,6 +16,7 @@ from agentflow.api.routes import (
     _is_relative_to,
     _resolve_workspace_child,
     _set_workspace_root,
+    is_allowed_workspace_root,
 )
 
 router = APIRouter()
@@ -266,12 +267,26 @@ class SetWorkspaceRequest(BaseModel):
 
 @router.post("/workspace/set")
 def set_workspace(req: SetWorkspaceRequest) -> JSONResponse:
-    """Validate and set workspace folder path."""
+    """Validate and set workspace folder path.
+
+    The path must exist, be writable, and live inside one of the allowed
+    workspace roots (project root / user home by default, or whatever
+    ``WORKSPACE_ALLOWED_ROOTS`` lists).  Without this check the file APIs
+    become an arbitrary read/write primitive (security review H1).
+    """
     p = Path(req.path).resolve()
     if not p.exists():
         raise HTTPException(status_code=404, detail=f"Path does not exist: {req.path}")
     if not p.is_dir():
         raise HTTPException(status_code=400, detail="Path is not a directory")
+    if not is_allowed_workspace_root(p):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Path is outside the allowed workspace roots. Set "
+                "WORKSPACE_ALLOWED_ROOTS to permit it."
+            ),
+        )
     # Test write permission
     test_file = p / ".omni_forge_write_test"
     try:

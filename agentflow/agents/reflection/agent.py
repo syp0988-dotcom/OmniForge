@@ -484,6 +484,47 @@ class ReflectionAgent(AgentProtocol):
         return self._rule_evaluation(queue, tool_results, goal, goal_type)
 
     @staticmethod
+    def _match_task_to_result(
+        queue: Any,
+        result: dict[str, Any],
+        task_name: str,
+        consumed: set[str],
+    ) -> Any:
+        """Find the task a tool result belongs to.
+
+        Matching order: explicit ``task_id`` → exact goal/title → substring.
+        Each task is consumed at most once, because the previous substring-only
+        lookup mapped several results onto the first task whose goal happened to
+        contain the action name — later tasks then never got their status update
+        (backlog P1-REF-1).
+        """
+        candidates = [t for t in queue.all if t.task_id not in consumed]
+        if not candidates:
+            return None
+
+        result_task_id = str(result.get("task_id") or "")
+        if result_task_id:
+            for task in candidates:
+                if task.task_id == result_task_id:
+                    return task
+
+        if not task_name:
+            return None
+
+        for task in candidates:
+            if task_name == task.goal or task_name == task.title:
+                return task
+
+        # Executor already set the status to done/failed before reflection runs,
+        # so substring matching only considers tasks that already ran.
+        for task in candidates:
+            if task.status in (TaskStatus.TODO, TaskStatus.RUNNING):
+                continue
+            if task_name in task.goal or task_name in task.title:
+                return task
+        return None
+
+    @staticmethod
     def _validate_reflection(parsed: dict[str, Any] | None) -> dict[str, Any] | None:
         """Validate raw LLM output against the ReflectionOutput schema.
 
@@ -516,6 +557,7 @@ class ReflectionAgent(AgentProtocol):
         # Only consider all_ok if there were actual results to evaluate
         all_ok = bool(results)
         has_failure = False
+        consumed_task_ids: set[str] = set()
 
         # Process tool results and update matching tasks
         for r in results:
@@ -524,18 +566,12 @@ class ReflectionAgent(AgentProtocol):
             success = r.get("success", False)
             task_name = r.get("action", r.get("goal", ""))
 
-            # Try to find the corresponding task by matching goal/path.
-            # Executor already sets status to done/failed before reflector runs,
-            # so search all non-TODO tasks instead of filtering by "running".
-            matched = None
-            for t in queue.all:
-                if t.status in (TaskStatus.TODO, TaskStatus.RUNNING):
-                    continue
-                if task_name and (task_name in t.goal or task_name in t.title):
-                    matched = t
-                    break
+            matched = self._match_task_to_result(
+                queue, r, str(task_name or ""), consumed_task_ids,
+            )
 
             if matched:
+                consumed_task_ids.add(matched.task_id)
                 if success:
                     task_updates.append({"task_id": matched.task_id, "status": "DONE"})
                 else:
@@ -554,8 +590,18 @@ class ReflectionAgent(AgentProtocol):
         project_name = extract_project_name(goal)
         if project_name:
             project_path = Path(project_name)
-            if project_path.exists() and project_path.is_dir():
-                existing = get_existing_files(str(project_path))
+            try:
+                is_project_dir = project_path.exists() and project_path.is_dir()
+            except OSError as exc:
+                # A broken symlink or permission error must not abort reflection.
+                logger.warning("Workspace scan skipped for %r: %s", str(project_path), exc)
+                is_project_dir = False
+            if is_project_dir:
+                try:
+                    existing = get_existing_files(str(project_path))
+                except OSError as exc:
+                    logger.warning("Workspace scan failed for %r: %s", str(project_path), exc)
+                    existing = set()
                 template = match_template(goal, goal_type)
                 if template:
                     template_tasks = get_initial_tasks(template, goal, existing)

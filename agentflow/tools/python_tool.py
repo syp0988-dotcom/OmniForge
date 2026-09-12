@@ -45,6 +45,13 @@ _BLOCKED_IMPORTS = {
     "multiprocessing", "threading", "requests", "urllib", "http",
     "importlib", "signal", "fcntl", "nt", "posix", "pwd", "grp",
     "cffi", "winreg", "_winapi",
+    # File-object escape hatches.  ``io.open`` / ``_io.open`` / ``codecs.open``
+    # reach the filesystem without the blocked ``open`` builtin, so blocking
+    # ``open`` alone was not enough (security review H2, reproduced again with
+    # ``io.open`` reading a file outside the sandbox working directory).
+    "io", "_io", "codecs", "fileinput", "mmap",
+    # Deserialisation formats that can construct arbitrary objects.
+    "pickle", "shelve", "marshal", "dbm",
 }
 _BLOCKED_CALLS = {
     "eval", "exec", "compile", "open", "input", "__import__",
@@ -52,6 +59,8 @@ _BLOCKED_CALLS = {
 _BLOCKED_ATTRS = {
     "system", "popen", "remove", "unlink", "rmdir", "rmtree",
     "rename", "replace", "chmod", "chown", "kill",
+    # Any object exposing file access can otherwise be reached dynamically.
+    "open", "fdopen", "FileIO", "read_bytes", "write_bytes",
 }
 
 

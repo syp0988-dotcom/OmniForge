@@ -1,5 +1,7 @@
 """Tests for PythonTool sandbox — AST validation + runtime isolation."""
 
+import pytest
+
 from agentflow.tools.python_tool import PythonTool
 
 tool = PythonTool()
@@ -43,6 +45,37 @@ def test_blocked_call_exec():
 def test_blocked_call_open():
     """Calling open() is blocked."""
     result = tool.execute(code="open('/tmp/test', 'w')")
+    assert not result.success
+    assert "blocked" in result.error
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import io; print(io.open('/etc/hostname').read())",
+        "import _io; print(_io.open('/etc/hostname').read())",
+        "import codecs; print(codecs.open('/etc/hostname').read())",
+        "import fileinput; print(next(fileinput.input('/etc/hostname')))",
+        "import pickle; pickle.loads(b'')",
+        "import marshal; marshal.loads(b'')",
+    ],
+)
+def test_blocked_file_object_escape_hatches(code):
+    """io/_io/codecs/... must not bypass the blocked ``open`` builtin.
+
+    Regression for security review H2: ``io.open`` and ``_io.open`` used to
+    read arbitrary files because only the ``open`` builtin was replaced.
+    """
+    result = tool.execute(code=code)
+    assert not result.success
+    assert "blocked" in result.error
+
+
+def test_open_attribute_access_blocked():
+    """``<anything>.open(...)`` is rejected by the attribute-level guard."""
+    result = tool.execute(
+        code="import sys; sys.modules['builtins'].open('/etc/hostname')"
+    )
     assert not result.success
     assert "blocked" in result.error
 

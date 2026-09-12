@@ -24,9 +24,12 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from agentflow.graph.task import Task, TaskStatus
+
+logger = logging.getLogger("planner.task_queue")
 
 
 class TaskQueue:
@@ -75,10 +78,24 @@ class TaskQueue:
         task = self._tasks[idx]
         for key, value in updates.items():
             if key == "status":
-                if isinstance(value, str):
-                    task.status = TaskStatus(value.lower())
-                else:
+                if isinstance(value, TaskStatus):
                     task.status = value
+                elif isinstance(value, str):
+                    try:
+                        task.status = TaskStatus(value.lower())
+                    except ValueError:
+                        # Unknown statuses used to raise out of update(), which
+                        # aborted the whole planner cycle.  Degrade instead:
+                        # keep the previous status and log the value.
+                        logger.warning(
+                            "Ignoring unknown status %r for task %s", value, task_id,
+                        )
+                        continue
+                else:
+                    logger.warning(
+                        "Ignoring non-string status %r for task %s", value, task_id,
+                    )
+                    continue
             else:
                 setattr(task, key, value)
         return True

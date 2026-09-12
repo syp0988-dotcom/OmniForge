@@ -150,6 +150,38 @@ def classify_error(exc: Exception) -> str:
         return "timeout"
     if isinstance(exc, ConnectionError):
         return "network"
+    # Fall back to the message: callers such as the answer node only keep the
+    # error *text* in workflow state, and rebuilding an ``Exception`` from it
+    # used to classify everything as "unknown".
+    return classify_error_message(f"{type(exc).__name__}: {exc}")
+
+
+# Keyword patterns used when only the error text is available.
+_ERROR_MESSAGE_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
+    ("budget_exceeded", ("budget", "token budget", "max_tokens")),
+    ("auth_error", ("401", "unauthorized", "authentication", "invalid api key",
+                    "api key", "认证")),
+    ("rate_limit", ("429", "rate limit", "too many requests", "限流")),
+    ("timeout", ("timeout", "timed out", "超时")),
+    ("model_unavailable", ("model_not_found", "no such model", "does not exist",
+                           "503", "502", "unavailable", "不可用")),
+    ("network", ("connection", "network", "unreachable", "dns", "ssl",
+                 "网络", "连接")),
+]
+
+
+def classify_error_message(message: str) -> str:
+    """Categorise an LLM error from its message text.
+
+    Used when the original exception object is no longer available (workflow
+    state only carries ``_llm_error`` as a string).
+    """
+    text = (message or "").lower()
+    if not text:
+        return "unknown"
+    for label, needles in _ERROR_MESSAGE_PATTERNS:
+        if any(needle in text for needle in needles):
+            return label
     return "unknown"
 
 

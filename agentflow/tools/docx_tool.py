@@ -22,6 +22,11 @@ from pathlib import Path
 from typing import Any
 
 from agentflow.tools.base import BaseTool
+from agentflow.tools.path_safety import (
+    is_in_dangerous_dir,
+    looks_like_traversal,
+    resolve_in_workspace,
+)
 from agentflow.tools.result import ToolResult
 from agentflow.utils.logging import build_logger
 
@@ -149,11 +154,35 @@ class DocxTool(BaseTool):
     def __init__(self, workspace: str = ".") -> None:
         self.workspace = Path(workspace).resolve()
 
-    def _resolve(self, path: str) -> Path:
-        p = Path(path)
-        if p.is_absolute():
-            return p
-        return self.workspace / p
+    def _resolve(self, path: str) -> Path | None:
+        """Resolve *path* inside the workspace, or ``None`` when it escapes.
+
+        Security review H3: the previous version returned absolute paths and
+        ``..`` traversals verbatim, so the tool could read and write anywhere
+        on the machine (and the skill-script path made it worse).  The same
+        policy module is used by ``FileSystemTool``.
+        """
+        return resolve_in_workspace(path, self.workspace)
+
+    def validate(self, **kwargs: Any) -> tuple[bool, str]:
+        """Reject unsafe paths before execution (called by the tool registry)."""
+        candidates = [
+            kwargs.get(key)
+            for key in ("path", "src", "source", "dst", "destination")
+            if kwargs.get(key)
+        ]
+        for path in candidates:
+            if not isinstance(path, str):
+                continue
+            if looks_like_traversal(path):
+                return False, f"Path traversal detected: '{path}' is not allowed"
+            resolved = self._resolve(path)
+            if resolved is None:
+                return False, f"Path '{path}' resolves outside the workspace"
+            dangerous = is_in_dangerous_dir(resolved)
+            if dangerous:
+                return False, f"Access to system directory '{dangerous}' is forbidden"
+        return True, ""
 
     # ------------------------------------------------------------------
     # Introspection
@@ -245,6 +274,11 @@ class DocxTool(BaseTool):
                 self.name, action or "execute",
                 f"Unknown action '{action}'. Available: {list(self.actions())}",
             )
+        # Workspace containment is enforced here as well as in the registry,
+        # so a direct ``execute()`` call cannot bypass the path checks.
+        valid, reason = self.validate(**kwargs)
+        if not valid:
+            return ToolResult.fail(self.name, action, reason)
         handler = getattr(self, f"_cmd_{action}", None)
         if handler is None:
             return ToolResult.fail(self.name, action, f"No handler for '{action}'")

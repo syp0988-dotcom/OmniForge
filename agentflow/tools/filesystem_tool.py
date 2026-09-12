@@ -22,6 +22,11 @@ from pathlib import Path
 from typing import Any
 
 from agentflow.tools.base import BaseTool
+from agentflow.tools.path_safety import (
+    DANGEROUS_DIRS,
+    TRAVERSAL_PATTERNS,
+    resolve_in_workspace,
+)
 from agentflow.tools.result import ToolResult
 from agentflow.utils.logging import build_logger
 
@@ -62,18 +67,13 @@ logger = build_logger("filesystem_tool")
 # ---------------------------------------------------------------------------
 # Safety — directories that are NEVER allowed for any write operation
 # ---------------------------------------------------------------------------
-_DANGEROUS_DIRS: set[str] = {
-    "/etc", "/var", "/sys", "/proc", "/dev", "/boot", "/bin", "/sbin",
-    "/lib", "/lib64", "/usr", "/opt", "/root",
-    "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
-    "C:\\System32", "C:\\Windows\\System32",
-}
+_DANGEROUS_DIRS: set[str] = DANGEROUS_DIRS
 
 # Agent source directories — read is OK, write is blocked.
 _AGENT_SRC_NAMES: set[str] = {"agentflow", "omniforge"}
 
 # Patterns that look like path traversal attempts.
-_TRAVERSAL_PATTERNS = re.compile(r"(\.\./|\.\.\\)")
+_TRAVERSAL_PATTERNS = TRAVERSAL_PATTERNS
 
 
 class FileSystemTool(BaseTool):
@@ -629,30 +629,10 @@ class FileSystemTool(BaseTool):
         """Resolve a user-supplied path relative to the workspace.
 
         Returns ``None`` when the resolved path escapes the workspace.
+        The rules live in :mod:`agentflow.tools.path_safety` so every
+        workspace-scoped tool enforces exactly the same policy.
         """
-        if not raw:
-            return None
-        # Block NUL bytes and NTFS alternate-data-stream syntax
-        # (e.g. "file.txt:evil").  A colon is only allowed as a drive letter.
-        if "\x00" in raw:
-            return None
-        colon = raw.find(":")
-        if colon != -1:
-            # Only a drive-letter colon ("C:\...") is allowed; anything else
-            # is an alternate-data-stream or scheme-looking path attempt.
-            if raw.count(":") > 1 or colon != 1 or not raw[0].isalpha():
-                return None
-        p = Path(raw)
-        if p.is_absolute():
-            resolved = p.resolve()
-        else:
-            resolved = (self._workspace / p).resolve()
-        # Must be within workspace
-        try:
-            resolved.relative_to(self._workspace)
-        except ValueError:
-            return None
-        return resolved
+        return resolve_in_workspace(raw, self._workspace)
 
     def _is_agent_src(self, path: Path) -> bool:
         """Check if path is inside agent source directories.

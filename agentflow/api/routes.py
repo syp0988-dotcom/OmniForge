@@ -17,6 +17,7 @@ from fastapi import HTTPException, UploadFile
 from agentflow.config.settings import settings
 from agentflow.database.sqlite import SQLiteStore
 from agentflow.knowledge.store import KnowledgeStore
+from agentflow.tools.path_safety import is_in_dangerous_dir
 from agentflow.utils.logging import build_logger
 
 logger = build_logger("api")
@@ -78,11 +79,11 @@ def set_knowledge_store(ks: KnowledgeStore) -> None:
 UPLOAD_DIR = Path(__file__).resolve().parents[2] / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-OUTPUT_DIR = Path(__file__).resolve().parents[2] / "outputs"
+OUTPUT_DIR = settings.outputs_dir
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 # Permanent storage for knowledge base original files (for click-to-preview)
-KNOWLEDGE_FILES_DIR = Path(__file__).resolve().parents[2] / "knowledge_files"
+KNOWLEDGE_FILES_DIR = settings.knowledge_files_dir
 KNOWLEDGE_FILES_DIR.mkdir(exist_ok=True)
 
 
@@ -118,3 +119,31 @@ def _set_workspace_root(path: Path) -> None:
     """Update the shared workspace root (used by the workspace router)."""
     global _workspace_root
     _workspace_root = path
+
+
+def allowed_workspace_roots() -> list[Path]:
+    """Directory roots the workspace switcher is allowed to point at.
+
+    Security review H1: ``POST /workspace/set`` accepted any directory, which
+    turned the file APIs into an arbitrary read/write primitive.  An explicit
+    ``WORKSPACE_ALLOWED_ROOTS`` wins; otherwise the project root and the
+    current user's home directory are allowed.
+    """
+    configured = (settings.workspace_allowed_roots or "").strip()
+    if configured:
+        roots = [
+            Path(part.strip()).expanduser()
+            for part in configured.split(",")
+            if part.strip()
+        ]
+    else:
+        roots = [Path(__file__).resolve().parents[2], Path.home()]
+    return [root.resolve() for root in roots]
+
+
+def is_allowed_workspace_root(path: Path) -> bool:
+    """Return True when *path* is inside one of the allowed roots."""
+    resolved = path.resolve()
+    if is_in_dangerous_dir(resolved):
+        return False
+    return any(_is_relative_to(resolved, root) for root in allowed_workspace_roots())

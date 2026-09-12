@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 import pytest
@@ -95,6 +96,104 @@ def test_nul_byte_and_ads_rejected(tmp_path):
     assert not ok
     ok, _ = tool.validate(action="read_file", path="a.txt:evil")
     assert not ok
+
+
+# -- DocxTool path-safety (security review H3) -----------------------------
+
+
+def _docx_tool(tmp_path):
+    from agentflow.tools.docx_tool import DocxTool
+
+    return DocxTool(workspace=str(tmp_path))
+
+
+def test_docx_traversal_rejected(tmp_path):
+    tool = _docx_tool(tmp_path)
+    ok, reason = tool.validate(action="read", path="../secret.docx")
+    assert not ok and "traversal" in reason.lower()
+
+
+def test_docx_absolute_path_outside_workspace_rejected(tmp_path):
+    tool = _docx_tool(tmp_path)
+    outside = os.path.join(tmp_path.parent, "outside.docx")
+    ok, reason = tool.validate(action="read", path=outside)
+    assert not ok and "outside" in reason.lower()
+
+
+def test_docx_execute_blocks_absolute_path(tmp_path):
+    """A direct execute() call must not read a file outside the workspace."""
+    outside = tmp_path.parent / "outside.docx"
+    outside.write_bytes(b"not a real docx")
+
+    result = _docx_tool(tmp_path).execute(action="read", path=str(outside))
+
+    assert not result.success
+    assert "outside" in (result.error or "").lower()
+
+
+def test_docx_execute_blocks_traversal_write(tmp_path):
+    """Creating a document outside the workspace must be refused."""
+    result = _docx_tool(tmp_path).execute(
+        action="create", path="../escaped.docx", content="hi",
+    )
+    assert not result.success
+    assert not (tmp_path.parent / "escaped.docx").exists()
+
+
+# -- Workspace switcher confinement (security review H1) -------------------
+
+
+def test_workspace_set_rejects_system_directory():
+    target = "C:\\Windows" if os.name == "nt" else "/etc"
+    if not Path(target).is_dir():
+        pytest.skip("system directory not present on this platform")
+    response = client.post("/workspace/set", json={"path": target})
+    assert response.status_code == 403
+
+
+def test_workspace_set_rejects_path_outside_allowed_roots(tmp_path, monkeypatch):
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.setattr(settings, "workspace_allowed_roots", str(allowed))
+
+    response = client.post("/workspace/set", json={"path": str(outside)})
+
+    assert response.status_code == 403
+
+
+def test_workspace_set_allows_configured_root(tmp_path, monkeypatch):
+    from agentflow.api import routes
+
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    monkeypatch.setattr(settings, "workspace_allowed_roots", str(allowed))
+    previous = routes._workspace_root
+    try:
+        response = client.post("/workspace/set", json={"path": str(allowed)})
+        assert response.status_code == 200, response.text
+        assert routes._current_workspace_root() == allowed.resolve()
+    finally:
+        routes._set_workspace_root(previous)
+
+
+# -- API input validation (backlog P1-API-1) -------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "/history?limit=-1",
+        "/sessions?limit=-1",
+        "/memory?limit=0",
+        "/memory/search?query=ab&limit=-5",
+        "/executions?limit=100000",
+    ],
+)
+def test_negative_or_excessive_limit_is_rejected(url):
+    """A negative limit means "no limit" in SQLite, so it must be refused."""
+    assert client.get(url).status_code == 422
 
 
 def test_symlink_escape_blocked(tmp_path):

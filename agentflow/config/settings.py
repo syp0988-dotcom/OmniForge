@@ -172,6 +172,25 @@ class Settings(BaseSettings):
     # "https://app.example.com,https://admin.example.com".
     # Empty → default localhost-only regex (safe for local dev).
     cors_origins: str = Field(default="", alias="CORS_ORIGINS")
+    # Comma-separated list of directory roots that the workspace switcher
+    # (POST /workspace/set) may point at.  Empty → the project root plus the
+    # current user's home directory, which keeps normal local use working
+    # while refusing system directories.  Set this when the workspace lives
+    # on another drive, e.g. "D:\\projects,E:\\scratch".
+    workspace_allowed_roots: str = Field(
+        default="", alias="WORKSPACE_ALLOWED_ROOTS",
+    )
+
+    # -- Runtime data locations --
+    # Optional overrides so a deployment (or the test suite) can keep the
+    # database, generated files, uploaded knowledge sources and logs outside
+    # the source tree.  Empty → defaults under the project root.
+    database_path_override: str = Field(default="", alias="DATABASE_PATH")
+    outputs_dir_override: str = Field(default="", alias="OUTPUTS_DIR")
+    knowledge_files_dir_override: str = Field(
+        default="", alias="KNOWLEDGE_FILES_DIR",
+    )
+    logs_dir_override: str = Field(default="", alias="LOGS_DIR")
 
     # -- HTTP proxy settings (for search providers behind GFW) --
     http_proxy: str = Field(default="", alias="HTTP_PROXY")
@@ -183,12 +202,26 @@ class Settings(BaseSettings):
 
     @property
     def logs_dir(self) -> Path:
-        return self.project_root / "logs"
+        return Path(self.logs_dir_override) if self.logs_dir_override else self.project_root / "logs"
 
     @property
     def database_path(self) -> Path:
         # Keep database path stable to avoid migration issues during rename.
+        if self.database_path_override:
+            return Path(self.database_path_override)
         return self.project_root / "agentflow" / "database" / "agentflow.db"
+
+    @property
+    def outputs_dir(self) -> Path:
+        return Path(self.outputs_dir_override) if self.outputs_dir_override else self.project_root / "outputs"
+
+    @property
+    def knowledge_files_dir(self) -> Path:
+        return (
+            Path(self.knowledge_files_dir_override)
+            if self.knowledge_files_dir_override
+            else self.project_root / "knowledge_files"
+        )
 
 
 settings = Settings()

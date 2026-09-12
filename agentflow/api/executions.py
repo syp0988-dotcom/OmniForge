@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from agentflow.utils.logging import build_logger
 
 from agentflow.graph.workflow import build_workflow
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 import json
 
 from agentflow.api.routes import (
@@ -18,7 +18,8 @@ logger = build_logger("api.executions")
 
 @router.get("/executions")
 def list_executions(
-    session_id: int | None = None, limit: int = 20,
+    session_id: int | None = None,
+    limit: int = Query(20, ge=1, le=200),
 ) -> list[dict[str, object]]:
     """List execution records, optionally filtered by session."""
     return get_store().list_executions(session_id=session_id, limit=limit)

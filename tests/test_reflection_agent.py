@@ -76,6 +76,42 @@ def test_rule_evaluation_no_results_not_complete():
     assert eval_result.get("goal_completed") is False
 
 
+def test_rule_evaluation_maps_each_result_to_its_own_task():
+    """Substring matching used to collapse every result onto the first task."""
+    agent = _agent()
+    queue = _queue([
+        _task("write_file_a", status="done"),
+        _task("write_file_b", status="done"),
+    ])
+    # ``write_file`` is a substring of both goals ("创建 write_file_a" / _b).
+    results = [
+        {"success": True, "action": "write_file", "result": {"path": "a.py"}},
+        {"success": True, "action": "write_file", "result": {"path": "b.py"}},
+    ]
+
+    eval_result = agent._rule_evaluation(queue, results, "创建项目", "project")
+
+    updated = {u["task_id"] for u in eval_result.get("task_updates", [])}
+    assert len(updated) == 2, f"both tasks must be updated, got {updated}"
+
+
+def test_rule_evaluation_prefers_exact_task_id():
+    agent = _agent()
+    queue = _queue([
+        _task("first", status="done"),
+        _task("second", status="done"),
+    ])
+    results = [
+        {"success": False, "task_id": "second", "action": "创建 first",
+         "error": "boom"},
+    ]
+
+    eval_result = agent._rule_evaluation(queue, results, "创建项目", "project")
+
+    updates = {u["task_id"]: u["status"] for u in eval_result.get("task_updates", [])}
+    assert updates.get("second") == "FAILED"
+
+
 # -- applying reflection updates ----------------------------------------------
 
 

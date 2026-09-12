@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from agentflow.utils.logging import build_logger
 
 from agentflow.services.long_term_memory import LongTermMemory
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from agentflow.api.routes import (
@@ -17,14 +17,21 @@ router = APIRouter()
 logger = build_logger("api.memory")
 
 @router.get("/memory")
-def list_memories(category: str = "", limit: int = 50) -> list[dict[str, object]]:
-    """List all long-term memories, optionally filtered by category."""
-    return LongTermMemory(db=get_store()).get_all(category=category)
+def list_memories(
+    category: str = "",
+    limit: int = Query(50, ge=1, le=500),
+) -> list[dict[str, object]]:
+    """List long-term memories, optionally filtered by category (1..500)."""
+    memories = LongTermMemory(db=get_store()).get_all(category=category)
+    return memories[:limit]
 
 
 @router.get("/memory/search")
-def search_memories(query: str, limit: int = 10) -> list[dict[str, object]]:
-    """Search long-term memories by keyword."""
+def search_memories(
+    query: str,
+    limit: int = Query(10, ge=1, le=100),
+) -> list[dict[str, object]]:
+    """Search long-term memories by keyword (1..100)."""
     return LongTermMemory(db=get_store()).recall(query, limit=limit)
 
 
