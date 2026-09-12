@@ -29,7 +29,7 @@
     真实嵌入 API 调用（此前既慢又依赖网络）。
   - `/health` 测试原先断言 `status == "ok"`（仅在有密钥的机器上成立），现改为断言接口契约，
     并分别覆盖"已配置 / 未配置密钥"两种状态。
-  测试数随之从 536 增至 538。
+  测试数随之从 536 增至 539（新增一条损坏 .docx 的校验用例）。
 - **CI 红灯的第二层根因（更致命）**：`python-multipart` 依赖缺失。FastAPI 解析表单/文件上传
   需要该包，而它既不在 `requirements.txt` 也不在 `pyproject.toml` 中——本机虚拟环境恰好装了
   它，所以本地全绿、CI 却在**收集阶段**就报
@@ -48,7 +48,20 @@
   请求生命周期说明、ADR 决策表、前置条件与安装校验步骤、评测体系（5 套套件 / 332 条样本）
   与 CI 质量门禁说明；截图改为内嵌展示，并修正"截图为占位图"等与事实不符的旧表述。
 - README 中的数据统一为仓库实测口径：6 个工具、9 个 Agent、11 个节点、42 个 HTTP 操作、
-  538 项测试 / 48 个测试文件。
+  539 项测试 / 48 个测试文件。
+
+### 修复（可移植性）
+- `DocxTool.validate` 此前**只会**调用外部 skill 包（`from office.validate import main`），
+  而该包位于本机个人路径 `%USERPROFILE%\.claude\skills\docx\scripts`——干净环境、CI 与容器中
+  必然报 "Validation dependency unavailable"，README 承诺的 validate 能力实际不可用。
+  现改为内置结构化校验（ZIP 容器 + `[Content_Types].xml` / `word/document.xml` + 全部 XML
+  部件格式 + python-docx 可打开），无第三方依赖；仅在发现损坏时才调用可选的外部 skill 做一次
+  auto-repair，并回报是否修复。skill 路径同时改为跨平台且可用 `DOCX_SKILL_SCRIPTS` 覆盖。
+- 两个环境耦合的测试断言改为断言行为契约：
+  `test_symlink_escape_blocked` 原先断言拒绝信息里必须出现目标文件名（各平台文案不同），
+  现断言"读取被拒 + 错误非空 + 目标内容未泄漏"；`test_validate_docx` 原先在失败分支断言
+  错误信息必须包含 `defusedxml`（只有未安装 skill 的机器才走到该分支），现断言创建出的文档
+  必须校验通过，并新增损坏 .docx 必须被判为无效的用例。
 
 ### 待办
 - 安全与可信修复（详见 [docs/product/backlog.md](docs/product/backlog.md) P0 项）。

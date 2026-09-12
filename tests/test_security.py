@@ -98,7 +98,12 @@ def test_nul_byte_and_ads_rejected(tmp_path):
 
 
 def test_symlink_escape_blocked(tmp_path):
-    """A symlink inside the workspace pointing outside must not be readable."""
+    """A symlink inside the workspace pointing outside must not be readable.
+
+    The security property is that the read is refused and no byte of the
+    target leaks; the exact wording of the refusal is an implementation
+    detail and must not be asserted (it differs per platform).
+    """
     outside = tmp_path.parent / "secret_outside.txt"
     outside.write_text("top secret", encoding="utf-8")
     link = tmp_path / "link.txt"
@@ -110,4 +115,5 @@ def test_symlink_escape_blocked(tmp_path):
     tool = _tool(tmp_path)
     result = tool.execute(action="read_file", path="link.txt")
     assert not result.success, "symlink escape must be blocked"
-    assert "outside" in (result.error or "").lower()
+    assert (result.error or "").strip(), "a blocked read must explain why"
+    assert "top secret" not in str(result.result or ""), "target content leaked"

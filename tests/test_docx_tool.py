@@ -35,14 +35,25 @@ def test_replace_text(tmp_path):
 
 
 def test_validate_docx(tmp_path):
+    """A freshly created document must validate without optional dependencies."""
     tool = _tool(tmp_path)
     tool.execute(action="create", path="r.docx", content="ok")
     result = tool.execute(action="validate", path="r.docx")
-    # Validation depends on an optional external dependency (defusedxml);
-    # the tool must never raise and always return a ToolResult envelope.
-    assert isinstance(result.success, bool)
-    if not result.success:
-        assert "defusedxml" in (result.error or "")
+    assert result.success is True, result.error
+    assert result.result["valid"] is True
+
+
+def test_validate_rejects_corrupt_docx(tmp_path):
+    """A non-ZIP file with a .docx extension must be reported as invalid."""
+    tool = _tool(tmp_path)
+    broken = tmp_path / "broken.docx"
+    broken.write_text("this is not a docx", encoding="utf-8")
+
+    result = tool.execute(action="validate", path="broken.docx")
+
+    assert result.success is False
+    assert result.result["valid"] is False
+    assert "not a valid .docx container" in (result.error or "")
 
 
 def test_read_tables(tmp_path):

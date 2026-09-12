@@ -6,7 +6,12 @@ the Claude Code docx skill scripts for low-level XML manipulation
 
 Requirements:
     python-docx  (installed)
-    defusedxml   (for skill scripts — pip install defusedxml)
+    defusedxml   (optional; used for XML parsing when available, otherwise the
+                  standard library parser is used)
+
+An optional external skill bundle (``DOCX_SKILL_SCRIPTS``, defaulting to
+``~/.claude/skills/docx/scripts``) is used only for auto-repair of malformed
+documents.  Validation itself has no external dependency.
 """
 
 from __future__ import annotations
@@ -24,9 +29,19 @@ logger = build_logger("docx_tool")
 
 # -- Resolve skill scripts path ------------------------------------------------
 
-_SKILL_SCRIPTS = Path(
-    os.path.expandvars(r"%USERPROFILE%\.claude\skills\docx\scripts")
-)
+def _default_skill_scripts() -> Path:
+    """Cross-platform default: ``~/.claude/skills/docx/scripts``.
+
+    ``DOCX_SKILL_SCRIPTS`` overrides it.  The previous implementation hard-coded
+    a Windows ``%USERPROFILE%`` path, which resolved to garbage everywhere else.
+    """
+    override = os.environ.get("DOCX_SKILL_SCRIPTS")
+    if override:
+        return Path(override).expanduser()
+    return Path(os.path.expanduser("~")) / ".claude" / "skills" / "docx" / "scripts"
+
+
+_SKILL_SCRIPTS = _default_skill_scripts()
 _SCRIPTS_PATH_ADDED = False
 
 
@@ -49,6 +64,71 @@ def _ensure_skill_path() -> None:
         if office_sp not in sys.path:
             sys.path.insert(0, office_sp)
     _SCRIPTS_PATH_ADDED = True
+
+
+def _parse_xml(data: bytes):
+    """Parse XML with defusedxml when available, else the standard library."""
+    try:
+        from defusedxml.ElementTree import fromstring  # type: ignore
+    except ImportError:
+        from xml.etree.ElementTree import fromstring
+    return fromstring(data)
+
+
+def validate_docx_structure(path: Path) -> list[str]:
+    """Return a list of structural problems; empty means the file is valid.
+
+    A ``.docx`` is an OPC/ZIP container whose XML parts must be well-formed.
+    This check needs no third-party dependency beyond ``python-docx``, so it
+    behaves identically on a developer laptop and in CI.
+    """
+    import zipfile
+
+    if not path.exists():
+        return [f"file not found: {path}"]
+    if not zipfile.is_zipfile(path):
+        return ["not a valid .docx container (not a ZIP archive)"]
+
+    problems: list[str] = []
+    with zipfile.ZipFile(path) as archive:
+        names = set(archive.namelist())
+        if "[Content_Types].xml" not in names:
+            problems.append("missing [Content_Types].xml")
+        if "word/document.xml" not in names:
+            problems.append("missing word/document.xml")
+        for name in sorted(names):
+            if not (name.endswith(".xml") or name.endswith(".rels")):
+                continue
+            try:
+                _parse_xml(archive.read(name))
+            except Exception as exc:  # malformed XML of any kind
+                problems.append(f"malformed XML in {name}: {exc}")
+        if problems:
+            return problems
+
+    try:
+        from docx import Document
+
+        Document(str(path))
+    except Exception as exc:
+        problems.append(f"python-docx could not open the document: {exc}")
+    return problems
+
+
+def _try_skill_autorepair(path: Path) -> bool:
+    """Run the optional external repair script. Returns True when it executed."""
+    _ensure_skill_path()
+    try:
+        from office.validate import main as validate_main
+    except ImportError:
+        return False
+    try:
+        validate_main([str(path), "--auto-repair", "--author", "DocxTool"])
+    except SystemExit:
+        pass
+    except Exception as exc:  # pragma: no cover - external script
+        logger.warning("docx auto-repair failed: %s", exc)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -410,38 +490,50 @@ class DocxTool(BaseTool):
     # -- validate -------------------------------------------------------
 
     def _cmd_validate(self, path: str = "", **kwargs: Any) -> ToolResult:
-        _ensure_skill_path()
-        try:
-            from office.validate import main as validate_main
-        except ImportError as exc:
-            return ToolResult.fail(
-                self.name, "validate",
-                f"Validation dependency unavailable (office.validate): {exc}",
-            )
+        """Validate the .docx container and its XML parts.
 
+        Works with no optional dependency; when a malformed document is found
+        and the optional external skill bundle is installed, one auto-repair
+        attempt is made before reporting failure.
+        """
         filepath = self._resolve(path)
         if not filepath.exists():
             return ToolResult.fail(self.name, "validate", f"File not found: {filepath}")
 
-        try:
-            validate_main([str(filepath), "--auto-repair", "--author", "DocxTool"])
-            return ToolResult.ok(
-                self.name, "validate",
-                result={"path": str(filepath), "valid": True},
-                message=f"Validation passed: {filepath.name}",
-            )
-        except SystemExit as e:
-            if e.code == 0 or e.code is None:
-                return ToolResult.ok(
-                    self.name, "validate",
-                    result={"path": str(filepath), "valid": True},
-                    message=f"Validation passed: {filepath.name}",
-                )
+        problems = validate_docx_structure(filepath)
+        repaired = False
+        if problems:
+            repaired = _try_skill_autorepair(filepath)
+            if repaired:
+                problems = validate_docx_structure(filepath)
+
+        if problems:
             return ToolResult.fail(
-                self.name, "validate",
-                f"Validation failed with code {e.code}",
-                result={"path": str(filepath), "valid": False, "exit_code": e.code},
+                self.name,
+                "validate",
+                "Invalid .docx: " + "; ".join(problems),
+                result={
+                    "path": str(filepath),
+                    "valid": False,
+                    "problems": problems,
+                    "auto_repair_attempted": repaired,
+                },
             )
+
+        return ToolResult.ok(
+            self.name,
+            "validate",
+            result={
+                "path": str(filepath),
+                "valid": True,
+                "repaired": repaired,
+            },
+            message=(
+                f"Validation passed after auto-repair: {filepath.name}"
+                if repaired
+                else f"Validation passed: {filepath.name}"
+            ),
+        )
 
     # -- convert_to_pdf -------------------------------------------------
 
