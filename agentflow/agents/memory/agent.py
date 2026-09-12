@@ -53,12 +53,10 @@ class MemoryAgent(AgentProtocol):
         if answer:
             history.append({"role": "assistant", "content": answer})
 
-        # Keep only last N turns
-        if len(history) > self.max_turns * 2:
-            history = history[-(self.max_turns * 2) :]
-
-        # Layered memory: keep a recent window verbatim and compress older
-        # turns into a rolling summary when the history exceeds the budget.
+        # Layered memory runs *before* the hard window cap: the cap used to
+        # truncate to the last N turns first, so by the time compression ran the
+        # older turns were already gone and the rolling summary could never
+        # cover them (backlog P1-MEM-1).
         rolling_summary = ""
         if settings.enable_history_compression:
             history, rolling_summary = compress_history(
@@ -66,6 +64,10 @@ class MemoryAgent(AgentProtocol):
                 budget_tokens=settings.history_token_budget,
                 min_keep_messages=settings.history_min_keep_messages,
             )
+
+        # Safety net: never keep more than N turns in the prompt window.
+        if len(history) > self.max_turns * 2:
+            history = history[-(self.max_turns * 2) :]
 
         # Build formatted string for LLM prompt injection
         context_lines = []
@@ -79,13 +81,23 @@ class MemoryAgent(AgentProtocol):
             "context_str": context_str,
         }
 
+        # Carry the rolling summary across turns: ``state["memory"]`` is rebuilt
+        # from the request history on every turn, so without this the summary of
+        # older turns was recomputed from scratch (and therefore lost) each time.
+        previous_rolling = ""
+        if isinstance(existing_memory, dict):
+            previous_rolling = str(existing_memory.get("rolled_summary", "") or "").strip()
+
         # -- Enhanced memory: summary, goals, topic tracking ---------------
         self._update_memory_meta(state["memory"], state, question, answer, history)
-        if rolling_summary:
+        combined_rolling = "\n".join(
+            part for part in (previous_rolling, rolling_summary.strip()) if part
+        )
+        if combined_rolling:
             existing = str(state["memory"].get("summary", "") or "").strip()
-            state["memory"]["rolled_summary"] = rolling_summary
+            state["memory"]["rolled_summary"] = combined_rolling[:2000]
             state["memory"]["summary"] = (
-                f"{rolling_summary}\n\n{existing}" if existing else rolling_summary
+                f"{combined_rolling}\n\n{existing}" if existing else combined_rolling
             ).strip()
 
         # -- Cross-session long-term memory extraction ---------------

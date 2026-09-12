@@ -16,6 +16,13 @@
 | P0-SEC-3 | DocxTool 存在路径穿越 | 评审 H3 | 复用文件系统工具的工作区包含校验；补路径穿越单测 |
 | P0-SEC-4 | `/workspace/set` 可任意路径读写 | 评审 H1 | 会话化 + 基目录白名单限制；补越权访问测试 |
 
+> **状态（2026-09-12）**：P0-SEC-1..4 全部关闭。
+> - ✅ P0-SEC-1：Markdown 渲染改为 `html: false`，5 条 vitest 断言覆盖原始 HTML/脚本/`javascript:` 链接。
+> - ✅ P0-SEC-2：`io`/`_io`/`codecs`/`fileinput`/`mmap`/`pickle`/`shelve`/`marshal`/`dbm` 入黑名单，
+>   并阻断 `.open`/`.fdopen`/`.FileIO` 等属性调用（复现脚本 `io.open` 读取已失败）。
+> - ✅ P0-SEC-3：新增共享 `path_safety` 模块，DocxTool 与 FileSystemTool 统一校验，越界写入被拒。
+> - ✅ P0-SEC-4：新增 `WORKSPACE_ALLOWED_ROOTS` 白名单，系统目录一律 403。
+
 ## P0 · 质量门禁可信度
 
 | ID | 标题 | 证据 | 验收标准 |
@@ -31,8 +38,10 @@
 > - ✅ P0-CI-3 已关闭：CI 已无临时目录清理报错。
 > - ✅ P0-CI-4 已关闭：`/health` 与 workflow 冒烟用例改为断言接口契约，
 >   分别覆盖"密钥已配置 / 未配置"两种状态。
-> - ❌ P0-CI-1 未关闭：跑完 539 项测试后 `data/feedback/feedback.jsonl` 无变更，
->   但 `agentflow/database/agentflow.db` 仍被改写，需要 `tests/conftest.py` 级的临时路径隔离。
+> - ✅ P0-CI-1 已关闭（2026-09-12 晚）：新增 `tests/conftest.py`，在导入应用前把
+>   `DATABASE_PATH` / `OUTPUTS_DIR` / `KNOWLEDGE_FILES_DIR` / `LOGS_DIR` 重定向到会话临时目录；
+>   复测跑完整套测试后 `agentflow/database/agentflow.db`、`knowledge_files/`、`outputs/`
+>   均无改动。
 
 ## P1 · 正确性
 
@@ -48,6 +57,15 @@
 | P1-QUEUE-1 | 任务状态更新接受任意键，未知状态抛错 | 评审附录 A | 状态枚举校验 + 未知值降级处理 |
 | P1-API-1 | 路由层缺输入校验、负 limit 未钳制、异常出口不统一 | 评审 M5/M10 | 补 Pydantic 校验与统一异常处理；补边界用例 |
 
+> **状态（2026-09-12）**：P1-QUEUE-1 / P1-PY-1 / P1-REF-1 / P1-ANS-1 / P1-API-1 /
+> P1-ASYNC-2 / P1-MEM-1 / P1-PLAN-1 已关闭，均带回归用例（详见 CHANGELOG）。
+> 复核说明：
+> - P1-ASYNC-1 未按原方案大改：LangGraph 的 `astream` 会把同步节点函数放到线程池执行，
+>   `time.sleep` 退避因此不阻塞事件循环；SSE 已有断连检测。剩余项（同步 SQLite 调用仍发生在
+>   事件循环内）影响很小，保留观察。
+> - P1-ANS-1 中 `metadata.pop("last_failure_*")` 的"就地消费"是**刻意设计**（失败提示只提示
+>   一次），改为只读会重复展示陈旧失败信息，故保留并加注释说明。
+
 ## P1 · 一致性（文档 = 实现）
 
 | ID | 标题 | 验收标准 |
@@ -62,7 +80,7 @@
 
 | ID | 标题 | 价值 |
 |---|---|---|
-| P2-DEAD-1 | 清理死代码 → ✅ 项目结构规划器已删除；剩余：composio `_ACTION_MAP`、answer 空桩 | 降低维护成本 |
+| P2-DEAD-1 | 清理死代码 → ✅ 已完成（2026-09-12）：项目结构规划器、composio `_ACTION_MAP`、answer 两个空桩均已删除 | 降低维护成本 |
 | P2-TOOL-2 | 实现浏览器自动化 / MCP / 数据库工具（原占位实现已移除） | 扩展能力边界 |
 | P2-TEST-1 | 覆盖率 64% → 75%（核心模块优先），补评测框架 runner/generate/tune 测试 | 质量门禁强化 |
 | P2-OBS-1 | 接入 Prometheus/Grafana + 告警规则（健康、熔断、降级比例、磁盘） | 可观测性 |

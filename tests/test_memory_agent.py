@@ -97,3 +97,48 @@ def test_run_no_answer_skips_extraction():
         "conversation_context": {"entities": ["x"]},
     })
     assert fake.extractions == []
+def test_rolling_summary_survives_to_the_next_turn(monkeypatch):
+    """The rolling summary must not be lost when memory is rebuilt (P1-MEM-1)."""
+    from agentflow.agents.memory.agent import MemoryAgent
+
+    agent = MemoryAgent()
+    previous = {
+        "history": [{"role": "user", "content": "早前的话题"}],
+        "rolled_summary": "早期对话摘要：用户在做图书管理系统",
+    }
+    state = {
+        "question": "继续",
+        "answer": "好的",
+        "memory": previous,
+        "session_state": None,
+    }
+
+    result = agent.run(state)
+
+    assert "图书管理系统" in result["memory"]["rolled_summary"]
+    assert "图书管理系统" in result["memory"]["summary"]
+
+
+def test_history_is_compressed_before_truncation(monkeypatch):
+    """Older turns must reach the compressor before the window cap trims them."""
+    from agentflow.agents.memory import agent as memory_module
+
+    seen: dict[str, int] = {}
+
+    def fake_compress(history, budget_tokens=None, min_keep_messages=None, llm=None):
+        seen["received"] = len(history)
+        return history[-2:], "摘要：更早的对话"
+
+    monkeypatch.setattr(memory_module, "compress_history", fake_compress)
+    agent = memory_module.MemoryAgent(max_turns=2)
+    history = [
+        {"role": "user", "content": f"问题 {i}"} if i % 2 == 0
+        else {"role": "assistant", "content": f"回答 {i}"}
+        for i in range(10)
+    ]
+    state = {"question": "新问题", "answer": "新回答", "memory": {"history": history}}
+
+    result = agent.run(state)
+
+    assert seen["received"] == 12, "compressor saw the untrimmed history"
+    assert "更早的对话" in result["memory"]["rolled_summary"]

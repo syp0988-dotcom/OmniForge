@@ -474,8 +474,13 @@ class PlannerAgent(AgentProtocol):
         state["category"] = goal_type
         state["workflow"] = _plan_to_workflow(plan, goal_type, self.registry)
 
-        # Serialize plan tasks into the task queue so the executor can run them
-        state["task_queue"] = [t.to_dict() for t in plan.tasks] if plan.tasks else []
+        # Merge into the existing queue instead of replacing it: replacing threw
+        # away in-flight and already-DONE tasks on every replan, so the executor
+        # could redo work it had finished (backlog P1-PLAN-1).  The project flow
+        # already merges; this makes both paths behave the same.
+        current_queue = TaskQueue.from_dict_list(state.get("task_queue", []) or [])
+        merged = self._merge_into_queue(current_queue, plan)
+        state["task_queue"] = merged.to_dict_list()
 
         return state
 

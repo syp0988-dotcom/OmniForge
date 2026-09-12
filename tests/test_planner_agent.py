@@ -243,3 +243,29 @@ def test_queue_update_still_applies_other_fields():
     queue.update("t1", status="bogus", title="renamed")
 
     assert queue.get("t1").title == "renamed"
+
+
+# ---------------------------------------------------------------------------
+# Non-project replan must not discard the existing queue (backlog P1-PLAN-1)
+# ---------------------------------------------------------------------------
+
+
+def test_non_project_replan_preserves_completed_tasks(monkeypatch):
+    p = _planner(MockLLMService())
+    done = Task(task_id="already_done", title="已完成", tool="filesystem")
+    done.status = TaskStatus.DONE
+    new_task = Task(task_id="next_step", title="下一步", tool="filesystem")
+    monkeypatch.setattr(
+        p, "_fc_plan",
+        lambda *a, **kw: Plan(goal="写一个脚本", category="coding", tasks=[new_task]),
+    )
+    monkeypatch.setattr(p, "_fill_code_content", lambda *a, **kw: [])
+
+    state = _state(goal="写一个脚本", goal_type="coding")
+    state["task_queue"] = [done.to_dict()]
+
+    p._handle_non_project(state, "写一个脚本", "coding")
+
+    ids = {t["task_id"]: t["status"] for t in state["task_queue"]}
+    assert ids.get("already_done") == TaskStatus.DONE.value, ids
+    assert "next_step" in ids

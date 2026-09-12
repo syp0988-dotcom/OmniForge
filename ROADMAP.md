@@ -3,10 +3,11 @@
 > 版本：v1.0（2026-09-11）｜配套：[PROJECT_CHARTER.md](PROJECT_CHARTER.md)｜待办明细：[docs/product/backlog.md](docs/product/backlog.md)
 
 排期依据：仓库 2026-07-04 启动、累计 58 次提交，交付节奏已恢复（2026-09-12 起持续提交）。
-**2026-09-12 更新**：CI 已在 ubuntu / windows 双平台恢复全绿——修复了缺失的
-`python-multipart` 依赖、测试对本机 `.env` 密钥的隐式依赖，以及 docx 校验对个人 skill 路径的
-依赖（详见 [CHANGELOG.md](CHANGELOG.md)）。因此 M0 的"质量门禁可信"一项已具备基础，
-但下列安全项仍未关闭。
+**2026-09-12 更新**：M0 出口标准已达成——CI 在 ubuntu / windows 双平台全绿
+（修复缺失的 `python-multipart` 依赖、测试对本机密钥的隐式依赖、docx 校验对个人 skill
+路径的依赖），4 个高危安全项与测试隔离项（P0-SEC-1..4、P0-CI-1..4）全部关闭，
+运行整套测试后仓库内运行时文件零改动（详见 [CHANGELOG.md](CHANGELOG.md)）。
+当前重点转向 M1（可用与一致）。
 
 ---
 
@@ -23,9 +24,8 @@
 
 ## M0 · 安全与可信（最高优先级）
 
-**为什么先做**：技术评审已确认 4 个高危漏洞（含可复现的 Python 沙箱逃逸）仍未修复，
-且测试仍会改写真实数据库 `agentflow/database/agentflow.db`（2026-09-12 复测确认）。
-CI 已在无密钥环境恢复全绿，因此这里的剩余工作是**安全修复 + 测试隔离**。
+**为什么先做**：技术评审确认的 4 个高危漏洞（含可复现的 Python 沙箱逃逸）与测试污染问题，
+是"能不能对外提供"的前提。**本阶段已于 2026-09-12 完成**。
 
 范围：
 
@@ -33,11 +33,13 @@ CI 已在无密钥环境恢复全绿，因此这里的剩余工作是**安全修
 - Python 沙箱逃逸加固（阻断 `io`/`_io`/`codecs` 与 `open`，清理危险模块）
 - DocxTool 路径穿越修复（复用文件系统工具的工作区包含校验）
 - `/workspace/set` 任意路径读写收敛（会话化 + 基目录限制）
-- ~~CI：无密钥可跑、凭据缺失时跳过相关用例；Windows 临时目录清理~~（2026-09-12 已完成）
-- 测试隔离：引入 `tests/conftest.py`，禁止写真实 `agentflow.db` 与 `data/feedback`
+- ~~前端 Markdown 渲染的 XSS 防护~~（2026-09-12 完成：`html: false` + 5 条单测）
+- ~~Python 沙箱逃逸加固~~（2026-09-12 完成：`io`/`_io`/`codecs` 等入黑名单 + 属性级阻断）
+- ~~DocxTool 路径穿越修复~~、~~`/workspace/set` 任意路径收敛~~（2026-09-12 完成）
+- ~~CI：无密钥可跑、凭据缺失时跳过相关用例；Windows 临时目录清理~~（2026-09-12 完成）
+- ~~测试隔离：引入 `tests/conftest.py`，禁止写真实 `agentflow.db` 与 `data/feedback`~~（2026-09-12 完成）
 
-退出标准：`docs/product/backlog.md` 中 P0-SEC-1..4 与 P0-CI-1 全部关闭并复测通过
-（P0-CI-2 / P0-CI-3 / P0-CI-4 已于 2026-09-12 关闭）。
+退出标准（已达成）：`docs/product/backlog.md` 中 P0-SEC-1..4 与 P0-CI-1..4 全部关闭并复测通过。
 
 ## M1 · 可用与一致
 
