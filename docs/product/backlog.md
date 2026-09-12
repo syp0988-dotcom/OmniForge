@@ -25,6 +25,15 @@
 | P0-CI-3 | Windows 上临时目录清理报错（83 例） | 评审 §4 | 关闭文件句柄/幂等 `close()`；Windows CI 无清理错误 |
 | P0-CI-4 | 环境相关用例不稳定（health、workflow 冒烟） | 评审 §4.1–4.4 | 用例与环境解耦；连续 3 次运行结果一致 |
 
+> **状态（2026-09-12）**
+> - ✅ P0-CI-2 已关闭：补齐 `python-multipart` 依赖、测试去除对本机密钥的隐式依赖后，
+>   CI 在 ubuntu / windows 双平台均为绿（GitHub Actions 运行成功，539 passed）。
+> - ✅ P0-CI-3 已关闭：CI 已无临时目录清理报错。
+> - ✅ P0-CI-4 已关闭：`/health` 与 workflow 冒烟用例改为断言接口契约，
+>   分别覆盖"密钥已配置 / 未配置"两种状态。
+> - ❌ P0-CI-1 未关闭：跑完 539 项测试后 `data/feedback/feedback.jsonl` 无变更，
+>   但 `agentflow/database/agentflow.db` 仍被改写，需要 `tests/conftest.py` 级的临时路径隔离。
+
 ## P1 · 正确性
 
 | ID | 标题 | 证据 | 验收标准 |
