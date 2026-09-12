@@ -6,14 +6,41 @@ import zipfile
 import io
 from pathlib import Path
 
+import numpy as np
 from fastapi.testclient import TestClient
 
 from agentflow.api import routes
 from agentflow.app.main import app
 from agentflow.config.settings import settings
 from agentflow.database.sqlite import SQLiteStore
+from agentflow.knowledge.embedder import BaseEmbedder
 from agentflow.knowledge.index import QdrantIndex
 from agentflow.knowledge.store import KnowledgeStore
+
+
+class _DeterministicEmbedder(BaseEmbedder):
+    """Local stub so upload tests never depend on EMBEDDING_API_KEY or the network."""
+
+    def __init__(self) -> None:
+        self._rng = np.random.default_rng(11)
+
+    def embed(self, texts: list[str], batch_size: int = 20) -> list[np.ndarray]:
+        return [self._rng.standard_normal(8).astype(np.float32) for _ in texts]
+
+    def embed_query(self, text: str) -> np.ndarray:
+        return self.embed([text])[0]
+
+    @property
+    def dimension(self) -> int:
+        return 8
+
+    @property
+    def name(self) -> str:
+        return "deterministic-test-embedder"
+
+    @property
+    def model_name(self) -> str:
+        return "deterministic-test-model"
 
 
 def test_upload_txt_indexes_document():
@@ -26,6 +53,7 @@ def test_upload_txt_indexes_document():
         knowledge_store = KnowledgeStore(
             db=db,
             qdrant_index=QdrantIndex.in_memory(collection_name="upload_route_test"),
+            embedder=_DeterministicEmbedder(),
         )
         routes.set_store(db)
         routes.set_knowledge_store(knowledge_store)
@@ -62,6 +90,7 @@ def test_upload_duplicate_content_is_deduped():
         knowledge_store = KnowledgeStore(
             db=db,
             qdrant_index=QdrantIndex.in_memory(collection_name="upload_dedup_test"),
+            embedder=_DeterministicEmbedder(),
         )
         routes.set_store(db)
         routes.set_knowledge_store(knowledge_store)

@@ -132,8 +132,16 @@ class GoalAnalyzer(AgentProtocol):
 
         intent_index = _get_intent_index()
         global _embedding_unavailable_logged
-        if not intent_index.available and not _embedding_unavailable_logged:
-            _embedding_unavailable_logged = True
+        if not intent_index.available:
+            # The log line is throttled process-wide; the structured error is
+            # recorded per request so a degraded run is always visible to the
+            # caller (and the behaviour does not depend on request order).
+            if not _embedding_unavailable_logged:
+                _embedding_unavailable_logged = True
+                logger.warning(
+                    "意图嵌入索引不可用（缺少 EMBEDDING_API_KEY 或初始化失败），"
+                    "所有查询将走 LLM 路径"
+                )
             _record_error(
                 state,
                 "goal_analyzer",
