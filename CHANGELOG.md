@@ -30,6 +30,15 @@
   - `/health` 测试原先断言 `status == "ok"`（仅在有密钥的机器上成立），现改为断言接口契约，
     并分别覆盖"已配置 / 未配置密钥"两种状态。
   测试数随之从 536 增至 538。
+- **CI 红灯的第二层根因（更致命）**：`python-multipart` 依赖缺失。FastAPI 解析表单/文件上传
+  需要该包，而它既不在 `requirements.txt` 也不在 `pyproject.toml` 中——本机虚拟环境恰好装了
+  它，所以本地全绿、CI 却在**收集阶段**就报
+  `RuntimeError: Form data requires "python-multipart" to be installed.`，
+  `test_chat_endpoints` / `test_file_interactions` / `test_metrics` / `test_security` /
+  `test_upload_route` / `test_workflow` 六个文件直接无法收集，整个后端 job 失败。
+  同时修正两份清单的漂移：`jinja2`（blueprints 渲染必需）只写在 `requirements.txt`、
+  `pytest-cov`（CI 的 `--cov` 参数必需）未列入 `pyproject.toml` 的 dev 依赖，会导致
+  `uv sync` 用户拿到一份跑不起来的环境。
 
 ### 新增
 - 项目管理交付物：项目章程、路线图、风险登记册、运维手册、架构文档、ADR、Issue/PR 模板。
