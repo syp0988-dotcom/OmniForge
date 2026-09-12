@@ -2,6 +2,25 @@
 
 OmniForge is a modular AI agent workspace built with Python, FastAPI, and LangGraph. It orchestrates specialized agents — planning, search, knowledge retrieval, code execution, reflection, and memory — through a dynamic task-queue workflow. OmniForge is the successor to AgentFlow, redesigned with a developer-first AI workspace experience.
 
+## Project Docs
+
+Project management and engineering documents — start here when onboarding or planning:
+
+| Document | Purpose |
+|---|---|
+| [PROJECT_CHARTER.md](PROJECT_CHARTER.md) | 定位、目标、非目标、成功标准、待决策项 |
+| [ROADMAP.md](ROADMAP.md) | 里程碑 M0–M3 与退出标准 |
+| [docs/README.md](docs/README.md) | 文档总索引 |
+| [docs/architecture.md](docs/architecture.md) | 架构、请求生命周期、数据存储、扩展点 |
+| [docs/deployment.md](docs/deployment.md) | 部署、环境变量、升级回滚、发布验收 |
+| [docs/runbook.md](docs/runbook.md) | 巡检、故障处置、备份恢复 |
+| [docs/risk-register.md](docs/risk-register.md) | 风险登记册 |
+| [docs/product/status.md](docs/product/status.md) | 承诺 vs 实现差异表 |
+| [docs/product/backlog.md](docs/product/backlog.md) | 待办优先级与验收标准 |
+| [docs/decisions/](docs/decisions/README.md) | 架构决策记录（ADR） |
+| [docs/reviews/](docs/reviews) | 技术评审报告存档 |
+| [CHANGELOG.md](CHANGELOG.md) / [CONTRIBUTING.md](CONTRIBUTING.md) | 变更日志与贡献指南 |
+
 ## System Overview
 
 OmniForge receives a user query, understands intent via a **hybrid embedding + LLM goal analyzer**, plans executable tasks, dispatches them to the right agent (knowledge, search, code, or tools), evaluates results, and synthesizes a final answer — all tracked through conversational memory.

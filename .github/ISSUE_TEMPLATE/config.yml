@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 项目文档索引
+    url: https://github.com/syp0988-dotcom/OmniForge/blob/main/docs/README.md
+    about: 架构、部署、运维手册与待办清单
+  - name: 技术评审报告
+    url: https://github.com/syp0988-dotcom/OmniForge/blob/main/docs/reviews/2026-08-14-full-review.md
+    about: 已确认的问题清单与修复优先级
