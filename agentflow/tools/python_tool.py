@@ -59,10 +59,13 @@ def _build_sandbox_env() -> dict[str, str]:
     """Minimal environment — only safe system variables.
 
     Also sets PYTHONSAFEPATH=1 to prevent ``sys.path`` tampering
-    (Python 3.11+).
+    (Python 3.11+) and forces UTF-8 I/O in the child process so non-ASCII
+    output does not crash on locales such as Windows cp936/GBK.
     """
     env = {k: v for k, v in os.environ.items() if k in _SAFE_ENV_KEYS}
     env["PYTHONSAFEPATH"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
     return env
 
 
@@ -263,6 +266,8 @@ class PythonTool(BaseTool):
                     input=code,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=self.timeout,
                     env=_build_sandbox_env(),
                     cwd=tmpdir,

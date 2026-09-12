@@ -1,8 +1,12 @@
 """Integration tests for the Blueprint system.
 
+Originally a hand-run script inside the blueprints package
+(``agentflow/blueprints/tests.py``); moved here so pytest collects it
+(``testpaths = tests`` in pytest.ini) and CI covers it.
+
 Run with::
 
-    python -m agentflow.blueprints.tests
+    python -m pytest tests/test_blueprints_integration.py -q
 """
 
 from __future__ import annotations

@@ -17,7 +17,7 @@ FastAPI 应用层  agentflow/api/*         (chat / knowledge / sessions / files 
 LangGraph 工作流  agentflow/graph/workflow.py
     │
     ├── Agent 层  agentflow/agents/*     (意图分析 / 规划 / 检索 / 搜索 / 代码 / 反思 / 回答 / 记忆)
-    ├── 工具层    agentflow/tools/*      (注册表 + 9 个工具，插件化)
+ ├── 工具层    agentflow/tools/*      (注册表 + 6 个工具，插件化)
     ├── 知识层    agentflow/knowledge/*  (解析 / 分块 / 嵌入 / 向量库 / 混合检索 / 评测)
     └── 服务层    agentflow/services/*   (LLM / 搜索 / 长期记忆 / 文件提议)
     │

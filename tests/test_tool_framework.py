@@ -6,10 +6,8 @@ Covers:
   - FileSystemTool all actions + safety validation
   - SearchTool/PythonTool backward compatibility
   - GitTool interface
-  - BrowserTool/DatabaseTool/MCPTool interface stubs
   - Executor integration with ToolRegistry
   - Planner explicit task format
-  - ProjectStructurePlanner
 """
 
 from __future__ import annotations
@@ -27,16 +25,12 @@ from agentflow.agents.planner.capability import (
     list_tool_capabilities,
     registry_summary,
 )
-from agentflow.agents.project_structure_planner.agent import ProjectStructurePlanner
 from agentflow.graph.executor import Executor
 from agentflow.graph.task import Task
 from agentflow.graph.context import WorkflowContext
 from agentflow.tools.base import BaseTool
-from agentflow.tools.browser_tool import BrowserTool
-from agentflow.tools.database_tool import DatabaseTool
 from agentflow.tools.filesystem_tool import FileSystemTool
 from agentflow.tools.git_tool import GitTool
-from agentflow.tools.mcp_tool import MCPTool
 from agentflow.tools.python_tool import PythonTool
 from agentflow.tools.registry import ToolRegistry
 from agentflow.tools.result import ToolResult
@@ -435,65 +429,6 @@ class TestGitTool:
 
 
 # ===========================================================================
-# BrowserTool (interface)
-# ===========================================================================
-
-
-class TestBrowserTool:
-    def test_capabilities(self):
-        tool = BrowserTool()
-        caps = tool.capabilities()
-        assert "browser.open" in caps
-
-    def test_execute_returns_interface_stub(self):
-        tool = BrowserTool()
-        r = tool.execute(action="open_url", url="http://example.com")
-        assert r.success is False
-        assert "not yet implemented" in r.error
-
-    def test_metadata_shows_status(self):
-        tool = BrowserTool()
-        meta = tool.metadata()
-        assert meta["status"] == "interface_only"
-
-
-# ===========================================================================
-# DatabaseTool (interface)
-# ===========================================================================
-
-
-class TestDatabaseTool:
-    def test_capabilities(self):
-        tool = DatabaseTool()
-        caps = tool.capabilities()
-        assert "database.query" in caps
-
-    def test_execute_returns_interface_stub(self):
-        tool = DatabaseTool()
-        r = tool.execute(action="query", sql="SELECT 1")
-        assert r.success is False
-        assert "not yet implemented" in r.error
-
-
-# ===========================================================================
-# MCPTool (interface)
-# ===========================================================================
-
-
-class TestMCPTool:
-    def test_capabilities(self):
-        tool = MCPTool()
-        caps = tool.capabilities()
-        assert "mcp.discover" in caps
-
-    def test_execute_call_no_tool_name(self):
-        tool = MCPTool()
-        r = tool.execute(action="call", tool_name="")
-        assert r.success is False
-        assert "tool_name is required" in r.error
-
-
-# ===========================================================================
 # BaseTool — custom tool plugin model
 # ===========================================================================
 
@@ -713,38 +648,3 @@ class TestCapabilityRegistry:
         assert "web.search" in summary
         assert "git.status" in summary
 
-
-# ===========================================================================
-# ProjectStructurePlanner
-# ===========================================================================
-
-
-class TestProjectStructurePlanner:
-    def test_template_matches_fastapi(self):
-        tasks = ProjectStructurePlanner._template_match("create a FastAPI project")
-        assert tasks is not None
-        assert len(tasks) > 0
-        # Should have mkdir for app directory
-        assert any(t["action"] == "mkdir" for t in tasks)
-
-    def test_template_matches_flask(self):
-        tasks = ProjectStructurePlanner._template_match("Flask web app")
-        assert tasks is not None
-        assert any("app" in str(t.get("input", {}).get("path", "")) for t in tasks)
-
-    def test_template_no_match(self):
-        tasks = ProjectStructurePlanner._template_match("something completely random 42")
-        assert tasks is None
-
-    def test_parse_json(self):
-        raw = '{"project_name": "test", "tasks": [{"tool": "filesystem", "action": "mkdir"}]}'
-        result = ProjectStructurePlanner._parse_json(raw)
-        assert result is not None
-        assert result["project_name"] == "test"
-        assert len(result["tasks"]) == 1
-
-    def test_parse_json_from_code_block(self):
-        raw = 'Some text\n```json\n{"tasks": [{"tool": "filesystem", "action": "mkdir"}]}\n```\nmore text'
-        result = ProjectStructurePlanner._parse_json(raw)
-        assert result is not None
-        assert len(result["tasks"]) == 1

@@ -31,6 +31,10 @@ omniforge/
 
 # Runtime feedback / eval artifacts
 data/feedback/
+# Local vector index (runtime data; rebuilt by ingestion)
+data/qdrant/
+# Generated eval outputs (regenerate with `python -m agentflow.eval.run_all`)
+*_results.json
 
 # Generated / lock files
 package-lock.json

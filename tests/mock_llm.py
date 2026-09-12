@@ -32,7 +32,6 @@ _AGENT_MODULES = [
     "agentflow.agents.goal_analyzer.agent",
     "agentflow.agents.planner.agent",
     "agentflow.agents.reflection.agent",
-    "agentflow.agents.project_structure_planner.agent",
     "agentflow.agents.answer.agent",
 ]
 

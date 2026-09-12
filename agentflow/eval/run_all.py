@@ -173,7 +173,7 @@ def run_rag_eval():
     from agentflow.knowledge.eval.runner import EvalRunner
     from agentflow.knowledge.store import KnowledgeStore
 
-    ds_path = _EVAL_DIR.parent / "knowledge" / "eval" / "data" / "eval_dataset.jsonl"
+    ds_path = _EVAL_DIR.parent / "knowledge" / "eval" / "data" / "eval_data.jsonl"
     ds = EvalDataset.load(str(ds_path))
     print(f"Loaded {len(ds)} samples")
     print(f"Stats: {ds.stats()}")

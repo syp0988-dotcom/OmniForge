@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+### 变更（仓库清理）
+- 移除三个空壳工具（Browser / MCP / Database）——它们的所有 action 均返回"未实现"，
+  保留只会造成"文档承诺 ≠ 实际能力"；相关能力改由 `docs/product/backlog.md` 跟踪。
+- 删除死代码：`agentflow/agents/project_structure_planner/`（实现完整但从未接入工作流）。
+- 移除历史遗留的重复部署配置 `agentflow/docker/`（根目录 Dockerfile + docker-compose.yml 为准）。
+- 删除孤儿评测数据集 `eval_data_new.jsonl`；修正 `run_all.py` 中 RAG 评测脚本的数据集路径
+  （原先指向不存在的 `eval_dataset.jsonl`，会导致全套评测在第 5 步报错）。
+- 向量索引 `data/qdrant/` 与评测输出 `*_results.json` 移出版本库（改为运行时生成 + 忽略规则）。
+- `agentflow/blueprints/tests.py` 移入 `tests/test_blueprints_integration.py`，其 22 个用例
+  现由 pytest/CI 收集（此前躺在包内、既不进 CI 也会被打进安装包）。
+
+### 修复
+- 子进程输出编码：`python` / `git` / `docx` 三个工具以 `text=True` 读取子进程输出时未指定
+  编码，Windows 下按 GBK 解码 UTF-8 字节会抛 `UnicodeDecodeError`（子进程输出含中文即触发，
+  且发生在后台线程中，表现为"任务无响应"）。现统一按 UTF-8 解码并容错，Python 沙箱同时
+  注入 `PYTHONIOENCODING=utf-8` / `PYTHONUTF8=1`，跨平台行为一致。
+
 ### 新增
 - 项目管理交付物：项目章程、路线图、风险登记册、运维手册、架构文档、ADR、Issue/PR 模板。
 

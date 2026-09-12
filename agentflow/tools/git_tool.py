@@ -272,6 +272,8 @@ class GitTool(BaseTool):
                 ["git"] + list(args),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=str(self._repo),
                 timeout=30,
             )

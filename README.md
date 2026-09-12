@@ -58,7 +58,7 @@ flowchart TD
 | **Knowledge Retriever** | Hybrid RAG: vector (Qdrant) + lexical (SQLite FTS5) with RRF fusion | Parallel retrieval + score fusion |
 | **Web Search** | Real-time search via DuckDuckGo / Tavily | Pluggable provider |
 | **Python Executor** | Sandboxed subprocess code execution | Configurable safety |
-| **Tool Executor** | Central dispatch for filesystem, git, database, browser, DOCX, MCP tools | Plugin registry auto-discovery |
+| **Tool Executor** | Central dispatch for filesystem, git, search, python, DOCX, Composio tools | Plugin registry auto-discovery |
 | **Reflection Evaluator** | Task result evaluation and routing decision | Rule-first, LLM fallback |
 | **Answer Generator** | Synthesizes final answer from all agent outputs | Context-aware prompt adaptation |
 | **Conversation Manager** | Session state, slot filling, anaphora resolution, rewrite | Rule-based pipeline |
@@ -96,11 +96,12 @@ All tools follow a plugin architecture — extend `BaseTool`, register in the au
 | **Search** | web.search via DuckDuckGo / Tavily |
 | **Python** | Sandboxed subprocess execution |
 | **Git** | status, diff, add, commit, branch, log |
-| **Database** | SQL query execution |
-| **Browser** | Browser automation |
 | **DOCX** | Create formatted Word reports |
-| **MCP** | MCP protocol integration |
 | **Composio** | 500+ app integrations via Composio API |
+
+Planned integrations (browser automation, MCP, SQL databases) are tracked in
+[docs/product/backlog.md](docs/product/backlog.md); the repo ships no
+non-functional tool placeholders.
 
 ## Project Structure
 
@@ -119,7 +120,7 @@ agentflow/
   knowledge/       RAG pipeline (parser, chunker, embedder, index, retriever, eval)
   models/          Pydantic models (chat, model_config)
   services/        LLM service, search, memory, file proposer
-  tools/           Plugin tool implementations (10 tools)
+  tools/           Plugin tool implementations (6 tools)
   graph/           LangGraph workflow (nodes, edges, executor, context)
   utils/           Logging, decorators
 frontend/          Vue 3 + TypeScript + Vite SPA (TailwindCSS, markdown-it)
@@ -176,8 +177,7 @@ The root [`docker-compose.yml`](docker-compose.yml) runs two services:
   (see [certs/README.md](deploy/nginx/certs/README.md)); for a no-certificate
   test build use `docker compose build --build-arg NGINX_CONF=nginx-http.conf web`.
 
-`agentflow/docker/` is the older single-service compose layout kept for local
-testing. The `deploy/k8s/` manifests are the Kubernetes reference:
+The `deploy/k8s/` manifests are the Kubernetes reference:
 `configmap.yaml` (non-secret settings), `pvc.yaml` + volume mounts (persistent
 RAG/database data), `ingress.yaml` (TLS termination), and the `agentflow-web`
 nginx deployment for the frontend.
@@ -202,7 +202,7 @@ uv run ruff check agentflow tests           # lint
 
 ## Testing
 
-The suite (500+ tests) covers every major module with a dedicated test file:
+The suite (536 tests) covers every major module with a dedicated test file:
 
 | Module | Test file |
 |---|---|
@@ -213,7 +213,7 @@ The suite (500+ tests) covers every major module with a dedicated test file:
 | SQLite store | `tests/test_sqlite_store.py` |
 | Tools (filesystem, git, docx, composio) | `tests/test_tool_framework.py`, `tests/test_git_tool.py`, `tests/test_docx_tool.py`, `tests/test_composio_tool.py` |
 | Workflow routing / termination | `tests/test_workflow_routing.py`, `tests/test_termination_policy.py` |
-| Eval framework / blueprints | `tests/test_eval_suite.py`, `tests/test_blueprints.py` |
+| Eval framework / blueprints | `tests/test_eval_suite.py`, `tests/test_blueprints.py`, `tests/test_blueprints_integration.py` |
 | Production readiness | `tests/test_production_readiness.py` |
 
 Run with coverage to see per-module numbers:

@@ -3,30 +3,49 @@ one-shot repair, safe parallel selection, and stricter schemas."""
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock
 
 from agentflow.config.settings import settings
 from agentflow.graph.workflow import _repair_tool_task, _select_parallel_tasks
 from agentflow.services.llm_service import LLMService
-from agentflow.tools.browser_tool import BrowserTool
+from agentflow.tools.base import BaseTool
 from agentflow.tools.filesystem_tool import FileSystemTool
 from agentflow.tools.registry import ToolRegistry
 from agentflow.tools.result import ToolResult
 from tests.mock_llm import MockLLMService
 
 
+class _InterfaceOnlyTool(BaseTool):
+    """Minimal interface-only placeholder (never executable)."""
+
+    name = "placeholder"
+    description = "Interface-only placeholder used by the schema-filter test"
+
+    def actions(self) -> dict[str, dict]:
+        return {"open": {"description": "stub action", "parameters": {}, "required": []}}
+
+    def metadata(self) -> dict[str, Any]:
+        base = super().metadata()
+        base["status"] = "interface_only"
+        return base
+
+    def execute(self, **kwargs: Any) -> ToolResult:
+        return ToolResult.fail(self.name, "", "not yet implemented")
+
+
 def test_registry_hides_interface_only_tools_from_planner():
     registry = ToolRegistry()
-    registry.register(BrowserTool())  # interface_only placeholder
+    registry.register(_InterfaceOnlyTool())
     registry.register(FileSystemTool())
 
     names = [fn["function"]["name"] for fn in registry.get_all_tool_schemas()]
     assert any(n.startswith("filesystem__") for n in names)
-    assert not any(n.startswith("browser__") for n in names)
+    assert not any(n.startswith("placeholder__") for n in names)
 
     actions_text = registry.get_tool_actions_text()
     assert "filesystem" in actions_text
-    assert "browser" not in actions_text
+    assert "placeholder" not in actions_text
 
     caps = registry.get_all_capabilities()
     assert any(c.startswith("filesystem.") for c in caps)

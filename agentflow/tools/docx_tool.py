@@ -456,7 +456,8 @@ class DocxTool(BaseTool):
         try:
             result = sp.run(
                 ["soffice", "--headless", "--convert-to", "pdf", "--outdir", output_dir, str(filepath)],
-                capture_output=True, text=True, timeout=60,
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=60,
             )
             pdf_path = filepath.with_suffix(".pdf")
             if pdf_path.exists():
