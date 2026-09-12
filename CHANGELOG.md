@@ -100,6 +100,8 @@
   重定向到会话级临时目录；运行整套测试后仓库内运行时文件零改动（关闭 P0-CI-1）。
   运行时路径同时开放 `DATABASE_PATH` / `OUTPUTS_DIR` / `KNOWLEDGE_FILES_DIR` / `LOGS_DIR`
   环境变量覆盖，便于部署时挂载数据卷。
+- 另有 5 处工具测试用默认工作区（仓库根目录）执行 `mkdir`，每次跑测试都会生成
+  `test_dir/`、`batch_test/`、`exec_test/`、`batch/` 等空目录；现改为注入 `tmp_path` 工作区。
 - 清理本地冗余：`tmp/`、`_tmptest/`、`batch/`、`batch_test/`、`exec_test/`、`test_dir/`、
   `build-check/`、`.playwright-mcp/`、`.pytest_cache_local/`、`.ruff_cache/`、`.vite/`、
   `.coverage` 等临时目录与缓存，并在 `.gitignore` 中补齐对应规则。

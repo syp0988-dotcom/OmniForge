@@ -137,15 +137,15 @@ class TestToolRegistry:
         assert r.success is False
         assert "Unknown tool" in r.error
 
-    def test_execute_task_dict(self):
+    def test_execute_task_dict(self, tmp_path):
         reg = ToolRegistry()
-        reg.register(FileSystemTool())
+        reg.register(FileSystemTool(workspace=str(tmp_path)))
         r = reg.execute_task_dict({"tool": "filesystem", "action": "mkdir", "path": "test_dir"})
         assert r.success is True
 
-    def test_execute_batch(self):
+    def test_execute_batch(self, tmp_path):
         reg = ToolRegistry()
-        reg.register(FileSystemTool())
+        reg.register(FileSystemTool(workspace=str(tmp_path)))
         tasks = [
             {"tool": "filesystem", "action": "mkdir", "path": "batch_test"},
             {"tool": "filesystem", "action": "mkdir", "path": "batch_test/subdir"},
@@ -154,9 +154,9 @@ class TestToolRegistry:
         assert len(results) == 2
         assert all(r.success for r in results)
 
-    def test_execute_batch_stop_on_failure(self):
+    def test_execute_batch_stop_on_failure(self, tmp_path):
         reg = ToolRegistry()
-        reg.register(FileSystemTool())
+        reg.register(FileSystemTool(workspace=str(tmp_path)))
         tasks = [
             {"tool": "filesystem", "action": "read_file", "path": "/etc/passwd"},
             {"tool": "filesystem", "action": "mkdir", "path": "should_not_run"},
@@ -498,9 +498,9 @@ class TestExecutorIntegration:
         ex.registry.register(FileSystemTool())
         assert "filesystem" in ex.list_tools()
 
-    def test_execute_task_dict(self):
+    def test_execute_task_dict(self, tmp_path):
         ex = Executor()
-        ex.registry.register(FileSystemTool())
+        ex.registry.register(FileSystemTool(workspace=str(tmp_path)))
         r = ex.execute_task_dict({"tool": "filesystem", "action": "mkdir", "path": "exec_test"})
         assert r.success
 
@@ -516,9 +516,9 @@ class TestExecutorIntegration:
         # Primary success state in the Task Queue model (see TaskStatus enum).
         assert result_task.status.value == "done"
 
-    def test_execute_batch(self):
+    def test_execute_batch(self, tmp_path):
         ex = Executor()
-        ex.registry.register(FileSystemTool())
+        ex.registry.register(FileSystemTool(workspace=str(tmp_path)))
         tasks = [
             {"tool": "filesystem", "action": "mkdir", "path": "batch/a"},
             {"tool": "filesystem", "action": "mkdir", "path": "batch/b"},
@@ -647,4 +647,3 @@ class TestCapabilityRegistry:
         assert "filesystem.create" in summary
         assert "web.search" in summary
         assert "git.status" in summary
-
