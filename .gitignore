@@ -27,7 +27,15 @@ frontend/dist/
 outputs/
 uploads/
 knowledge_files/
-omniforge/
+tmp/
+
+# Local tool state
+_tmptest/
+batch/
+batch_test/
+exec_test/
+test_dir/
+.playwright-mcp/
 
 # Runtime feedback / eval artifacts
 data/feedback/

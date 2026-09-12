@@ -35,6 +35,12 @@ dev = ["pytest>=8.0.0", "pytest-cov>=5.0.0", "ruff>=0.5.0"]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# The distribution is named "omniforge" but the import package is
+# "agentflow".  Without this, hatchling looks for a directory named after the
+# project and ``uv build`` / ``uv sync`` fail on a fresh clone.
+[tool.hatch.build.targets.wheel]
+packages = ["agentflow"]
+
 [tool.uv]
 package = true
 
