@@ -16,7 +16,9 @@
   `FileSystemTool` 共用新的 `agentflow/tools/path_safety.py`，`execute()` 内强制校验，
   越界路径一律拒绝（补 4 条用例）。
 - **`/workspace/set` 任意路径（H1）**：新增 `WORKSPACE_ALLOWED_ROOTS` 白名单（默认项目根 +
-  用户主目录），系统目录（`/etc`、`C:\Windows` 等）直接拒绝，避免文件 API 变成任意读写原语。
+  用户主目录 + 系统临时目录），系统目录（`/etc`、`C:\Windows` 等）直接拒绝，避免文件 API
+  变成任意读写原语。临时目录必须包含在内：POSIX 上 pytest 的 `tmp_path` 位于 `/tmp`，
+  而不是 `$HOME` 之下，漏掉它会让所有使用临时工作区的用例在 Ubuntu runner 上返回 403。
 
 ### 变更（仓库清理）
 - 移除三个空壳工具（Browser / MCP / Database）——它们的所有 action 均返回"未实现"，

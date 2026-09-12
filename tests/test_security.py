@@ -178,6 +178,25 @@ def test_workspace_set_allows_configured_root(tmp_path, monkeypatch):
         routes._set_workspace_root(previous)
 
 
+def test_default_allowed_roots_include_the_temp_directory(monkeypatch):
+    """Regression: on Linux pytest's tmp_path is under /tmp, not $HOME.
+
+    Omitting the temp dir here made every test that sets the workspace to a
+    temporary directory fail with 403 on the Ubuntu runner.
+    """
+    import tempfile
+
+    from agentflow.api import routes
+
+    monkeypatch.setattr(settings, "workspace_allowed_roots", "")
+    roots = routes.allowed_workspace_roots()
+
+    assert Path(tempfile.gettempdir()).resolve() in roots
+    assert routes.is_allowed_workspace_root(
+        Path(tempfile.gettempdir()) / "omniforge-scratch"
+    ) is True
+
+
 # -- API input validation (backlog P1-API-1) -------------------------------
 
 

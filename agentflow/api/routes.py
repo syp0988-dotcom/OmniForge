@@ -10,6 +10,7 @@ This module keeps the shared store globals (so tests can swap the store via
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
@@ -137,7 +138,14 @@ def allowed_workspace_roots() -> list[Path]:
             if part.strip()
         ]
     else:
-        roots = [Path(__file__).resolve().parents[2], Path.home()]
+        # The system temp directory is included on purpose: scratch
+        # workspaces are legitimate (and pytest's tmp_path lives there on
+        # POSIX, outside the home directory).
+        roots = [
+            Path(__file__).resolve().parents[2],
+            Path.home(),
+            Path(tempfile.gettempdir()),
+        ]
     return [root.resolve() for root in roots]
 
 
