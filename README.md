@@ -68,23 +68,8 @@ they are discovered from a plugin registry at runtime.
 
 ## How It Works
 
-```mermaid
-flowchart TD
-    CM[Conversation Manager] --> GA[Goal Analyzer]
-    GA -- small talk / edit / translate --> AG[Answer Generator]
-    GA -- question --> KB[Knowledge Retriever]
-    GA -- task --> PL[Planner]
-    KB --> PL
-    PL -- search task --> QR[Query Rewriter] --> SE[Web Search] --> AG
-    PL -- code task --> PY[Python Executor]
-    PL -- tool task --> TE[Tool Executor]
-    PY --> RF[Reflection Evaluator]
-    TE --> RF
-    RF -- replan --> PL
-    RF -- retry --> TE
-    RF -- done --> AG
-    AG --> MM[Memory] --> END
-```
+The workflow moves through intent analysis, routing, task execution and a review
+gate, then composes the final answer.
 
 Three properties make the loop safe to leave running:
 
