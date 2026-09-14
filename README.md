@@ -4,7 +4,7 @@
 
 ![CI](https://github.com/syp0988-dotcom/OmniForge/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue)
-![Tests](https://img.shields.io/badge/tests-571%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-572%20passing-brightgreen)
 ![Coverage gate](https://img.shields.io/badge/coverage%20gate-%E2%89%A550%25-green)
 ![Frontend](https://img.shields.io/badge/frontend-Vue%203%20%2B%20TypeScript-42b883)
 
@@ -17,7 +17,7 @@ they are discovered from a plugin registry at runtime.
 **中文速览**：OmniForge 是一个目标驱动的多智能体 AI 工作台。用户给一句话目标，系统
 识别意图 → 规划任务 → 调度工具与代码 → 反思结果 → 生成回答，全程维护会话记忆与知识库。
 技术栈为 FastAPI + LangGraph + Vue 3，Agent 与工具均插件化注册；内置 5 套离线评测
-（332 条样本）与 571 项自动化测试，CI 在 Windows / Ubuntu 双系统执行。文档体系覆盖
+（332 条样本）与 572 项自动化测试，CI 在 Windows / Ubuntu 双系统执行。文档体系覆盖
 项目章程、路线图、架构、部署、运维手册、风险登记册与 4 份架构决策记录（ADR）。
 
 ## Table of Contents
@@ -86,8 +86,8 @@ Three properties make the loop safe to leave running:
 
 | Agent | Role | Decision Mode |
 |---|---|---|
-| **Goal Analyzer** | Hybrid intent classification (embedding + LLM fallback), 6 goal types | Embedding-first, LLM fallback |
-| **Planner** | Dynamic task queue generation (3–5 tasks/cycle), blueprint & template support | Blueprint → Template → Function-call → JSON |
+| **Goal Analyzer** | Hybrid intent classification (embedding + LLM fallback), 10 goal types (coding / project / question / search / tool_use / analysis / document / translation / editing / other) | Embedding-first, LLM fallback |
+| **Planner** | Dynamic task queue generation (up to 8 tasks per cycle, raised from 3–5), blueprint & template support | Blueprint → Template → Function-call → JSON |
 | **Knowledge Retriever** | Hybrid RAG: vector (Qdrant) + lexical (SQLite FTS5) with RRF fusion | Parallel retrieval + score fusion |
 | **Web Search** | Real-time search via DuckDuckGo / Tavily | Pluggable provider |
 | **Python Executor** | Sandboxed subprocess code execution | Configurable safety |
@@ -178,7 +178,7 @@ agentflow/
 frontend/          Vue 3 + TypeScript + Vite SPA (TailwindCSS, markdown-it)
 deploy/            Production deployment: nginx (frontend + HTTPS), k8s manifests
 scripts/           Utility scripts (backend/frontend launchers, feedback export)
-tests/             Pytest suite (49 files, 571 tests, per-module coverage)
+tests/             Pytest suite (49 files, 572 tests, per-module coverage)
 screenshots/       UI captures used by this README
 data/feedback/     Runtime feedback records for the eval loop (gitignored)
 ```
@@ -334,7 +334,7 @@ reproduces its own numbers instead of trusting a stored snapshot.
 
 ## Testing
 
-571 tests across 49 files, one dedicated file per major module:
+572 tests across 49 files, one dedicated file per major module:
 
 | Module | Test file |
 |---|---|

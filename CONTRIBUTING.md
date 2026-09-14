@@ -33,9 +33,9 @@ cd frontend && npm install && npm run dev
 
 提交前必须全部满足：
 
-1. `python -m pytest -q` 全绿（当前基线：526 passed / 1 skipped）
+1. `python -m pytest -q` 全绿（当前基线：572 passed / 1 skipped）
 2. `python -m ruff check agentflow tests scripts` 0 告警
-3. 覆盖率不低于基线（当前 64%）；涉及核心模块的新代码建议自带单测
+3. 覆盖率不低于 64%（CI 用 `--cov-fail-under=64` 卡口，当前约 66%）；核心模块的新代码建议自带单测
 4. 行为变更同步更新文档：`README.md`、`docs/architecture.md`、`CHANGELOG.md`
 5. 涉及部署/配置的变更，同步更新 `docs/deployment.md` 与 `.env.example`
 

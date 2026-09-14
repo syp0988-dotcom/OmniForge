@@ -89,6 +89,9 @@ flowchart TD
 | 日志 | `logs/` | JSON + trace_id，按天轮转 |
 
 > 容器化部署时上述目录必须挂持久卷，否则重建容器即丢数据（见 [deployment.md](deployment.md)）。
+>
+> 数据库、生成产物、知识库原文与日志的位置可用 `DATABASE_PATH` / `OUTPUTS_DIR` /
+> `KNOWLEDGE_FILES_DIR` / `LOGS_DIR` 覆盖（测试套件也用它做隔离），默认仍在项目根目录下。
 
 ## 5. 关键机制
 
@@ -102,7 +105,7 @@ flowchart TD
 | 安全边界 | `tools/filesystem_tool.py`、`tools/python_tool.py` | 工作区包含校验、路径穿越/NUL/ADS 拦截、AST + 运行时沙箱 |
 | 可观测 | `utils/logging.py`、`utils/metrics.py` | JSON 日志、trace_id、`/health`、`/metrics` |
 
-## 6. 评剧与反馈闭环
+## 6. 评测与反馈闭环
 
 - 五套评测：意图识别、规划器、工具调用、完成度、RAG 检索（recall@k / NDCG / MRR 等）。
 - 运行时反馈：每次对话按结果落盘（失败必录、项目/编码成功也录），可导出为失败案例集并回流评测集。

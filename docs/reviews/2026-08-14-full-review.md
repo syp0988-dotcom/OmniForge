@@ -2,6 +2,12 @@
 
 > 评审日期：2026-08-14 ｜ 评审范围：`agentflow/`（137 个 Python 文件）、`frontend/src`（38 个源文件）、`tests/`（48 个测试文件）、`deploy/`、`scripts/`、`eval/`
 > 评审方法：静态编译 + Ruff + 全量测试套件 + 6 路并行模块深审（agents / tools+graph / knowledge+db+conversation / api+services / frontend / tests+eval+deploy）+ 关键结论人工复核（含漏洞复现）
+>
+> **本文是 2026-08-14 的快照，正文保持原样、不再修改（存档价值就在于"当时发现了什么"）。**
+> 修复进度请看 [docs/product/backlog.md](../product/backlog.md)：截至 2026-09-14，
+> 4 个高危项（H1 `/workspace/set` 任意读写、H2 沙箱逃逸、H3 DocxTool 路径穿越、H4 前端 XSS）
+> 与 §4 的 CI 可信度问题均已关闭，P1 正确性组全部关闭；仍未处置的是文中低/中等级的前端未接线功能
+> 与部分文档一致性问题。
 
 ---
 

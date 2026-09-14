@@ -1,13 +1,17 @@
 # OmniForge 路线图
 
-> 版本：v1.0（2026-09-11）｜配套：[PROJECT_CHARTER.md](PROJECT_CHARTER.md)｜待办明细：[docs/product/backlog.md](docs/product/backlog.md)
+> 版本：v1.1（2026-09-14）｜配套：[PROJECT_CHARTER.md](PROJECT_CHARTER.md)｜待办明细：[docs/product/backlog.md](docs/product/backlog.md)
 
-排期依据：仓库 2026-07-04 启动、累计 58 次提交，交付节奏已恢复（2026-09-12 起持续提交）。
+排期依据：仓库 2026-07-04 启动、累计 65 次提交，交付节奏已恢复（2026-09-12 单日 14 次提交）。
 **2026-09-12 更新**：M0 出口标准已达成——CI 在 ubuntu / windows 双平台全绿
 （修复缺失的 `python-multipart` 依赖、测试对本机密钥的隐式依赖、docx 校验对个人 skill
 路径的依赖），4 个高危安全项与测试隔离项（P0-SEC-1..4、P0-CI-1..4）全部关闭，
 运行整套测试后仓库内运行时文件零改动（详见 [CHANGELOG.md](CHANGELOG.md)）。
 当前重点转向 M1（可用与一致）。
+**2026-09-14 更新**：M1 已完成两项——空壳工具与死代码处置（2026-09，三个占位工具 +
+项目结构规划器 + composio/answer 死代码）、文档一致性（README 目标类型 10 种、单轮上限 8、
+测试 572、工具 6 个全部对齐；`status.md` / `risk-register.md` / 本文件同步）。
+M1 剩余：前端未接线功能（P1-FE-1/2）与数据安全演练（备份脚本 + 一次真实恢复）。
 
 ---
 
@@ -45,11 +49,13 @@
 
 范围：
 
-- 空壳工具（Browser / MCP / Database）二选一：实现最小可用版本，或从 README/UI 下线
-- 死代码处置（ProjectStructurePlanner）与前端未接线功能（工作区浏览、知识库重建 UI）
-- 异步阻塞修复（LLM/SQLite/文件解析不阻塞事件循环；SSE 资源释放）
+- ~~空壳工具（Browser / MCP / Database）二选一~~（2026-09 完成：从 README 下线，能力进 backlog）
+- ~~死代码处置（ProjectStructurePlanner）~~（2026-09-12 完成：另含 composio `_ACTION_MAP`、answer 空桩）
+- 前端未接线功能（会话重命名、工作区浏览、知识库重建 UI）——**M1 当前重点**
+- 异步阻塞修复（LLM/SQLite/文件解析不阻塞事件循环；SSE 资源释放）——已复核：LangGraph 的
+  `astream` 把同步节点放线程池执行，退避不阻塞事件循环；仅少量 SQLite 同步调用保留观察
 - 数据安全：备份脚本 + 一次真实恢复演练；K8s 缺失 `EMBEDDING_API_KEY` 的启动校验
-- 文档一致性：README、截图、任务数/目标类型声明与实现对齐
+- ~~文档一致性：README、截图、任务数/目标类型声明与实现对齐~~（2026-09-14 完成）
 
 退出标准：新环境按 `docs/deployment.md` 从零部署成功；按 `docs/runbook.md` 完成一次恢复演练；
 端到端冒烟脚本通过。

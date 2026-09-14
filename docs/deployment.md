@@ -36,6 +36,8 @@
 | `CORS_ORIGINS` | 允许的跨域来源 | 为空时仅允许本机来源 |
 | `QDRANT_URL` | 远程向量库地址 | 为空则用本地磁盘索引 |
 | `LOG_ROTATION_*` | 日志轮转 | 默认按天、保留 14 份 |
+| `WORKSPACE_ALLOWED_ROOTS` | 允许切换的工作区根目录（逗号分隔） | 为空时默认允许项目根 + 用户主目录 + 系统临时目录 |
+| `DATABASE_PATH` / `OUTPUTS_DIR` / `KNOWLEDGE_FILES_DIR` / `LOGS_DIR` | 重定向运行时数据目录 | 为空时写在项目根目录下（容器建议指向挂载卷） |
 
 ## 4. Docker Compose 部署（推荐）
 

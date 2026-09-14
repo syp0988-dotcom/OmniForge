@@ -28,7 +28,7 @@ jobs:
           PYTHONPATH: .
         run: >-
           python -m pytest tests -q --cov=agentflow --cov-report=term
-          --cov-fail-under=50 --junitxml=pytest-report.xml
+          --cov-fail-under=64 --junitxml=pytest-report.xml
 
       - name: Summarise failures
         if: failure()
