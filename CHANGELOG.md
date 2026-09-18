@@ -32,6 +32,10 @@
   现由 pytest/CI 收集（此前躺在包内、既不进 CI 也会被打进安装包）。
 
 ### 修复
+- 前端开发服务器绑定地址：Vite 默认只绑 `localhost`（Windows 下解析为 IPv6 `::1`），
+  于是 `npm run dev` 之后用 `http://127.0.0.1:5173/` 会连接被拒，看起来像"前端起不来"。
+  现在 `vite.config.ts` 显式设置 `server.host: true`，IPv4 / IPv6 / 局域网地址均可访问
+  （如需限制在本机，改成 `host: '127.0.0.1'`）。README 的 Quickstart 同步说明。
 - **Python 执行节点默认不执行**：`ALLOW_UNSAFE_PYTHON_TOOL` 的语义被写反——该开关本意是
   "跳过沙箱校验"，节点却在开关为 **False（默认）** 时直接拒绝执行，于是代码执行能力默认
   全部走"blocked"分支，想用还得先关掉沙箱。现已移除该反转门禁，沙箱始终生效。

@@ -235,8 +235,15 @@ uv run uvicorn agentflow.app.main:app --reload --host 0.0.0.0 --port 8000
 ```bash
 cd frontend
 npm install
-npm run dev            # Vite dev server
+npm run dev            # Vite dev server → http://127.0.0.1:5173/
+# convenience wrapper: python scripts/run_frontend.py  (background, port 5174)
 ```
+
+The dev server binds every interface (`server.host` in
+[`frontend/vite.config.ts`](frontend/vite.config.ts)), so both
+`http://127.0.0.1:5173/` and `http://localhost:5173/` work. Vite's default
+`localhost` binding resolves to IPv6 `::1` on Windows, which makes the
+`127.0.0.1` URL fail even though the server is running.
 
 ### 4. Verify the install
 
