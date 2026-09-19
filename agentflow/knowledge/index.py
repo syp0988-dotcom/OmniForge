@@ -177,6 +177,23 @@ class QdrantIndex:
     def collection_name(self) -> str:
         return self._collection_name
 
+    def close(self) -> None:
+        """Release the underlying client.
+
+        Qdrant local mode holds a file lock via portalocker; letting the client
+        be collected during interpreter shutdown produced a confusing
+        ``ModuleNotFoundError: import of msvcrt halted`` traceback after the
+        evaluation run had already finished.  Closing explicitly avoids it.
+        """
+        client = self._client
+        if client is None:
+            return
+        try:
+            client.close()
+        except Exception:  # pragma: no cover - best effort cleanup
+            pass
+        self._client = None
+
     def reset(self) -> None:
         """Drop and recreate the backing collection."""
         try:

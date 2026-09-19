@@ -268,6 +268,17 @@ class KnowledgeStore:
         if self.qdrant_index is None:
             self.qdrant_index = QdrantIndex()
 
+    @property
+    def index_size(self) -> int:
+        """Number of vectors in the index (0 when it does not exist yet).
+
+        Callers previously reached for a non-existent ``store.index``
+        attribute, which made the RAG evaluation suite fail with
+        ``AttributeError`` before it could even start.
+        """
+        self._ensure_index()
+        return self.qdrant_index.size if self.qdrant_index is not None else 0
+
     def _ensure_retriever(self) -> None:
         if self.retriever is not None:
             return

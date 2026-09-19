@@ -32,6 +32,14 @@
   现由 pytest/CI 收集（此前躺在包内、既不进 CI 也会被打进安装包）。
 
 ### 修复
+- **RAG 评测永远失败**：`run_all.py` 访问了不存在的 `store.index.ntotal`，抛
+  `AttributeError: 'KnowledgeStore' object has no attribute 'index'`，第 5 套评测只会打印
+  `FAILED: rag_eval`，从未真正跑过——也就是说 README 宣称的 RAG 指标一直无法在本仓库复现。
+  现由 `KnowledgeStore.index_size` 提供向量数（0 表示索引为空，按原逻辑跳过），并在评测结束后
+  显式 `QdrantIndex.close()` 释放本地索引文件锁（顺带消除退出时的 `msvcrt` 报错）。
+- **Windows 日志轮转报错**：后端与评测/测试进程共用 `logs/` 目录时，轮转重命名会因另一进程
+  占用文件而抛 `PermissionError: [WinError 32]`，随后每条日志都打印 `--- Logging error ---`。
+  现改用 `SafeTimedRotatingFileHandler`：轮转失败则跳过并在下一周期重试，日志继续可写。
 - 前端开发服务器绑定地址：Vite 默认只绑 `localhost`（Windows 下解析为 IPv6 `::1`），
   于是 `npm run dev` 之后用 `http://127.0.0.1:5173/` 会连接被拒，看起来像"前端起不来"。
   现在 `vite.config.ts` 显式设置 `server.host: true`，IPv4 / IPv6 / 局域网地址均可访问

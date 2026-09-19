@@ -12,6 +12,39 @@ from agentflow.eval.tool_eval import metrics as tool_metrics
 from agentflow.knowledge.eval import metrics as rag_metrics
 
 
+# -- run_all.py entry points (must stay runnable) -----------------------------
+
+
+def test_knowledge_store_exposes_index_size():
+    """``run_all.py`` used a non-existent ``store.index.ntotal`` attribute."""
+    from agentflow.knowledge.index import QdrantIndex
+    from agentflow.knowledge.store import KnowledgeStore
+
+    store = KnowledgeStore(qdrant_index=QdrantIndex.in_memory("eval_size_test"))
+    assert isinstance(store.index_size, int)
+    assert store.index_size == 0
+    store.qdrant_index.close()
+
+
+def test_rag_eval_skips_cleanly_when_index_is_empty(monkeypatch):
+    """An empty index must skip the suite, not crash the whole run."""
+    from agentflow.eval import run_all
+
+    class _EmptyStore:
+        qdrant_index = None
+
+        @property
+        def index_size(self) -> int:
+            return 0
+
+    # ``run_rag_eval`` imports KnowledgeStore lazily, so patch it at the source.
+    monkeypatch.setattr(
+        "agentflow.knowledge.store.KnowledgeStore", lambda *a, **kw: _EmptyStore(),
+    )
+
+    assert run_all.run_rag_eval() is None
+
+
 class _DummyDataset(BaseEvalDataset):
     @staticmethod
     def _validate_sample(sample, line_num):

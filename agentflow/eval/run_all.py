@@ -179,13 +179,21 @@ def run_rag_eval():
     print(f"Stats: {ds.stats()}")
 
     store = KnowledgeStore()
-    if not store.index or store.index.ntotal == 0:
+    # ``KnowledgeStore`` exposes the vector count via ``index_size`` (the
+    # previous ``store.index.ntotal`` raised AttributeError, so the RAG suite
+    # always reported FAILED instead of running).
+    if store.index_size == 0:
         print("WARNING: KnowledgeStore index is empty. Run indexing first.")
         print("Skipping RAG eval.")
         return None
 
     runner = EvalRunner(store, ds)
-    result = runner.run(verbose=True)
+    try:
+        result = runner.run(verbose=True)
+    finally:
+        # Release the Qdrant local file lock before the process exits.
+        if store.qdrant_index is not None:
+            store.qdrant_index.close()
 
     summary = result["summary"]
     print("\n--- RAG Eval Results ---")

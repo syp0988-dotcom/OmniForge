@@ -51,7 +51,7 @@ RAG 混合检索（Qdrant + SQLite FTS5 + RRF）、离线评测框架、Docker/K
 
 | 维度 | 指标 | 目标值 |
 |---|---|---|
-| 质量门禁 | 单测 | 全绿（基线：572 passed / 1 skipped；CI 在 ubuntu + windows 双平台） |
+| 质量门禁 | 单测 | 全绿（基线：575 passed / 1 skipped；CI 在 ubuntu + windows 双平台） |
 | 质量门禁 | 覆盖率 | ≥ 当前基线 64%（CI 已按此卡口），核心模块 ≥ 75% |
 | 质量门禁 | lint | ruff 0 告警 |
 | 交付 | 端到端冒烟 | 部署后可完成"对话 → 知识库 → 生成文件"全链路 |

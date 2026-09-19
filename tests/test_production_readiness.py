@@ -88,3 +88,24 @@ def test_required_env_validation_skipped_in_development(monkeypatch):
 def test_logger_uses_rotating_file_handler():
     logger = build_logger("test_rotation_check")
     assert any(isinstance(h, TimedRotatingFileHandler) for h in logger.handlers)
+
+
+def test_rotation_tolerates_a_locked_log_file(monkeypatch, tmp_path):
+    """Windows raises WinError 32 when another process holds the log file."""
+    from agentflow.utils.logging import SafeTimedRotatingFileHandler
+
+    handler = SafeTimedRotatingFileHandler(
+        tmp_path / "locked.log", when="midnight", backupCount=1,
+    )
+    handler.rolloverAt = 0
+
+    def _locked(self):
+        raise PermissionError("[WinError 32] file is in use by another process")
+
+    monkeypatch.setattr(
+        TimedRotatingFileHandler, "doRollover", _locked, raising=True,
+    )
+
+    handler.doRollover()  # must not raise
+
+    assert handler.rolloverAt > 0, "rollover must be retried later"
